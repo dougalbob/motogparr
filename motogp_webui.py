@@ -228,6 +228,59 @@ def save_webui_settings(settings):
     with open(WEBUI_CONFIG_FILE, 'w') as f:
         json.dump(settings, f, indent=2)
 
+def update_grabber_config(settings):
+    """Update motogp_common.py with new settings from WebUI."""
+    common_path = SCRIPT_DIR / "motogp_common.py"
+    
+    try:
+        with open(common_path, 'r') as f:
+            content = f.read()
+        
+        # Build the new DESIRED_SESSIONS block
+        sessions_block = "DEFAULT_DESIRED_SESSIONS: Dict[SessionType, bool] = {\n"
+        for session_type in SessionType:
+            if session_type == SessionType.UNKNOWN:
+                continue
+            key = session_type.name
+            enabled = settings.get("sessions", {}).get(key, DEFAULT_DESIRED_SESSIONS.get(session_type, False))
+            sessions_block += f"    SessionType.{key}: {enabled},\n"
+        sessions_block += "}"
+        
+        # Replace the DEFAULT_DESIRED_SESSIONS block
+        content = re.sub(
+            r'DEFAULT_DESIRED_SESSIONS:\s*Dict\[SessionType,\s*bool\]\s*=\s*\{[^}]+\}',
+            sessions_block,
+            content,
+            flags=re.DOTALL
+        )
+        
+        with open(common_path, 'w') as f:
+            f.write(content)
+        
+        return True
+    except Exception as e:
+        print(f"Error updating grabber config: {e}")
+        return False
+
+
+def update_settings_yml(settings):
+    """Update settings.yml with max_grabs_per_run."""
+    from utils.config_loader import _load_yaml, save_settings as save_yml
+    
+    try:
+        current = _load_yaml()
+        if "grabber" not in current:
+            current["grabber"] = {}
+        current["grabber"]["max_grabs_per_run"] = settings.get("max_grabs_per_run", 5)
+        save_yml(current)
+        reload_settings()
+        return True
+    except Exception as e:
+        print(f"Error updating settings.yml: {e}")
+        return False
+
+
+
 
 # =============================================================================
 # LIBRARY SCANNING
@@ -1511,6 +1564,8 @@ def settings_route():
     if request.method == "POST":
         new_settings = request.json
         save_webui_settings(new_settings)
+        update_grabber_config(new_settings)
+        update_settings_yml(new_settings)
         return jsonify({"status": "saved"})
     else:
         return jsonify(load_webui_settings())
