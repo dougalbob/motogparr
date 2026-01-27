@@ -1,0 +1,469 @@
+{
+  "season": 2025,
+  "series": "MotoGP World Championship",
+  "classes": ["motogp", "moto2", "moto3"],
+  "rounds": [
+    {
+      "round": 1,
+      "venue": "Thailand",
+      "aliases": ["thailand", "buriram", "chang"],
+      "date": "2025-03-02",
+      "folder": "Round 1 Thailand",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_thailand.jpg",
+          "poster": "poster_thailand.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_thailand.jpg",
+          "poster": "poster_thailand.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_thailand.jpg",
+          "poster": "poster_thailand.jpg"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "venue": "Argentina",
+      "aliases": ["argentina", "termas", "hondo"],
+      "date": "2025-03-16",
+      "folder": "Round 2 Argentina",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_argentina.jpg",
+          "poster": "poster_argentina.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_argentina.jpg",
+          "poster": "poster_argentina.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_argentina.jpg",
+          "poster": "poster_argentina.jpg"
+        }
+      }
+    },
+    {
+      "round": 3,
+      "venue": "Americas",
+      "aliases": ["americas", "austin", "cota", "usa", "america", "grand prix of america"],
+      "date": "2025-04-13",
+      "folder": "Round 3 Americas",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_americas.jpg",
+          "poster": "poster_americas.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_americas.jpg",
+          "poster": "poster_americas.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_americas.jpg",
+          "poster": "poster_americas.jpg"
+        }
+      }
+    },
+    {
+      "round": 4,
+      "venue": "Qatar",
+      "aliases": ["qatar", "lusail", "doha"],
+      "date": "2025-04-20",
+      "folder": "Round 4 Qatar",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        }
+      }
+    },
+    {
+      "round": 5,
+      "venue": "jerez",
+      "aliases": ["spanish", "jerez", "spain"],
+      "date": "2025-05-04",
+      "folder": "Round 5 Spain",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_jerez.jpg",
+          "poster": "poster_jerez.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_jerez.jpg",
+          "poster": "poster_jerez.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_jerez.jpg",
+          "poster": "poster_jerez.jpg"
+        }
+      }
+    },
+    {
+      "round": 6,
+      "venue": "France",
+      "aliases": ["france", "french", "le", "mans", "lemans"],
+      "date": "2025-05-18",
+      "folder": "Round 6 France",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_france.jpg",
+          "poster": "poster_france.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_france.jpg",
+          "poster": "poster_france.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_france.jpg",
+          "poster": "poster_france.jpg"
+        }
+      }
+    },
+    {
+      "round": 7,
+      "venue": "United Kingdom",
+      "aliases": ["united kingdom", "British", "united", "kingdom", "UK"],
+      "date": "2025-05-25",
+      "folder": "Round 7 United Kingdom",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_silverstone.jpg",
+          "poster": "poster_silverstone.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_silverstone.jpg",
+          "poster": "poster_silverstone.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_silverstone.jpg",
+          "poster": "poster_silverstone.jpg"
+        }
+      }
+    },
+    {
+      "round": 8,
+      "venue": "Aragon",
+      "aliases": ["aragon", "motorland", "alcaniz"],
+      "date": "2025-06-08",
+      "folder": "Round 8 Aragon",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_aragon.jpg",
+          "poster": "poster_aragon.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_aragon.jpg",
+          "poster": "poster_aragon.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_aragon.jpg",
+          "poster": "poster_aragon.jpg"
+        }
+      }
+    },
+    {
+      "round": 9,
+      "venue": "Italy",
+      "aliases": ["italy", "italian", "mugello"],
+      "date": "2025-06-15",
+      "folder": "Round 9 Italy",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_mugello.jpg",
+          "poster": "poster_mugello.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_mugello.jpg",
+          "poster": "poster_mugello.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_mugello.jpg",
+          "poster": "poster_mugello.jpg"
+        }
+      }
+    },
+    {
+      "round": 10,
+      "venue": "Netherlands",
+      "aliases": ["netherlands", "dutch", "assen", "holland"],
+      "date": "2025-06-29",
+      "folder": "Round 10 Netherlands",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_assen.jpg",
+          "poster": "poster_assen.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_assen.jpg",
+          "poster": "poster_assen.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_assen.jpg",
+          "poster": "poster_assen.jpg"
+        }
+      }
+    },
+    {
+      "round": 11,
+      "venue": "Germany",
+      "aliases": ["germany", "german", "sachsenring"],
+      "date": "2025-07-13",
+      "folder": "Round 11 Germany",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_sachsenring.jpg",
+          "poster": "poster_sachsenring.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_sachsenring.jpg",
+          "poster": "poster_sachsenring.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_sachsenring.jpg",
+          "poster": "poster_sachsenring.jpg"
+        }
+      }
+    },
+    {
+      "round": 12,
+      "venue": "Czech Republic",
+      "aliases": ["czech", "brno", "czechia", "czech republic"],
+      "date": "2025-07-20",
+      "folder": "Round 12 Czech Republic",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_brno.jpg",
+          "poster": "poster_brno.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_brno.jpg",
+          "poster": "poster_brno.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_brno.jpg",
+          "poster": "poster_brno.jpg"
+        }
+      }
+    },
+    {
+      "round": 13,
+      "venue": "Austria",
+      "aliases": ["austria", "austrian", "red bull ring", "spielberg", "redbull"],
+      "date": "2025-08-17",
+      "folder": "Round 13 Austria",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_austria.jpg",
+          "poster": "poster_austria.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_austria.jpg",
+          "poster": "poster_austria.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_austria.jpg",
+          "poster": "poster_austria.jpg"
+        }
+      }
+    },
+    {
+      "round": 14,
+      "venue": "Hungary",
+      "aliases": ["hungary", "hungarian", "balaton", "balaton park"],
+      "date": "2025-08-24",
+      "folder": "Round 14 Hungary",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_hungary.jpg",
+          "poster": "poster_hungary.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_hungary.jpg",
+          "poster": "poster_hungary.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_hungary.jpg",
+          "poster": "poster_hungary.jpg"
+        }
+      }
+    },
+    {
+      "round": 15,
+      "venue": "Catalunya",
+      "aliases": ["catalunya", "catalan", "barcelona", "montmelo"],
+      "date": "2025-09-07",
+      "folder": "Round 15 Catalunya",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_catalunya.jpg",
+          "poster": "poster_catalunya.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_catalunya.jpg",
+          "poster": "poster_catalunya.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_catalunya.jpg",
+          "poster": "poster_catalunya.jpg"
+        }
+      }
+    },
+    {
+      "round": 16,
+      "venue": "San Marino",
+      "aliases": ["san", "marino", "sanmarino", "misano", "rimini"],
+      "date": "2025-09-14",
+      "folder": "Round 16 San Marino",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_misano.jpg",
+          "poster": "poster_misano.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_misano.jpg",
+          "poster": "poster_misano.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_misano.jpg",
+          "poster": "poster_misano.jpg"
+        }
+      }
+    },
+    {
+      "round": 17,
+      "venue": "Japan",
+      "aliases": ["japan", "japanese", "motegi", "twin ring"],
+      "date": "2025-09-28",
+      "folder": "Round 17 Japan",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_motegi.jpg",
+          "poster": "poster_motegi.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_motegi.jpg",
+          "poster": "poster_motegi.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_motegi.jpg",
+          "poster": "poster_motegi.jpg"
+        }
+      }
+    },
+    {
+      "round": 18,
+      "venue": "Indonesia",
+      "aliases": ["indonesia", "indonesian", "mandalika", "lombok", "pertamina"],
+      "date": "2025-10-05",
+      "folder": "Round 18 Indonesia",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_mandalika.jpg",
+          "poster": "poster_mandalika.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_mandalika.jpg",
+          "poster": "poster_mandalika.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_mandalika.jpg",
+          "poster": "poster_mandalika.jpg"
+        }
+      }
+    },
+    {
+      "round": 19,
+      "venue": "Australia",
+      "aliases": ["australia", "australian", "phillip", "island"],
+      "date": "2025-10-19",
+      "folder": "Round 19 Australia",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_phillip_island.jpg",
+          "poster": "poster_phillip_island.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_phillip_island.jpg",
+          "poster": "poster_phillip_island.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_phillip_island.jpg",
+          "poster": "poster_phillip_island.jpg"
+        }
+      }
+    },
+    {
+      "round": 20,
+      "venue": "Malaysia",
+      "aliases": ["malaysia", "malaysian", "sepang"],
+      "date": "2025-10-26",
+      "folder": "Round 20 Malaysia",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_sepang.jpg",
+          "poster": "poster_sepang.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_sepang.jpg",
+          "poster": "poster_sepang.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_sepang.jpg",
+          "poster": "poster_sepang.jpg"
+        }
+      }
+    },
+    {
+      "round": 21,
+      "venue": "Portugal",
+      "aliases": ["portugal", "portuguese", "portimao", "algarve"],
+      "date": "2025-11-09",
+      "folder": "Round 21 Portugal",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_portimao.jpg",
+          "poster": "poster_portimao.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_portimao.jpg",
+          "poster": "poster_portimao.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_portimao.jpg",
+          "poster": "poster_portimao.jpg"
+        }
+      }
+    },
+    {
+      "round": 22,
+      "venue": "Valencia",
+      "aliases": ["valencia", "valencian", "ricardo", "tormo", "cheste", "comunitat"],
+      "date": "2025-11-16",
+      "folder": "Round 22 Valencia",
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_valencia.jpg",
+          "poster": "poster_valencia.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_valencia.jpg",
+          "poster": "poster_valencia.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_valencia.jpg",
+          "poster": "poster_valencia.jpg"
+        }
+      }
+    }
+  ]
+}
