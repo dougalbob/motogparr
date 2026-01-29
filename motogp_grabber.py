@@ -28,20 +28,21 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-import logging
 
 # Add script directory to path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
-# Import from common module
+# Import from common module - including centralized logging
 from motogp_common import (
+    setup_logging, get_logger,
     SessionType, RaceClass,
     build_prefix, parse_prefix, get_session_from_element,
     load_calendar, get_round_by_number, has_session_times,
     identify_round, classify_session, detect_race_class,
     filter_releases, parse_release_title,
     DEFAULT_DESIRED_SESSIONS, CORE_SESSIONS,
+    get_desired_sessions,  
     SESSION_TO_CALENDAR_KEY, CALENDAR_KEY_TO_SESSION, CALENDAR_KEY_TO_DAY,
     get_config_dir, get_library_path,
 )
@@ -68,28 +69,15 @@ STATE_FILE = CONFIG_DIR / "grabber_state.json"
 # LOGGING SETUP
 # =============================================================================
 
-def setup_logging(verbose: bool = False) -> str:
-    """Configure logging and return log file path."""
-    level = logging.DEBUG if verbose else logging.INFO
-    
-    log_dir = os.path.join(get_motogp_library_path(), "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_file = os.path.join(log_dir, f"grabber_{timestamp}.log")
-    
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
-    logging.info(f"Log file: {log_file}")
-    return log_file
+# Module logger - will be configured by init_logging()
+logger = get_logger("grabber")
+
+
+def init_logging(verbose: bool = False):
+    """Initialize logging for grabber script."""
+    setup_logging(debug_mode=verbose)
+    logger.info("MotoGP Grabber initialized")
+
 
 # =============================================================================
 # STATE MANAGEMENT
@@ -109,7 +97,7 @@ class GrabberState:
                 with open(self.state_file, 'r') as f:
                     return json.load(f)
             except Exception as e:
-                logging.warning(f"Could not load state file: {e}")
+                logger.warning(f"Could not load state file: {e}")
         
         return {
             "searched": {},
@@ -173,6 +161,7 @@ class GrabberState:
         """Update last scheduled check timestamp."""
         self.state["last_scheduled_check"] = datetime.now().isoformat()
 
+
 # =============================================================================
 # CALENDAR UTILITIES
 # =============================================================================
@@ -233,8 +222,9 @@ def get_session_end_time(round_info: dict, session_type: SessionType) -> Optiona
         return session_dt + timedelta(minutes=duration)
         
     except Exception as e:
-        logging.debug(f"Error parsing session datetime: {e}")
+        logger.debug(f"Error parsing session datetime: {e}")
         return None
+
 
 def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None) -> List[dict]:
     """Find sessions that have finished and are ready for search."""
@@ -248,7 +238,7 @@ def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None
         round_num = round_info.get("round", 0)
         delay = round_info.get("search_delay_hours", search_delay_hours)
         
-        for session_type, wanted in DEFAULT_DESIRED_SESSIONS.items():
+        for session_type, wanted in get_desired_sessions().items():
             if not wanted:
                 continue
             
@@ -269,6 +259,7 @@ def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None
     
     return ready
 
+
 def get_upcoming_sessions(calendar: dict, hours_ahead: int = 48) -> List[dict]:
     """Find sessions happening in the next X hours."""
     upcoming = []
@@ -279,7 +270,7 @@ def get_upcoming_sessions(calendar: dict, hours_ahead: int = 48) -> List[dict]:
         round_num = round_info.get("round", 0)
         venue = round_info.get("venue", "Unknown")
         
-        for session_type, wanted in DEFAULT_DESIRED_SESSIONS.items():
+        for session_type, wanted in get_desired_sessions().items():
             if not wanted:
                 continue
             
@@ -301,6 +292,7 @@ def get_upcoming_sessions(calendar: dict, hours_ahead: int = 48) -> List[dict]:
     upcoming.sort(key=lambda x: x["starts_at"])
     return upcoming
 
+
 # =============================================================================
 # LIBRARY SCANNING
 # =============================================================================
@@ -310,7 +302,7 @@ def scan_library_for_season(season: int) -> Dict[int, Set[SessionType]]:
     season_path = os.path.join(get_motogp_library_path(), str(season))
     
     if not os.path.exists(season_path):
-        logging.warning(f"Season folder not found: {season_path}")
+        logger.warning(f"Season folder not found: {season_path}")
         return {}
     
     existing: Dict[int, Set[SessionType]] = {}
@@ -340,9 +332,10 @@ def scan_library_for_season(season: int) -> Dict[int, Set[SessionType]]:
                 
                 if folder_year == season and folder_round == round_num:
                     existing[round_num].add(session_type)
-                    logging.debug(f"Found: Round {round_num} - {session_type.full_display_name}")
+                    logger.debug(f"Found: Round {round_num} - {session_type.full_display_name}")
     
     return existing
+
 
 def identify_missing_sessions(
     season: int,
@@ -373,7 +366,7 @@ def identify_missing_sessions(
         
         existing_for_round = existing.get(round_num, set())
         
-        for session_type, wanted in DEFAULT_DESIRED_SESSIONS.items():
+        for session_type, wanted in get_desired_sessions().items():
             if not wanted:
                 continue
             
@@ -386,6 +379,7 @@ def identify_missing_sessions(
     
     return missing
 
+
 # =============================================================================
 # PROWLARR SEARCH
 # =============================================================================
@@ -396,7 +390,7 @@ def get_indexers() -> List[dict]:
     prowlarr_api_key = get_prowlarr_api_key()
     
     if not prowlarr_url or not prowlarr_api_key:
-        logging.error("Prowlarr not configured")
+        logger.error("Prowlarr not configured")
         return []
     
     try:
@@ -410,8 +404,9 @@ def get_indexers() -> List[dict]:
             return [i for i in indexers if i.get('enable', False)]
         return []
     except Exception as e:
-        logging.error(f"Error getting indexers: {e}")
+        logger.error(f"Error getting indexers: {e}")
         return []
+
 
 def parse_newznab_xml(xml_text: str, indexer_name: str = "Unknown") -> List[dict]:
     """Parse Newznab XML response."""
@@ -450,11 +445,12 @@ def parse_newznab_xml(xml_text: str, indexer_name: str = "Unknown") -> List[dict
                 releases.append(release)
     
     except ET.ParseError as e:
-        logging.debug(f"XML parse error: {e}")
+        logger.debug(f"XML parse error: {e}")
     except Exception as e:
-        logging.debug(f"Error parsing XML: {e}")
+        logger.debug(f"Error parsing XML: {e}")
     
     return releases
+
 
 def search_indexer(query: str, indexer_id: int, indexer_name: str) -> List[dict]:
     """Search a specific indexer via Prowlarr."""
@@ -476,8 +472,9 @@ def search_indexer(query: str, indexer_id: int, indexer_name: str) -> List[dict]
             return parse_newznab_xml(response.text, indexer_name)
         return []
     except Exception as e:
-        logging.debug(f"Error searching {indexer_name}: {e}")
+        logger.debug(f"Error searching {indexer_name}: {e}")
         return []
+
 
 def build_search_queries(round_info: dict, session_type: SessionType, season: int) -> List[str]:
     """Build search queries for a session."""
@@ -515,6 +512,7 @@ def build_search_queries(round_info: dict, session_type: SessionType, season: in
     
     return unique_queries
 
+
 def search_for_session(
     round_info: dict,
     session_type: SessionType,
@@ -528,7 +526,7 @@ def search_for_session(
     all_results = []
     seen_guids = set()
     
-    logging.info(f"Searching for: {session_type.full_display_name} - Round {round_info.get('round')} {round_info.get('venue')}")
+    logger.info(f"Searching for: {session_type.full_display_name} - Round {round_info.get('round')} {round_info.get('venue')}")
     
     for indexer in indexers:
         idx_id = indexer.get('id')
@@ -543,7 +541,7 @@ def search_for_session(
                     seen_guids.add(guid)
                     all_results.append(release)
     
-    logging.debug(f"Found {len(all_results)} raw results")
+    logger.debug(f"Found {len(all_results)} raw results")
     
     # Filter using common module function
     filtered = filter_releases(
@@ -556,8 +554,9 @@ def search_for_session(
         calendar
     )
     
-    logging.debug(f"Filtered to {len(filtered)} matching results")
+    logger.debug(f"Filtered to {len(filtered)} matching results")
     return filtered
+
 
 # =============================================================================
 # SABNZBD INTEGRATION
@@ -569,7 +568,7 @@ def test_sabnzbd_connection() -> bool:
     sabnzbd_api_key = get_sabnzbd_api_key()
     
     if not sabnzbd_url or not sabnzbd_api_key:
-        logging.error("SABnzbd not configured")
+        logger.error("SABnzbd not configured")
         return False
     
     try:
@@ -584,12 +583,13 @@ def test_sabnzbd_connection() -> bool:
         if response.status_code == 200:
             result = response.json()
             version = result.get('version', 'Unknown')
-            logging.info(f"SABnzbd connected: v{version}")
+            logger.info(f"SABnzbd connected: v{version}")
             return True
         return False
     except Exception as e:
-        logging.error(f"SABnzbd connection failed: {e}")
+        logger.error(f"SABnzbd connection failed: {e}")
         return False
+
 
 def grab_release(release: dict, session_info: dict, season: int) -> bool:
     """Send release to SABnzbd with enriched name."""
@@ -599,7 +599,7 @@ def grab_release(release: dict, session_info: dict, season: int) -> bool:
     download_url = release.get('downloadUrl') or release.get('link')
     
     if not download_url:
-        logging.error("No download URL available")
+        logger.error("No download URL available")
         return False
     
     # Build enriched name with prefix
@@ -626,14 +626,15 @@ def grab_release(release: dict, session_info: dict, season: int) -> bool:
         if response.status_code == 200:
             result = response.json()
             if result.get('status', False):
-                logging.info(f"✅ Grabbed: {enriched_name}")
+                logger.info(f"✅ Grabbed: {enriched_name}")
                 return True
             else:
-                logging.error(f"SABnzbd error: {result.get('error', 'Unknown')}")
+                logger.error(f"SABnzbd error: {result.get('error', 'Unknown')}")
         return False
     except Exception as e:
-        logging.error(f"Grab error: {e}")
+        logger.error(f"Grab error: {e}")
         return False
+
 
 # =============================================================================
 # DISPLAY HELPERS
@@ -648,6 +649,7 @@ def format_size(size_bytes: int) -> str:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
+
 
 def format_time_until(dt: datetime) -> str:
     """Format time remaining until datetime."""
@@ -664,6 +666,7 @@ def format_time_until(dt: datetime) -> str:
         return f"{hours}h {minutes}m"
     return f"{minutes}m"
 
+
 def format_time_ago(dt: datetime) -> str:
     """Format time since datetime."""
     delta = datetime.now() - dt
@@ -678,6 +681,7 @@ def format_time_ago(dt: datetime) -> str:
     elif hours > 0:
         return f"{hours}h {minutes}m ago"
     return f"{minutes}m ago"
+
 
 def print_missing_summary(missing: List[dict]):
     """Print summary of missing sessions."""
@@ -708,6 +712,7 @@ def print_missing_summary(missing: List[dict]):
     print(f"\n  Total missing: {len(missing)} sessions")
     print("=" * 70)
 
+
 def print_search_results(results: List[dict], limit: int = 5):
     """Print search results."""
     if not results:
@@ -731,6 +736,7 @@ def print_search_results(results: List[dict], limit: int = 5):
             info_parts.append(f"🏷️ {group}")
         
         print(f"        {' | '.join(info_parts)}")
+
 
 # =============================================================================
 # QUALIFYING HELPERS
@@ -765,6 +771,7 @@ def _get_other_quali_session_key(
     if other_session:
         return GrabberState.make_session_key(season, round_num, other_session)
     return None
+
 
 # =============================================================================
 # MAIN COMMANDS
@@ -955,6 +962,7 @@ def cmd_backfill(args):
     
     return 0
 
+
 def cmd_scheduled(args):
     """Run scheduled check for current season."""
     season = args.season or get_current_season()
@@ -1066,6 +1074,7 @@ def cmd_scheduled(args):
     print(f"\n  Grabbed: {grabs_this_run}")
     return 0
 
+
 def cmd_status(args):
     """Show status and upcoming sessions."""
     season = args.season or get_current_season()
@@ -1094,6 +1103,7 @@ def cmd_status(args):
     print(f"\n{'=' * 60}\n")
     return 0
 
+
 def cmd_clear(args):
     """Clear grabber state."""
     state = GrabberState()
@@ -1119,6 +1129,7 @@ def cmd_clear(args):
     
     state.save()
     return 0
+
 
 # =============================================================================
 # MAIN
@@ -1164,7 +1175,7 @@ def main():
         return 1
     
     verbose = getattr(args, 'verbose', False)
-    setup_logging(verbose)
+    init_logging(verbose)
     
     if args.command == 'backfill':
         return cmd_backfill(args)

@@ -28,6 +28,251 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 # =============================================================================
+# CENTRALIZED LOGGING
+# =============================================================================
+
+import logging
+from logging.handlers import RotatingFileHandler
+from typing import Optional
+import threading
+
+# Global lock for thread-safe logging setup
+_logging_lock = threading.Lock()
+_logging_initialized = False
+
+
+class LogConfig:
+    """Logging configuration singleton."""
+    
+    # Default paths - overridden by setup_logging()
+    log_dir: Path = Path("/config/logs")
+    
+    # Log levels
+    console_level: int = logging.INFO
+    file_level: int = logging.DEBUG
+    
+    # File settings
+    max_bytes: int = 10 * 1024 * 1024  # 10MB
+    backup_count: int = 5
+    
+    # Debug mode
+    debug_mode: bool = False
+
+
+def setup_logging(
+    name: str = "motogp",
+    log_dir: Optional[Path] = None,
+    console_level: int = logging.INFO,
+    file_level: int = logging.DEBUG,
+    debug_mode: bool = False,
+    force: bool = False
+) -> logging.Logger:
+    """
+    Centralized logging setup for all MotoGP scripts.
+    
+    Call this once at the start of each script. Subsequent calls
+    return the existing logger unless force=True.
+    
+    Args:
+        name: Logger name (usually "motogp")
+        log_dir: Directory for log files (default: /config/logs)
+        console_level: Console output level
+        file_level: File output level  
+        debug_mode: Enable verbose debug logging
+        force: Force reconfiguration even if already set up
+    
+    Returns:
+        Configured root logger for the motogp hierarchy
+    
+    Usage:
+        from motogp_common import setup_logging
+        
+        logger = setup_logging(debug_mode=True)
+        # or for module-specific logger:
+        logger = logging.getLogger("motogp.watcher")
+    """
+    global _logging_initialized
+    
+    with _logging_lock:
+        # Return existing logger if already configured
+        if _logging_initialized and not force:
+            return logging.getLogger("motogp")
+        
+        # Determine log directory
+        if log_dir is None:
+            # Try config dir first, fall back to script dir
+            config_log_dir = CONFIG_DIR / "logs"
+            if CONFIG_DIR.exists() or str(CONFIG_DIR).startswith("/config"):
+                log_dir = config_log_dir
+            else:
+                log_dir = SCRIPT_DIR / "logs"
+        
+        log_dir = Path(log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Update config
+        LogConfig.log_dir = log_dir
+        LogConfig.console_level = console_level
+        LogConfig.file_level = file_level
+        LogConfig.debug_mode = debug_mode
+        
+        # Get or create the motogp root logger
+        logger = logging.getLogger("motogp")
+        logger.setLevel(logging.DEBUG)
+        
+        # Clear existing handlers
+        logger.handlers.clear()
+        
+        # Formatter with module identification
+        detailed_formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        
+        # Simple formatter for console
+        console_formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(message)s",
+            datefmt="%H:%M:%S"
+        )
+        
+        # Console handler
+        console = logging.StreamHandler()
+        console.setLevel(logging.DEBUG if debug_mode else console_level)
+        console.setFormatter(console_formatter)
+        logger.addHandler(console)
+        
+        # Main log file (rotating)
+        main_log = log_dir / "motogp.log"
+        try:
+            file_handler = RotatingFileHandler(
+                main_log,
+                maxBytes=LogConfig.max_bytes,
+                backupCount=LogConfig.backup_count,
+                encoding="utf-8"
+            )
+            file_handler.setLevel(file_level)
+            file_handler.setFormatter(detailed_formatter)
+            logger.addHandler(file_handler)
+        except Exception as e:
+            logger.warning(f"Could not create log file {main_log}: {e}")
+        
+        # Debug log (separate, more verbose) - only in debug mode
+        if debug_mode:
+            debug_log = log_dir / "motogp_debug.log"
+            try:
+                debug_formatter = logging.Formatter(
+                    "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d: %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S"
+                )
+                debug_handler = RotatingFileHandler(
+                    debug_log,
+                    maxBytes=50 * 1024 * 1024,  # 50MB for debug
+                    backupCount=3,
+                    encoding="utf-8"
+                )
+                debug_handler.setLevel(logging.DEBUG)
+                debug_handler.setFormatter(debug_formatter)
+                logger.addHandler(debug_handler)
+            except Exception as e:
+                logger.warning(f"Could not create debug log file: {e}")
+        
+        _logging_initialized = True
+        
+        # Log startup
+        logger.info(f"Logging initialized: {log_dir}")
+        if debug_mode:
+            logger.debug("Debug mode enabled")
+        
+        return logger
+
+
+def get_logger(name: str = None) -> logging.Logger:
+    """
+    Get a logger in the motogp hierarchy.
+    
+    Args:
+        name: Optional sub-logger name (e.g., "watcher", "sort")
+              If None, returns the root motogp logger
+    
+    Returns:
+        Logger instance
+    
+    Usage:
+        logger = get_logger("watcher")  # Returns motogp.watcher logger
+        logger = get_logger()           # Returns motogp logger
+    """
+    if name:
+        return logging.getLogger(f"motogp.{name}")
+    return logging.getLogger("motogp")
+
+
+# =============================================================================
+# LEGACY LOGGING COMPATIBILITY
+# =============================================================================
+
+def setup_legacy_logging(
+    log_prefix: str,
+    log_dir: Optional[str] = None,
+    dry_run: bool = False
+) -> str:
+    """
+    Legacy logging setup for backwards compatibility.
+    
+    Creates timestamped log files like before, but also logs to
+    the centralized motogp.log.
+    
+    Args:
+        log_prefix: Prefix for log file (e.g., "grabber", "sort")
+        log_dir: Directory for logs (default: /config/logs)
+        dry_run: If True, adds DRY-RUN notice
+    
+    Returns:
+        Path to the timestamped log file
+    """
+    from datetime import datetime
+    
+    # Set up centralized logging first
+    setup_logging()
+    
+    # Determine log directory
+    if log_dir is None:
+        log_dir = str(LogConfig.log_dir)
+    
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Create timestamped log file
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_file = os.path.join(log_dir, f"{log_prefix}_{timestamp}.log")
+    
+    # Add file handler for this specific run
+    logger = logging.getLogger("motogp")
+    
+    run_handler = logging.FileHandler(log_file, encoding="utf-8")
+    run_handler.setLevel(logging.DEBUG)
+    run_handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    logger.addHandler(run_handler)
+    
+    # Cleanup old logs (keep last 20)
+    try:
+        log_files = sorted([
+            f for f in os.listdir(log_dir)
+            if f.startswith(f"{log_prefix}_") and f.endswith(".log")
+        ], reverse=True)
+        for old_log in log_files[20:]:
+            os.remove(os.path.join(log_dir, old_log))
+    except Exception:
+        pass
+    
+    logger.info(f"Log file: {log_file}")
+    if dry_run:
+        logger.info("DRY RUN MODE - no changes will be made")
+    
+    return log_file
+
+# =============================================================================
 # PATH CONFIGURATION
 # =============================================================================
 
@@ -319,6 +564,51 @@ DEFAULT_DESIRED_SESSIONS: Dict[SessionType, bool] = {
     SessionType.MOTOGP_RACE: True,
     SessionType.MOTOGP_CHEQUERED_FLAG: True,
 }
+
+def get_desired_sessions() -> Dict[SessionType, bool]:
+    """
+    Get desired sessions from WebUI config, falling back to defaults.
+    
+    The WebUI saves session preferences to webui_settings.json.
+    This function loads those preferences at runtime.
+    
+    Returns:
+        Dict mapping SessionType to whether it's desired (True/False)
+    """
+    webui_config = CONFIG_DIR / "webui_settings.json"
+    
+    if webui_config.exists():
+        try:
+            with open(webui_config, 'r') as f:
+                config = json.load(f)
+            
+            sessions_config = config.get("sessions", {})
+            
+            if sessions_config:
+                result = {}
+                for session_type in SessionType:
+                    if session_type == SessionType.UNKNOWN:
+                        continue
+                    # WebUI uses session type name as key (e.g., "MOTOGP_RACE")
+                    key = session_type.name
+                    # Fall back to default if not specified
+                    default = DEFAULT_DESIRED_SESSIONS.get(session_type, False)
+                    result[session_type] = sessions_config.get(key, default)
+                
+                # Log what we loaded (debug level)
+                enabled_count = sum(1 for v in result.values() if v)
+                logging.getLogger("motogp.common").debug(
+                    f"Loaded desired sessions from config: {enabled_count} enabled"
+                )
+                return result
+        
+        except Exception as e:
+            logging.getLogger("motogp.common").warning(
+                f"Could not load webui_settings.json: {e}, using defaults"
+            )
+    
+    # Fall back to defaults
+    return DEFAULT_DESIRED_SESSIONS.copy()
 
 # =============================================================================
 # CALENDAR KEY MAPPINGS

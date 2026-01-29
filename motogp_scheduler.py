@@ -11,12 +11,12 @@ Usage:
     python3 motogp_scheduler.py
     python3 motogp_scheduler.py --no-watcher   # Disable download watcher
     python3 motogp_scheduler.py --watcher-only # Only run watcher
+    python3 motogp_scheduler.py --debug        # Enable debug logging
 """
 
 import os
 import sys
 import time
-import logging
 import signal
 import subprocess
 from datetime import datetime, timedelta
@@ -27,7 +27,8 @@ from typing import Optional, List, Dict, Set
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from motogp_common import load_calendar, has_session_times, get_config_dir
+# Import centralized logging FIRST
+from motogp_common import setup_logging, get_logger, load_calendar, has_session_times, get_config_dir
 from motogp_watcher import create_watcher
 
 from utils.config_loader import (
@@ -54,42 +55,9 @@ CONFIG = {
     "grabber_script": SCRIPT_DIR / "motogp_grabber.py",
     "sort_script": SCRIPT_DIR / "motogp_sort.py",
     "python_path": "/opt/venv/bin/python3",
-    "log_level": "INFO",
 }
 
 CONFIG_DIR = get_config_dir()
-
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-
-def setup_logging():
-    """Configure logging."""
-    log_dir = os.path.join(get_motogp_library_path(), "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    
-    log_file = os.path.join(log_dir, "scheduler.log")
-    
-    # Rotate log if too large
-    if os.path.exists(log_file) and os.path.getsize(log_file) > 10 * 1024 * 1024:
-        backup = log_file + ".old"
-        if os.path.exists(backup):
-            os.remove(backup)
-        os.rename(log_file, backup)
-    
-    log_level = getattr(logging, CONFIG["log_level"], logging.INFO)
-    
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
-    return log_file
 
 # =============================================================================
 # DOWNLOAD PROCESSOR
@@ -101,7 +69,8 @@ def process_download(folder_path: str) -> bool:
     
     Called by the watcher when a new download is ready.
     """
-    logging.info(f"📂 Processing download: {os.path.basename(folder_path)}")
+    logger = get_logger("scheduler")
+    logger.info(f"📂 Processing download: {os.path.basename(folder_path)}")
     
     try:
         result = subprocess.run(
@@ -116,17 +85,23 @@ def process_download(folder_path: str) -> bool:
         )
         
         if result.returncode == 0:
-            logging.info(f"✅ Sort completed: {os.path.basename(folder_path)}")
+            logger.info(f"✅ Sort completed: {os.path.basename(folder_path)}")
             return True
         else:
-            logging.error(f"❌ Sort failed: {result.stderr[:500] if result.stderr else 'Unknown error'}")
+            logger.error(f"❌ Sort failed (exit code {result.returncode})")
+            if result.stderr:
+                # Log first 500 chars of stderr
+                logger.error(f"   Error: {result.stderr[:500]}")
+            if result.stdout:
+                # Log last 500 chars of stdout for context
+                logger.debug(f"   Output: {result.stdout[-500:]}")
             return False
     
     except subprocess.TimeoutExpired:
-        logging.error(f"❌ Sort timed out for: {folder_path}")
+        logger.error(f"❌ Sort timed out for: {folder_path}")
         return False
     except Exception as e:
-        logging.error(f"❌ Error processing download: {e}")
+        logger.error(f"❌ Error processing download: {e}")
         return False
 
 # =============================================================================
@@ -171,6 +146,7 @@ def get_current_race_weekend(calendar: dict) -> Optional[dict]:
             continue
     
     return None
+
 
 def get_next_race_weekend(calendar: dict) -> Optional[dict]:
     """Get the next upcoming race weekend."""
@@ -219,7 +195,7 @@ def get_next_race_weekend(calendar: dict) -> Optional[dict]:
 
 def has_sessions_ended(round_info: dict, search_delay_hours: int) -> bool:
     """Check if any sessions have ended (plus delay) for this round."""
-    from motogp_common import DEFAULT_DESIRED_SESSIONS, SESSION_TO_CALENDAR_KEY, CALENDAR_KEY_TO_DAY
+    from motogp_common import DEFAULT_DESIRED_SESSIONS, get_desired_sessions, SESSION_TO_CALENDAR_KEY, CALENDAR_KEY_TO_DAY
     
     now = datetime.now()
     sessions = round_info.get("sessions", {})
@@ -244,7 +220,7 @@ def has_sessions_ended(round_info: dict, search_delay_hours: int) -> bool:
     except ValueError:
         return False
     
-    for session_type, wanted in DEFAULT_DESIRED_SESSIONS.items():
+    for session_type, wanted in get_desired_sessions().items():
         if not wanted:
             continue
         
@@ -305,7 +281,8 @@ def has_sessions_ended(round_info: dict, search_delay_hours: int) -> bool:
 
 def run_grabber_scheduled() -> dict:
     """Run the grabber in scheduled mode."""
-    logging.info("🚀 Running grabber in scheduled mode...")
+    logger = get_logger("scheduler")
+    logger.info("🚀 Running grabber in scheduled mode...")
     
     try:
         result = subprocess.run(
@@ -329,17 +306,19 @@ def run_grabber_scheduled() -> dict:
                     pass
         
         if result.returncode == 0:
-            logging.info(f"✅ Grabber completed: {grabbed_count} grabbed")
+            logger.info(f"✅ Grabber completed: {grabbed_count} grabbed")
             return {"success": True, "grabbed": grabbed_count}
         else:
-            logging.error(f"❌ Grabber failed with code {result.returncode}")
+            logger.error(f"❌ Grabber failed with code {result.returncode}")
+            if result.stderr:
+                logger.error(f"   Error: {result.stderr[:500]}")
             return {"success": False, "grabbed": 0}
     
     except subprocess.TimeoutExpired:
-        logging.error("❌ Grabber timed out")
+        logger.error("❌ Grabber timed out")
         return {"success": False, "grabbed": 0}
     except Exception as e:
-        logging.error(f"❌ Failed to run grabber: {e}")
+        logger.error(f"❌ Failed to run grabber: {e}")
         return {"success": False, "grabbed": 0}
 
 # =============================================================================
@@ -359,8 +338,9 @@ class SchedulerState:
     
     def reset_for_new_weekend(self, weekend: dict):
         """Reset state for a new race weekend."""
+        logger = get_logger("scheduler")
         if self.current_weekend and self.current_weekend.get("round") != weekend.get("round"):
-            logging.info(f"🏁 New race weekend: Round {weekend['round']} {weekend['venue']}")
+            logger.info(f"🏁 New race weekend: Round {weekend['round']} {weekend['venue']}")
             self.consecutive_no_grabs = 0
             self.total_grabbed_this_weekend = 0
         self.current_weekend = weekend
@@ -387,6 +367,7 @@ def format_timedelta(td: timedelta) -> str:
     else:
         return f"{minutes}m"
 
+
 def is_quiet_hours() -> bool:
     """Check if we're in quiet hours."""
     if not CONFIG["quiet_hours"]["enabled"]:
@@ -400,6 +381,7 @@ def is_quiet_hours() -> bool:
         return start <= hour < end
     else:
         return hour >= start or hour < end
+
 
 def get_sleep_interval(in_race_weekend: bool) -> int:
     """Get sleep interval in seconds."""
@@ -422,16 +404,19 @@ def main():
     parser = argparse.ArgumentParser(description="MotoGP Scheduler")
     parser.add_argument("--no-watcher", action="store_true", help="Disable download watcher")
     parser.add_argument("--watcher-only", action="store_true", help="Only run watcher")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
     
-    log_file = setup_logging()
+    # Setup logging
+    setup_logging(debug_mode=args.debug)
+    logger = get_logger("scheduler")
     
     state = SchedulerState()
     watcher = None
     
     # Handle graceful shutdown
     def signal_handler(signum, frame):
-        logging.info("🛑 Shutdown signal received")
+        logger.info("🛑 Shutdown signal received")
         state.running = False
     
     signal.signal(signal.SIGTERM, signal_handler)
@@ -440,19 +425,18 @@ def main():
     # Startup banner
     season = get_current_season()
     
-    logging.info("=" * 60)
-    logging.info("  MOTOGPARR SCHEDULER STARTED")
-    logging.info("=" * 60)
-    logging.info(f"  Season:              {season}")
-    logging.info(f"  Race weekend check:  Every {CONFIG['race_weekend_interval_minutes']} minutes")
-    logging.info(f"  Off-weekend check:   Every {CONFIG['off_weekend_interval_minutes']} minutes")
-    logging.info(f"  Search delay:        {get_search_delay_hours()} hours")
-    logging.info(f"  Log file:            {log_file}")
+    logger.info("=" * 60)
+    logger.info("  MOTOGPARR SCHEDULER STARTED")
+    logger.info("=" * 60)
+    logger.info(f"  Season:              {season}")
+    logger.info(f"  Race weekend check:  Every {CONFIG['race_weekend_interval_minutes']} minutes")
+    logger.info(f"  Off-weekend check:   Every {CONFIG['off_weekend_interval_minutes']} minutes")
+    logger.info(f"  Search delay:        {get_search_delay_hours()} hours")
     
     # Start watcher
     if not args.no_watcher:
         downloads_path = get_downloads_path()
-        logging.info(f"  Watch directory:     {downloads_path}")
+        logger.info(f"  Watch directory:     {downloads_path}")
         
         watcher = create_watcher(
             watch_dir=downloads_path,
@@ -460,15 +444,15 @@ def main():
             config_dir=str(CONFIG_DIR)
         )
         watcher.start()
-        logging.info("  👁️ Download watcher: Started")
+        logger.info("  👁️ Download watcher: Started")
     else:
-        logging.info("  👁️ Download watcher: Disabled")
+        logger.info("  👁️ Download watcher: Disabled")
     
-    logging.info("=" * 60)
+    logger.info("=" * 60)
     
     # Watcher-only mode
     if args.watcher_only:
-        logging.info("Running in watcher-only mode")
+        logger.info("Running in watcher-only mode")
         try:
             while state.running:
                 time.sleep(1)
@@ -482,23 +466,23 @@ def main():
     # Load calendar
     calendar = load_calendar(season)
     if not calendar:
-        logging.error(f"❌ Could not load calendar for {season}")
+        logger.error(f"❌ Could not load calendar for {season}")
         if watcher:
             watcher.stop()
         return 1
     
-    logging.info(f"📅 Loaded calendar: {len(calendar.get('rounds', []))} rounds")
+    logger.info(f"📅 Loaded calendar: {len(calendar.get('rounds', []))} rounds")
     
     # Check current state
     current_weekend = get_current_race_weekend(calendar)
     if current_weekend:
-        logging.info(f"🏁 Currently in race weekend: Round {current_weekend['round']} {current_weekend['venue']}")
+        logger.info(f"🏁 Currently in race weekend: Round {current_weekend['round']} {current_weekend['venue']}")
         state.reset_for_new_weekend(current_weekend)
     else:
         next_weekend = get_next_race_weekend(calendar)
         if next_weekend:
             until = datetime.combine(next_weekend['window_start'], datetime.min.time()) - datetime.now()
-            logging.info(f"⏳ Next race weekend: Round {next_weekend['round']} {next_weekend['venue']} in {format_timedelta(until)}")
+            logger.info(f"⏳ Next race weekend: Round {next_weekend['round']} {next_weekend['venue']} in {format_timedelta(until)}")
     
     # Main loop
     while state.running:
@@ -521,7 +505,7 @@ def main():
                 round_info = current_weekend["round_info"]
                 
                 if has_sessions_ended(round_info, get_search_delay_hours()):
-                    logging.info(f"🔍 Checking for new releases (Round {current_weekend['round']} {current_weekend['venue']})")
+                    logger.info(f"🔍 Checking for new releases (Round {current_weekend['round']} {current_weekend['venue']})")
                     
                     result = run_grabber_scheduled()
                     state.last_grabber_run = datetime.now()
@@ -536,7 +520,7 @@ def main():
                 if next_weekend:
                     until = datetime.combine(next_weekend['window_start'], datetime.min.time()) - now
                     if until.total_seconds() > 0:
-                        logging.info(f"💤 Off-weekend. Next: Round {next_weekend['round']} in {format_timedelta(until)}")
+                        logger.info(f"💤 Off-weekend. Next: Round {next_weekend['round']} in {format_timedelta(until)}")
             
             # Sleep
             sleep_seconds = get_sleep_interval(in_race_weekend)
@@ -554,14 +538,14 @@ def main():
         except KeyboardInterrupt:
             state.running = False
         except Exception as e:
-            logging.error(f"❌ Error in scheduler loop: {e}", exc_info=True)
+            logger.error(f"❌ Error in scheduler loop: {e}", exc_info=True)
             time.sleep(60)
     
     # Cleanup
     if watcher:
         watcher.stop()
     
-    logging.info("🛑 Scheduler stopped gracefully")
+    logger.info("🛑 Scheduler stopped gracefully")
     return 0
 
 

@@ -14,7 +14,6 @@ Usage:
 import os
 import sys
 import shutil
-import logging
 import re
 import time
 import urllib.request
@@ -29,8 +28,9 @@ from PIL import Image, ImageDraw, ImageFont
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
-# Import from common module
+# Import centralized logging FIRST
 from motogp_common import (
+    setup_logging, get_logger,
     SessionType, RaceClass,
     build_prefix, parse_prefix,
     load_calendar, get_round_by_number, identify_round,
@@ -51,6 +51,13 @@ try:
     DISCORD_AVAILABLE = True
 except ImportError:
     DISCORD_AVAILABLE = False
+
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+
+# Get module logger - will be configured by setup_logging() call
+logger = get_logger("sort")
 
 # =============================================================================
 # CONFIGURATION
@@ -82,45 +89,18 @@ TAG_PATTERN = re.compile(
 DRY_RUN = False
 changes = set()
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
 
-def setup_logging(dry_run: bool = False):
-    """Configure logging with timestamped log files."""
-    log_dir = os.path.join(MOTOGP_LIBRARY_PATH, "logs")
-    os.makedirs(log_dir, exist_ok=True)
+def init_logging(dry_run: bool = False, debug: bool = False):
+    """Initialize logging for sort script."""
+    global DRY_RUN
+    DRY_RUN = dry_run
     
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_file = os.path.join(log_dir, f"motogp_sort_{timestamp}.log")
+    # Setup centralized logging
+    setup_logging(debug_mode=debug)
     
-    # Cleanup old logs
-    try:
-        log_files = sorted([
-            f for f in os.listdir(log_dir) 
-            if f.startswith("motogp_sort_") and f.endswith(".log")
-        ], reverse=True)
-        for old_log in log_files[20:]:
-            os.remove(os.path.join(log_dir, old_log))
-    except Exception:
-        pass
-    
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout)
-        ],
-        force=True
-    )
-    
-    logging.info(f"Log file: {log_file}")
     if dry_run:
-        logging.info("DRY RUN MODE - no changes will be made")
-    
-    return log_file
+        logger.info("DRY RUN MODE - no changes will be made")
+
 
 # =============================================================================
 # PLEX TAGGER INTEGRATION
@@ -136,9 +116,10 @@ def init_plex_tagger():
         from motogp_plex_tagger import tag_single_file as tagger_func
         tag_single_file = tagger_func
         PLEX_TAGGER_AVAILABLE = True
-        logging.info("✅ MotoGP Plex tagger loaded")
+        logger.debug("MotoGP Plex tagger loaded")
     except ImportError as e:
-        logging.warning(f"⚠️ MotoGP Plex tagger not available: {e}")
+        logger.warning(f"MotoGP Plex tagger not available: {e}")
+
 
 def apply_plex_tags(final_path: str) -> bool:
     """Apply Plex tags to media file in folder."""
@@ -153,16 +134,17 @@ def apply_plex_tags(final_path: str) -> bool:
             break
     
     if not media_file:
-        logging.warning(f"No media file found in {final_path}")
+        logger.warning(f"No media file found in {final_path}")
         return False
     
-    logging.info(f"Applying Plex tags to: {os.path.basename(media_file)}")
+    logger.info(f"Applying Plex tags to: {os.path.basename(media_file)}")
     
     try:
         return tag_single_file(media_file, dry_run=DRY_RUN, wait_for_plex=True)
     except Exception as e:
-        logging.error(f"Plex tagging failed: {e}")
+        logger.error(f"Plex tagging failed: {e}")
         return False
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -173,6 +155,7 @@ def is_video_file(filename: str) -> bool:
     _, ext = os.path.splitext(filename)
     return ext.lower() in VIDEO_EXTENSIONS
 
+
 def normalize_name(name: str) -> str:
     """Normalize name by removing dots and extra whitespace."""
     clean = name.lstrip(".")
@@ -180,10 +163,12 @@ def normalize_name(name: str) -> str:
     clean = re.sub(r"\s+", " ", clean).strip()
     return clean
 
+
 def extract_year(folder_name: str) -> Optional[int]:
     """Extract 4-digit year from folder name."""
     match = re.search(r"\b(20\d{2})\b", folder_name)
     return int(match.group(1)) if match else None
+
 
 def get_video_files(folder_path: str) -> List[str]:
     """Get list of video files in folder (recursively)."""
@@ -194,9 +179,11 @@ def get_video_files(folder_path: str) -> List[str]:
                 videos.append(os.path.join(root, f))
     return sorted(videos)
 
+
 def count_video_files(folder_path: str) -> int:
     """Count video files in folder."""
     return len(get_video_files(folder_path))
+
 
 # =============================================================================
 # CLEANUP FUNCTIONS
@@ -210,15 +197,16 @@ def delete_unwanted(base_dir: str, name: str):
                 path = os.path.join(root, f)
                 if not DRY_RUN:
                     os.remove(path)
-                logging.info(f"Deleted file: {path}")
+                logger.debug(f"Deleted file: {path}")
                 changes.add(root)
         for d in dirs:
             if d.lower().startswith(name.lower()):
                 path = os.path.join(root, d)
                 if not DRY_RUN:
                     shutil.rmtree(path)
-                logging.info(f"Deleted folder: {path}")
+                logger.debug(f"Deleted folder: {path}")
                 changes.add(root)
+
 
 def clean_filenames(base_dir: str):
     """Remove release tags from video filenames."""
@@ -234,8 +222,9 @@ def clean_filenames(base_dir: str):
                     newpath = os.path.join(root, newname)
                     if not os.path.exists(newpath) and not DRY_RUN:
                         shutil.move(oldpath, newpath)
-                        logging.debug(f"Renamed: {f} → {newname}")
+                        logger.debug(f"Renamed: {f} → {newname}")
                         changes.add(root)
+
 
 def clean_foldernames(base_dir: str):
     """Remove release tags from folder names."""
@@ -249,12 +238,13 @@ def clean_foldernames(base_dir: str):
             newpath = os.path.join(base_dir, cleaned)
             if not os.path.exists(newpath) and not DRY_RUN:
                 shutil.move(fullpath, newpath)
-                logging.debug(f"Renamed folder: {d} → {cleaned}")
+                logger.debug(f"Renamed folder: {d} → {cleaned}")
                 changes.add(base_dir)
+
 
 def cleanup_folder(job_path: str) -> str:
     """Clean up download folder."""
-    logging.info("=== Cleanup Started ===")
+    logger.debug("Cleanup started")
     parent_dir = os.path.dirname(job_path)
     folder_name = os.path.basename(job_path)
     
@@ -272,8 +262,9 @@ def cleanup_folder(job_path: str) -> str:
     clean_foldernames(job_path)
     clean_filenames(job_path)
     
-    logging.info("=== Cleanup Finished ===")
+    logger.debug("Cleanup finished")
     return job_path
+
 
 def flatten_if_single_subdir(path: str):
     """Flatten folder if it contains only a single subfolder."""
@@ -289,7 +280,8 @@ def flatten_if_single_subdir(path: str):
                 shutil.move(src, dst)
         if not DRY_RUN:
             os.rmdir(subdir_path)
-        logging.info(f"Flattened: {subdir_path}")
+        logger.debug(f"Flattened: {subdir_path}")
+
 
 # =============================================================================
 # ARTWORK FUNCTIONS
@@ -311,6 +303,7 @@ def get_font(size: int) -> ImageFont.FreeTypeFont:
                 continue
     
     return ImageFont.load_default()
+
 
 def overlay_text_on_image(
     image_path: str, 
@@ -414,8 +407,9 @@ def overlay_text_on_image(
         return img.convert('RGB')
         
     except Exception as e:
-        logging.error(f"Error overlaying text: {e}")
+        logger.error(f"Error overlaying text: {e}")
         return None
+
 
 def apply_round_artwork(
     final_path: str, 
@@ -445,7 +439,7 @@ def apply_round_artwork(
             if result and not DRY_RUN:
                 out_path = os.path.join(final_path, "fanart.jpg")
                 result.save(out_path, "JPEG", quality=95)
-                logging.info(f"Created fanart: {out_path}")
+                logger.debug(f"Created fanart: {out_path}")
     
     # Poster
     poster_file = assets.get("poster")
@@ -456,7 +450,8 @@ def apply_round_artwork(
             if result and not DRY_RUN:
                 out_path = os.path.join(final_path, "poster.jpg")
                 result.save(out_path, "JPEG", quality=95)
-                logging.info(f"Created poster: {out_path}")
+                logger.debug(f"Created poster: {out_path}")
+
 
 def resize_image(file_path: str, target_size: tuple) -> bool:
     """Resize image to target dimensions."""
@@ -464,7 +459,7 @@ def resize_image(file_path: str, target_size: tuple) -> bool:
         return False
     
     if DRY_RUN:
-        logging.info(f"[DRY-RUN] Would resize: {file_path}")
+        logger.debug(f"[DRY-RUN] Would resize: {file_path}")
         return True
     
     try:
@@ -480,11 +475,12 @@ def resize_image(file_path: str, target_size: tuple) -> bool:
         resized.save(file_path, "JPEG", quality=95)
         resized.close()
         
-        logging.info(f"Resized: {os.path.basename(file_path)} to {target_size}")
+        logger.debug(f"Resized: {os.path.basename(file_path)} to {target_size}")
         return True
     except Exception as e:
-        logging.error(f"Error resizing {file_path}: {e}")
+        logger.error(f"Error resizing {file_path}: {e}")
         return False
+
 
 def generate_thumb(folder_path: str) -> bool:
     """Generate thumb.jpg from fanart.jpg."""
@@ -495,27 +491,29 @@ def generate_thumb(folder_path: str) -> bool:
         return False
     
     if DRY_RUN:
-        logging.info(f"[DRY-RUN] Would create thumb")
+        logger.debug(f"[DRY-RUN] Would create thumb")
         return True
     
     try:
         shutil.copy2(fanart, thumb)
-        logging.info(f"Created thumb.jpg")
+        logger.debug(f"Created thumb.jpg")
         return True
     except Exception as e:
-        logging.error(f"Error creating thumb: {e}")
+        logger.error(f"Error creating thumb: {e}")
         return False
+
 
 def apply_all_artwork(final_path: str, round_info: dict, session_type: SessionType):
     """Apply all artwork to session folder."""
     if DRY_RUN:
-        logging.info("[DRY-RUN] Would apply artwork")
+        logger.debug("[DRY-RUN] Would apply artwork")
         return
     
     apply_round_artwork(final_path, round_info, session_type)
     resize_image(os.path.join(final_path, "poster.jpg"), (1000, 1500))
     resize_image(os.path.join(final_path, "fanart.jpg"), (1920, 1080))
     generate_thumb(final_path)
+
 
 # =============================================================================
 # FILE/FOLDER MANAGEMENT
@@ -557,11 +555,12 @@ def rename_files_to_match_folder(folder_path: str):
         if not DRY_RUN:
             if not os.path.exists(new_path):
                 os.rename(temp_path, new_path)
-                logging.info(f"Renamed → {new_name}")
+                logger.debug(f"Renamed → {new_name}")
             else:
                 fallback = f"{folder_name}_{idx}{ext}"
                 os.rename(temp_path, os.path.join(folder_path, fallback))
-                logging.info(f"Renamed → {fallback} (fallback)")
+                logger.debug(f"Renamed → {fallback} (fallback)")
+
 
 def ensure_round_folders(year: int, calendar: dict) -> str:
     """Create round folders for all calendar entries."""
@@ -573,9 +572,10 @@ def ensure_round_folders(year: int, calendar: dict) -> str:
         dest_dir = os.path.join(root, round_entry["folder"])
         if not os.path.exists(dest_dir) and not DRY_RUN:
             os.makedirs(dest_dir)
-            logging.info(f"Created round folder: {round_entry['folder']}")
+            logger.debug(f"Created round folder: {round_entry['folder']}")
     
     return root
+
 
 # =============================================================================
 # COMBINED QUALIFYING DETECTION
@@ -590,6 +590,7 @@ def _get_q1_session_for_class(race_class: RaceClass) -> SessionType:
     }
     return mapping.get(race_class, SessionType.MOTOGP_Q1)
 
+
 def _get_q2_session_for_class(race_class: RaceClass) -> SessionType:
     """Get Q2 SessionType for a race class."""
     mapping = {
@@ -598,6 +599,7 @@ def _get_q2_session_for_class(race_class: RaceClass) -> SessionType:
         RaceClass.MOTOGP: SessionType.MOTOGP_Q2,
     }
     return mapping.get(race_class, SessionType.MOTOGP_Q2)
+
 
 def detect_qualifying_parts(video_files: List[str], session_type: SessionType) -> List[Tuple[str, SessionType]]:
     """Detect if video files are Q1/Q2 parts of a combined qualifying release."""
@@ -622,7 +624,7 @@ def detect_qualifying_parts(video_files: List[str], session_type: SessionType) -
     
     # If we couldn't detect from filenames, assume order is Q1 then Q2
     if all(r[1] is None for r in results):
-        logging.info("  Could not detect Q1/Q2 from filenames, assuming order: Q1, Q2")
+        logger.info("  Could not detect Q1/Q2 from filenames, assuming order: Q1, Q2")
         results = [
             (sorted_files[0], _get_q1_session_for_class(race_class)),
             (sorted_files[1], _get_q2_session_for_class(race_class)),
@@ -637,6 +639,7 @@ def detect_qualifying_parts(video_files: List[str], session_type: SessionType) -
         results = [(f, s if s else other_session) for f, s in results]
     
     return results
+
 
 def is_combined_qualifying_release(folder_name: str, video_count: int, session_type: SessionType) -> bool:
     """Check if this is a combined Q1+Q2 qualifying release."""
@@ -660,6 +663,7 @@ def is_combined_qualifying_release(folder_name: str, video_count: int, session_t
     
     return not has_specific_q
 
+
 # =============================================================================
 # PLEX REFRESH
 # =============================================================================
@@ -667,37 +671,38 @@ def is_combined_qualifying_release(folder_name: str, video_count: int, session_t
 def refresh_plex_and_wait(wait_seconds: int = 10):
     """Trigger Plex refresh and wait for scan to start."""
     if DRY_RUN:
-        logging.info("[DRY-RUN] Would trigger Plex refresh")
+        logger.debug("[DRY-RUN] Would trigger Plex refresh")
         return
     
     if not PLEX_URL or not PLEX_TOKEN or not PLEX_LIBRARY_ID:
-        logging.warning("Plex not configured, skipping refresh")
+        logger.warning("Plex not configured, skipping refresh")
         return
     
-    logging.info(f"Triggering Plex refresh...")
+    logger.debug(f"Triggering Plex refresh...")
     
     url = f"{PLEX_URL}/library/sections/{PLEX_LIBRARY_ID}/refresh?X-Plex-Token={PLEX_TOKEN}"
     
     try:
         with urllib.request.urlopen(url, timeout=10) as response:
             if response.status == 200:
-                logging.info(f"✅ Plex refresh triggered, waiting {wait_seconds}s for scan...")
+                logger.debug(f"Plex refresh triggered, waiting {wait_seconds}s for scan...")
                 time.sleep(wait_seconds)
                 return
     except Exception as e:
-        logging.warning(f"Plex refresh failed: {e}")
+        logger.warning(f"Plex refresh failed: {e}")
+
 
 def trigger_plex_refresh():
     """Trigger Plex library refresh."""
     if not changes:
-        logging.info("No changes - Plex refresh skipped")
+        logger.debug("No changes - Plex refresh skipped")
         return
     
     if not PLEX_URL or not PLEX_TOKEN or not PLEX_LIBRARY_ID:
-        logging.warning("Plex not configured, skipping refresh")
+        logger.warning("Plex not configured, skipping refresh")
         return
     
-    logging.info(f"Triggering Plex refresh for '{PLEX_LIBRARY_NAME}'...")
+    logger.info(f"Triggering Plex refresh for '{PLEX_LIBRARY_NAME}'...")
     time.sleep(10)
     
     url = f"{PLEX_URL}/library/sections/{PLEX_LIBRARY_ID}/refresh?X-Plex-Token={PLEX_TOKEN}"
@@ -706,13 +711,14 @@ def trigger_plex_refresh():
         try:
             with urllib.request.urlopen(url, timeout=10) as response:
                 if response.status == 200:
-                    logging.info("✅ Plex refresh triggered")
+                    logger.info("✅ Plex refresh triggered")
                     return
         except Exception as e:
-            logging.warning(f"Plex refresh attempt {attempt + 1} failed: {e}")
+            logger.warning(f"Plex refresh attempt {attempt + 1} failed: {e}")
             time.sleep(5)
     
-    logging.error("❌ Plex refresh failed")
+    logger.error("❌ Plex refresh failed")
+
 
 # =============================================================================
 # DISCORD NOTIFICATIONS
@@ -735,6 +741,7 @@ def send_discord_notification(session_type: SessionType, round_info: dict, seaso
             season=season,
             dry_run=DRY_RUN
         )
+
 
 # =============================================================================
 # MULTI-SESSION HANDLING
@@ -777,6 +784,7 @@ def is_multi_session_download(folder_name: str, video_count: int, session_type: 
     
     return (False, 'single')
 
+
 def process_multi_session_download(
     complete_dir: str,
     season_root: str,
@@ -786,8 +794,7 @@ def process_multi_session_download(
     """Handle download with multiple video files."""
     video_files = get_video_files(complete_dir)
     
-    logging.info(f"=== Processing Multi-Session Download ===")
-    logging.info(f"Found {len(video_files)} video files")
+    logger.info(f"Processing multi-session download: {len(video_files)} video files")
     
     processed = 0
     
@@ -797,10 +804,10 @@ def process_multi_session_download(
         session_type = classify_session(filename, race_class)
         
         if not session_type or session_type == SessionType.UNKNOWN:
-            logging.warning(f"Could not classify: {filename}")
+            logger.warning(f"Could not classify: {filename}")
             continue
         
-        logging.info(f"Processing: {filename} as {session_type.full_display_name}")
+        logger.info(f"  → {filename} as {session_type.full_display_name}")
         
         round_num = round_info.get("round", 0)
         prefix = build_prefix(year, round_num, session_type)
@@ -811,7 +818,7 @@ def process_multi_session_download(
         final_path = os.path.join(dest_parent, final_folder_name)
         
         if DRY_RUN:
-            logging.info(f"[DRY-RUN] Would create: {final_path}")
+            logger.debug(f"[DRY-RUN] Would create: {final_path}")
             processed += 1
             continue
         
@@ -835,12 +842,13 @@ def process_multi_session_download(
         if not remaining:
             try:
                 shutil.rmtree(complete_dir)
-                logging.info(f"Removed empty source folder")
+                logger.debug(f"Removed empty source folder")
             except Exception:
                 pass
     
-    logging.info(f"=== Multi-Session Complete: {processed} sessions ===")
+    logger.info(f"Multi-session complete: {processed} sessions processed")
     return processed
+
 
 def process_combined_qualifying(
     complete_dir: str,
@@ -853,11 +861,10 @@ def process_combined_qualifying(
     video_files = get_video_files(complete_dir)
     
     if len(video_files) != 2:
-        logging.warning(f"Expected 2 files for combined quali, found {len(video_files)}")
+        logger.warning(f"Expected 2 files for combined quali, found {len(video_files)}")
         return 0
     
-    logging.info(f"=== Processing Combined Qualifying Release ===")
-    logging.info(f"Class: {race_class.display_name}")
+    logger.info(f"Processing combined qualifying: {race_class.display_name}")
     
     q1_session = _get_q1_session_for_class(race_class)
     file_sessions = detect_qualifying_parts(video_files, q1_session)
@@ -875,10 +882,10 @@ def process_combined_qualifying(
         dest_parent = os.path.join(season_root, round_info["folder"])
         final_path = os.path.join(dest_parent, final_folder_name)
         
-        logging.info(f"  {filename} → {session_display}")
+        logger.info(f"  → {filename} → {session_display}")
         
         if DRY_RUN:
-            logging.info(f"  [DRY-RUN] Would create: {final_path}")
+            logger.debug(f"  [DRY-RUN] Would create: {final_path}")
             processed += 1
             continue
         
@@ -902,12 +909,13 @@ def process_combined_qualifying(
         if not remaining:
             try:
                 shutil.rmtree(complete_dir)
-                logging.info(f"  Removed empty source folder")
+                logger.debug(f"Removed empty source folder")
             except Exception as e:
-                logging.warning(f"  Could not remove source folder: {e}")
+                logger.warning(f"Could not remove source folder: {e}")
     
-    logging.info(f"=== Combined Qualifying Complete: {processed} sessions ===")
+    logger.info(f"Combined qualifying complete: {processed} sessions")
     return processed
+
 
 # =============================================================================
 # DUAL-PATH PROCESSING
@@ -921,22 +929,21 @@ def process_with_prefix(
     """Fast path: Process folder with existing YYRREE prefix."""
     year, round_num, session_type = parsed
     
-    logging.info(f"=== FAST PATH: Prefix detected ===")
-    logging.info(f"  Year: {year}, Round: {round_num}")
-    logging.info(f"  Session: {session_type.full_display_name}")
+    logger.info(f"Fast path: Prefix detected")
+    logger.info(f"  Year: {year}, Round: {round_num}, Session: {session_type.full_display_name}")
     
     calendar = load_calendar(year)
     if not calendar:
-        logging.error(f"No calendar for year {year}")
+        logger.error(f"No calendar for year {year}")
         return False
     
     round_info = get_round_by_number(calendar, round_num)
     if not round_info:
-        logging.error(f"No round info for Round {round_num}")
+        logger.error(f"No round info for Round {round_num}")
         return False
     
     venue = round_info.get("venue", "Unknown")
-    logging.info(f"  Venue: {venue}")
+    logger.info(f"  Venue: {venue}")
     
     # Check for combined qualifying
     video_files = get_video_files(full_path)
@@ -945,7 +952,7 @@ def process_with_prefix(
     race_class = session_type.race_class
     
     if video_count == 2 and session_name in ["Qualifying 1", "Qualifying 2"]:
-        logging.info(f"  🔀 Detected combined Q1+Q2 in prefixed folder ({video_count} files)")
+        logger.info(f"  Detected combined Q1+Q2 ({video_count} files)")
         season_root = ensure_round_folders(year, calendar)
         process_combined_qualifying(full_path, season_root, round_info, year, race_class)
         return True
@@ -959,10 +966,10 @@ def process_with_prefix(
     final_folder_name = f"{prefix} {session_display}"
     final_path = os.path.join(dest_parent, final_folder_name)
     
-    logging.info(f"  Destination: {final_path}")
+    logger.info(f"  Destination: {final_path}")
     
     if DRY_RUN:
-        logging.info("[DRY-RUN] Would move and process")
+        logger.info("[DRY-RUN] Would move and process")
         return True
     
     os.makedirs(dest_parent, exist_ok=True)
@@ -976,55 +983,56 @@ def process_with_prefix(
     send_discord_notification(session_type, round_info, year)
     
     changes.add(final_path)
+    logger.info(f"✅ Sorted to: {final_folder_name}")
     return True
+
 
 def process_without_prefix(folder_name: str, full_path: str) -> bool:
     """Fallback path: Process folder without prefix using classification."""
-    logging.info(f"=== FALLBACK PATH: Classification required ===")
+    logger.info(f"Fallback path: Classification required")
     
     safe_folder = normalize_name(folder_name)
     
     race_class = detect_race_class(safe_folder)
     session_type = classify_session(safe_folder, race_class)
     
-    logging.info(f"  Detected class: {race_class.display_name}")
-    logging.info(f"  Detected session: {session_type.display_name}")
+    logger.info(f"  Class: {race_class.display_name}, Session: {session_type.display_name}")
     
     year = extract_year(folder_name)
     if not year:
-        logging.error(f"No year found in: {folder_name}")
+        logger.error(f"No year found in: {folder_name}")
         return False
     
-    logging.info(f"  Year: {year}")
+    logger.info(f"  Year: {year}")
     
     calendar = load_calendar(year)
     if not calendar:
-        logging.error(f"No calendar for year {year}")
+        logger.error(f"No calendar for year {year}")
         return False
     
     round_info = identify_round(safe_folder, calendar)
     if not round_info:
-        logging.error(f"Could not identify round from: {folder_name}")
+        logger.error(f"Could not identify round from: {folder_name}")
         return False
     
     round_num = round_info.get("round", 0)
     venue = round_info.get("venue", "Unknown")
     
-    logging.info(f"  Round: {round_num} - {venue}")
+    logger.info(f"  Round: {round_num} - {venue}")
     
     # Check for combined qualifying release
     video_files = get_video_files(full_path)
     video_count = len(video_files)
     
     if is_combined_qualifying_release(safe_folder, video_count, session_type):
-        logging.info(f"  🔀 Detected combined Q1+Q2 qualifying release ({video_count} files)")
+        logger.info(f"  Detected combined Q1+Q2 qualifying release ({video_count} files)")
         season_root = ensure_round_folders(year, calendar)
         process_combined_qualifying(full_path, season_root, round_info, year, race_class)
         return True
     
     # Standard single-session processing
     prefix = build_prefix(year, round_num, session_type)
-    logging.info(f"  Generated prefix: {prefix}")
+    logger.debug(f"  Generated prefix: {prefix}")
     
     season_root = ensure_round_folders(year, calendar)
     dest_parent = os.path.join(season_root, round_info["folder"])
@@ -1033,10 +1041,10 @@ def process_without_prefix(folder_name: str, full_path: str) -> bool:
     final_folder_name = f"{prefix} {session_display}"
     final_path = os.path.join(dest_parent, final_folder_name)
     
-    logging.info(f"  Destination: {final_path}")
+    logger.info(f"  Destination: {final_path}")
     
     if DRY_RUN:
-        logging.info("[DRY-RUN] Would move and process")
+        logger.info("[DRY-RUN] Would move and process")
         return True
     
     os.makedirs(dest_parent, exist_ok=True)
@@ -1050,7 +1058,9 @@ def process_without_prefix(folder_name: str, full_path: str) -> bool:
     send_discord_notification(session_type, round_info, year)
     
     changes.add(final_path)
+    logger.info(f"✅ Sorted to: {final_folder_name}")
     return True
+
 
 # =============================================================================
 # MAIN PROCESSING
@@ -1067,7 +1077,9 @@ def process_folder(source_path: str, dry_run: bool = False) -> bool:
     
     folder_name = os.path.basename(source_path)
     
-    logging.info(f"Processing: {folder_name}")
+    logger.info(f"{'─' * 50}")
+    logger.info(f"Processing: {folder_name}")
+    logger.info(f"{'─' * 50}")
     
     # Cleanup
     complete_dir = cleanup_folder(source_path)
@@ -1077,7 +1089,7 @@ def process_folder(source_path: str, dry_run: bool = False) -> bool:
     parsed = parse_prefix(folder_name)
     
     if parsed:
-        return process_with_prefix(folder_name, complete_dir, parsed)
+        success = process_with_prefix(folder_name, complete_dir, parsed)
     else:
         # Need to classify - check for multi-session first
         safe_folder = normalize_name(folder_name)
@@ -1087,68 +1099,72 @@ def process_folder(source_path: str, dry_run: bool = False) -> bool:
         video_count = count_video_files(complete_dir)
         is_multi, multi_type = is_multi_session_download(folder_name, video_count, session_type)
         
-        logging.info(f"Video files: {video_count}, Multi-session: {is_multi} ({multi_type})")
+        logger.debug(f"Video files: {video_count}, Multi-session: {is_multi} ({multi_type})")
         
         if is_multi and video_count > 1:
             year = extract_year(folder_name)
             if not year:
-                logging.error(f"No year found in: {folder_name}")
+                logger.error(f"No year found in: {folder_name}")
                 return False
             
             calendar = load_calendar(year)
             if not calendar:
-                logging.error(f"No calendar for year {year}")
+                logger.error(f"No calendar for year {year}")
                 return False
             
             round_info = identify_round(safe_folder, calendar)
             if not round_info:
-                logging.error(f"Could not identify round from: {folder_name}")
+                logger.error(f"Could not identify round from: {folder_name}")
                 return False
             
             season_root = ensure_round_folders(year, calendar)
             
             if multi_type == 'multi_class':
-                logging.info("Detected multi-class download")
+                logger.info("Detected multi-class download")
                 process_multi_session_download(complete_dir, season_root, round_info, year)
             elif multi_type == 'combined_quali':
-                logging.info("Detected combined Q1+Q2 qualifying release")
+                logger.info("Detected combined Q1+Q2 qualifying release")
                 process_combined_qualifying(complete_dir, season_root, round_info, year, race_class)
             else:
-                logging.info("Detected unknown multi-file download, attempting classification")
+                logger.info("Detected unknown multi-file download, attempting classification")
                 process_multi_session_download(complete_dir, season_root, round_info, year)
             
-            return True
+            success = True
         else:
-            return process_without_prefix(folder_name, complete_dir)
+            success = process_without_prefix(folder_name, complete_dir)
+    
+    logger.info(f"{'─' * 50}")
+    return success
+
 
 def main():
-    global DRY_RUN
-    
+    """Main entry point for standalone execution."""
     parser = argparse.ArgumentParser(
         description="MotoGP Sort - Standalone Sorter",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--source", "-s", required=True, help="Source folder to process")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Preview without changes")
+    parser.add_argument("--debug", "-d", action="store_true", help="Enable debug logging")
     
     args = parser.parse_args()
-    DRY_RUN = args.dry_run
     
-    setup_logging(args.dry_run)
+    # Initialize logging
+    init_logging(dry_run=args.dry_run, debug=args.debug)
     init_plex_tagger()
     
     source = args.source.rstrip("/")
     
     if not os.path.isdir(source):
-        logging.error(f"Source not found: {source}")
+        logger.error(f"Source not found: {source}")
         return 1
     
     success = process_folder(source, dry_run=args.dry_run)
     
-    if not DRY_RUN:
+    if not args.dry_run:
         trigger_plex_refresh()
     
-    logging.info("=== Processing complete ===")
+    logger.info("Processing complete")
     return 0 if success else 1
 
 
