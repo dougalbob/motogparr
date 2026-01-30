@@ -1,0 +1,300 @@
+================================================================================
+AI CONTEXTUAL NOTES: MotoGParr WebUI Refactoring Session
+Date: 30 January 2025
+================================================================================
+
+PROJECT OVERVIEW
+----------------
+MotoGParr - Docker container automating MotoGP content download/sorting to Plex
+Scripts location: /mnt/user/data/pythonscripts/motorsport/motogparr/
+Appdata location: /mnt/user/appdata/motogparr/
+Container port: 5679
+GitHub: https://github.com/dougalbob/motogparr
+GHCR: ghcr.io/dougalbob/motogparr
+
+================================================================================
+CHANGES MADE THIS SESSION
+================================================================================
+
+1. WEBUI REFACTORING (v1.3 -> v1.4)
+-----------------------------------
+Refactored monolithic motogp_webui.py (~800 lines with embedded HTML/CSS/JS) 
+into a clean template-based Flask structure:
+
+BEFORE:
+- Single file with HTML_TEMPLATE variable using render_template_string()
+
+AFTER - New file structure:
+├── motogp_webui.py          # Slim Flask routes only (~400 lines)
+├── templates/
+│   ├── base.html            # Base template with nav, status, common elements
+│   ├── dashboard.html       # Commands tab (quick actions, backfill, overlay)
+│   ├── library.html         # Library status tab
+│   ├── settings.html        # Settings tab (Grabbing + App Config sub-tabs)
+│   └── logs.html            # NEW: Live log viewer with SSE streaming
+└── static/
+    ├── css/style.css        # All styles (~600 lines)
+    └── js/
+        ├── app.js           # Shared JavaScript functions
+        └── sw.js            # Service worker for PWA (created but not fully used)
+
+2. UI TEXT CHANGES
+------------------
+- Changed "xx days until Friday" → "xx days to go"
+- Changed "🏍️ Next Race Weekend" → "Next Race"
+- Removed "🏍️ MotoGParr" header title (decluttering)
+
+3. MOBILE ENHANCEMENTS (v1.4)
+-----------------------------
+Added responsive design for mobile devices:
+
+a) Bottom Navigation Bar (mobile only)
+   - Fixed position at bottom of screen
+   - Four tabs: Commands, Library, Settings, Logs
+   - Icons with labels
+   - Hidden on desktop (uses top tabs instead)
+
+b) Swipe Gestures
+   - Swipe left/right to navigate between tabs
+   - Implemented in static/js/app.js
+   - Uses touch events with gesture detection
+
+c) Pull-to-Refresh
+   - Pull down from top to refresh page
+   - Visual indicator with arrow/spinner
+   - Implemented in static/js/app.js
+
+d) Toast Notifications
+   - Non-intrusive popup notifications
+   - Replaces old inline "save-notice" elements
+   - Types: success, error, warning, info
+   - Auto-dismiss after 3 seconds
+   - Positioned top-right on desktop, bottom on mobile
+
+e) Collapsible Sections
+   - Backfill and Overlay Tools sections collapse
+   - Overlay Tools collapsed by default
+   - Tap header to expand/collapse
+   - Saves screen space on mobile
+
+f) Library Round Details
+   - Rounds now expandable/collapsible
+   - Tap round header to show/hide sessions
+   - Complete rounds have green border
+
+g) Responsive CSS
+   - @media queries for screens < 768px and < 380px
+   - 2-column quick buttons grid on mobile
+   - Stacked form layouts
+   - Adjusted font sizes and padding
+
+4. LIVE LOG VIEWER TAB (NEW)
+----------------------------
+Added new /logs route with real-time log streaming:
+
+Features:
+- Server-Sent Events (SSE) streaming from /logs/stream
+- Log level filter dropdown (All/Debug+/Info+/Warning+/Error Only)
+- Auto-scroll toggle
+- Clear display button
+- Reconnect button
+- Connection status indicator
+- Color-coded log lines (error=red, warning=orange, info=blue, success=green)
+- Line count and last update timestamp
+- Stores all lines client-side for filtering without losing data
+- Max 1000 lines retained
+
+Routes added to motogp_webui.py:
+- GET /logs - renders logs.html template
+- GET /logs/stream - SSE endpoint streaming from /config/logs/motogp.log
+- GET /logs/recent - JSON endpoint for recent log lines
+
+5. PWA SUPPORT (PARTIAL)
+------------------------
+Added Progressive Web App files:
+
+a) Icons created:
+   - /assets/icon-192x192.png (orange "MG" logo)
+   - /assets/icon-512x512.png
+   - Generated using PIL/Pillow
+
+b) Service Worker (/static/js/sw.js):
+   - Caches static assets
+   - Network-first strategy
+   - Bypasses API calls and log streams
+
+c) Manifest updated (/manifest.json):
+   - Both 192x192 and 512x512 icons
+   - display: standalone
+   - theme_color: #ff6600
+
+d) base.html additions:
+   - <link rel="manifest">
+   - <link rel="apple-touch-icon">
+   - Service worker registration script
+
+LIMITATION: PWA installation via Cloudflare Access doesn't work because 
+/manifest.json and /sw.js get redirected to OAuth login. Cloudflare Access 
+doesn't support path-based bypass on user's plan.
+
+6. APP-LEVEL AUTH (CREATED BUT NOT DEPLOYED)
+---------------------------------------------
+Created auth.py for optional self-hosted authentication:
+
+Features designed:
+- Password hashed with bcrypt
+- Session-based authentication (cookies)
+- "Remember me" for 30 days
+- Password reset via MOTOGPARR_ADMIN_PASSWORD env var
+- Password reset via deleting /config/auth.json
+- Public paths bypass: /login, /manifest.json, /sw.js, /static/*, /assets/*
+- Clean login page matching app theme
+- Logout button in header
+
+Files created but NOT in use:
+- auth.py (complete implementation)
+- Login/logout routes (written but not applied)
+
+User decided not to deploy due to:
+- Currently using Cloudflare Access with Google OAuth
+- Didn't want to manage open ports
+
+================================================================================
+DOCKERFILE CHANGES
+================================================================================
+Added lines to copy new directories:
+  COPY templates/ ./templates/
+  COPY static/ ./static/
+
+================================================================================
+CSS ARCHITECTURE
+================================================================================
+static/css/style.css organized in sections:
+
+- Pull to refresh
+- Cards
+- Collapsible sections
+- Next race banner
+- Forms
+- Buttons
+- Output box
+- Status indicator
+- Checkboxes
+- Session grid
+- Tabs (desktop)
+- Bottom navigation (mobile)
+- Sub-tabs
+- Library styles
+- Config form styles
+- Log viewer
+- Toast notifications
+- Visibility helpers (.desktop-only, .mobile-only)
+- Mobile responsive (@media queries)
+
+================================================================================
+JAVASCRIPT ARCHITECTURE  
+================================================================================
+static/js/app.js contains:
+
+- scrollOutputToBottom() - scroll output box
+- runCommand(cmd) - POST to /run endpoint
+- refreshOutput() - page reload
+- togglePassword(inputId) - show/hide password fields
+- toggleCollapse(header) - expand/collapse sections
+- showToast(message, type, duration) - toast notifications
+- initSwipeNavigation() - swipe gesture setup
+- handleSwipe() - swipe navigation logic
+- initPullToRefresh() - pull-to-refresh setup
+
+Page-specific JavaScript in {% block scripts %} of each template.
+
+================================================================================
+VERSION HISTORY
+================================================================================
+v1.3 - WebUI refactored to templates, live log viewer
+v1.4 - Mobile enhancements (bottom nav, swipe, pull-to-refresh, toasts, 
+       collapsible sections, log level filter, PWA support)
+
+Both versions pushed to:
+- GitHub: https://github.com/dougalbob/motogparr (tags v1.3, v1.4)
+- GHCR: ghcr.io/dougalbob/motogparr:v1.3, v1.4, latest
+
+================================================================================
+BUILD COMMANDS
+================================================================================
+cd /mnt/user/data/pythonscripts/motorsport/motogparr
+docker build --no-cache -t motogparr:latest .
+docker stop motogparr; docker rm motogparr
+docker run -d \
+  --name motogparr \
+  -p 5679:5679 \
+  -v /mnt/user/data/media:/media \
+  -v /mnt/user/data/downloads:/downloads \
+  -v /mnt/user/appdata/motogparr:/config \
+  -e TZ=Europe/London \
+  -e PYTHONUNBUFFERED=1 \
+  --restart unless-stopped \
+  motogparr:latest
+
+================================================================================
+GITHUB/GHCR PUSH COMMANDS
+================================================================================
+cd /mnt/user/data/pythonscripts/motorsport/motogparr
+git add -A
+git commit -m "version message"
+git tag -a vX.X -m "version description"
+git push origin main --tags
+
+docker tag motogparr:latest ghcr.io/dougalbob/motogparr:latest
+docker tag motogparr:latest ghcr.io/dougalbob/motogparr:vX.X
+docker push ghcr.io/dougalbob/motogparr:latest
+docker push ghcr.io/dougalbob/motogparr:vX.X
+
+================================================================================
+CURRENT HOSTING SETUP
+================================================================================
+- Cloudflare Tunnel (Connector) for external access
+- Protected by Cloudflare Access with Google OAuth
+- HTTPS via Cloudflare
+- Domain: motogparr.duncandoes.uk
+- PWA installation blocked by OAuth redirect on static files
+
+================================================================================
+FILES MODIFIED/CREATED THIS SESSION
+================================================================================
+CREATED:
+- templates/base.html
+- templates/dashboard.html
+- templates/library.html
+- templates/settings.html
+- templates/logs.html
+- static/css/style.css
+- static/js/app.js
+- static/js/sw.js
+- assets/icon-192x192.png
+- assets/icon-512x512.png
+- auth.py (not deployed)
+- aicontextual_notes/webui_changes_30.01.2025.txt
+
+MODIFIED:
+- motogp_webui.py (complete rewrite - now uses render_template)
+- dockerfile (added COPY for templates/ and static/)
+- requirements.txt (added bcrypt - for auth, may not be needed if not using)
+
+BACKED UP:
+- motogp_webui.py.backup (original monolithic version)
+
+================================================================================
+POTENTIAL FUTURE ENHANCEMENTS
+================================================================================
+- Deploy app-level auth if moving away from Cloudflare Access
+- Add username support (currently password-only design)
+- WebSocket instead of SSE for log streaming
+- Dark/light theme toggle
+- Notification sounds for completed grabs
+- Calendar view for race schedule
+- Statistics/graphs for grab history
+
+================================================================================
+END OF NOTES
+================================================================================

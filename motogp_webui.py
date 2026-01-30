@@ -84,8 +84,15 @@ for session_type in SessionType:
         "default": DEFAULT_DESIRED_SESSIONS.get(session_type, False)
     }
 
-app = Flask(__name__)
+from grab_stats import get_stats_summary
 
+app = Flask(__name__)
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
 # Store command output
 command_output = {
     "running": False,
@@ -675,6 +682,82 @@ def recent_logs():
         return jsonify({"error": str(e), "lines": []})
 
 
+
+
+@app.route("/stats")
+def stats():
+    """Statistics page."""
+    next_race = get_next_race_info()
+    stats_data = get_stats_summary()
+    
+    # Calculate max values for chart scaling
+    max_daily = max([d["count"] for d in stats_data.get("by_day", [])], default=1) or 1
+    max_monthly = max([m["count"] for m in stats_data.get("by_month", [])], default=1) or 1
+    
+    return render_template(
+        "stats.html",
+        status=command_output,
+        next_race=next_race,
+        stats=stats_data,
+        max_daily=max_daily,
+        max_monthly=max_monthly,
+        active_tab="stats"
+    )
+
+
+@app.route("/calendar")
+def calendar():
+    """Calendar view of race schedule."""
+    year = request.args.get("year", 2025, type=int)
+    next_race = get_next_race_info()
+    
+    # Get calendar data for all seasons
+    calendar_data = {}
+    for y in SEASONS:
+        rounds = get_rounds_for_season(y)
+        calendar_data[y] = rounds
+    
+    # Get library status for the selected year
+    library_status = {}
+    lib_data = get_library_status(year)
+    for r in lib_data.get("rounds", []):
+        library_status[r["number"]] = {
+            "grabbed": r["grabbed_count"],
+            "total": r["desired_count"],
+            "sessions": r["sessions"]
+        }
+    
+    return render_template(
+        "calendar.html",
+        status=command_output,
+        next_race=next_race,
+        year=year,
+        calendar_data=calendar_data,
+        library_status=library_status,
+        active_tab="calendar"
+    )
+
+
+@app.route("/calendar-data")
+def calendar_data_api():
+    """Get calendar and library data for a specific year."""
+    year = request.args.get("year", 2025, type=int)
+    
+    library_status = {}
+    lib_data = get_library_status(year)
+    for r in lib_data.get("rounds", []):
+        library_status[r["number"]] = {
+            "grabbed": r["grabbed_count"],
+            "total": r["desired_count"],
+            "sessions": [{"name": s["name"], "exists": s["exists"]} for s in r["sessions"]]
+        }
+    
+    return jsonify({
+        "year": year,
+        "library_status": library_status
+    })
+
+
 @app.route("/manifest.json")
 def manifest():
     return jsonify({
@@ -687,8 +770,26 @@ def manifest():
         "background_color": "#000000",
         "theme_color": "#ff6600",
         "orientation": "any",
-        "icons": [{"src": "/assets/motogp_icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"}]
+        "icons": [
+            {
+                "src": "/assets/icon-192x192.png",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any maskable"
+            },
+            {
+                "src": "/assets/icon-512x512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable"
+            }
+        ]
     })
+
+
+@app.route("/sw.js")
+def service_worker():
+    return send_from_directory(str(SCRIPT_DIR / "static" / "js"), "sw.js", mimetype='application/javascript')
 
 
 @app.route("/assets/<path:filename>")

@@ -5,6 +5,13 @@
     <h2>Live Log Viewer</h2>
     
     <div class="log-controls">
+        <select id="log-level" onchange="filterLogs()">
+            <option value="all">All Levels</option>
+            <option value="debug">Debug+</option>
+            <option value="info" selected>Info+</option>
+            <option value="warning">Warning+</option>
+            <option value="error">Error Only</option>
+        </select>
         <button onclick="toggleAutoScroll()" id="auto-scroll-btn" class="small">📜 Auto-scroll: ON</button>
         <button onclick="clearLog()" class="small secondary">🗑️ Clear</button>
         <button onclick="reconnect()" class="small secondary">🔄 Reconnect</button>
@@ -17,6 +24,7 @@
     
     <div class="log-stats">
         <span id="line-count">0 lines</span>
+        <span id="filtered-count"></span>
         <span id="last-update">Last update: --</span>
     </div>
 </div>
@@ -27,7 +35,54 @@
     let eventSource = null;
     let autoScroll = true;
     let lineCount = 0;
+    let allLines = [];
     const maxLines = 1000;
+    
+    const logLevels = {
+        'debug': 0,
+        'info': 1,
+        'warning': 2,
+        'error': 3
+    };
+    
+    function getLineLevel(text) {
+        const upperText = text.toUpperCase();
+        if (upperText.includes('ERROR') || upperText.includes('CRITICAL')) return 'error';
+        if (upperText.includes('WARNING') || upperText.includes('WARN')) return 'warning';
+        if (upperText.includes('DEBUG')) return 'debug';
+        return 'info';
+    }
+    
+    function shouldShowLine(lineLevel, filterLevel) {
+        if (filterLevel === 'all') return true;
+        return logLevels[lineLevel] >= logLevels[filterLevel];
+    }
+    
+    function filterLogs() {
+        const filterLevel = document.getElementById('log-level').value;
+        const container = document.getElementById('log-content');
+        const viewer = document.getElementById('log-viewer');
+        
+        container.innerHTML = '';
+        let visibleCount = 0;
+        
+        allLines.forEach(line => {
+            if (shouldShowLine(line.level, filterLevel)) {
+                const div = document.createElement('div');
+                div.className = `log-line ${line.level}`;
+                div.textContent = line.text;
+                container.appendChild(div);
+                visibleCount++;
+            }
+        });
+        
+        document.getElementById('filtered-count').textContent = 
+            filterLevel !== 'all' ? `(showing ${visibleCount})` : '';
+        
+        if (autoScroll) {
+            viewer.scrollTop = viewer.scrollHeight;
+        }
+    }
     
     function connectToLog() {
         if (eventSource) {
@@ -59,37 +114,48 @@
     function appendLogLine(text) {
         const container = document.getElementById('log-content');
         const viewer = document.getElementById('log-viewer');
+        const filterLevel = document.getElementById('log-level').value;
         
         if (lineCount === 0) {
             container.innerHTML = '';
         }
         
-        const line = document.createElement('div');
-        line.className = 'log-line';
+        const level = getLineLevel(text);
         
-        if (text.includes('ERROR') || text.includes('Error')) {
-            line.classList.add('error');
-        } else if (text.includes('WARNING') || text.includes('Warning')) {
-            line.classList.add('warning');
-        } else if (text.includes('INFO')) {
-            line.classList.add('info');
-        } else if (text.includes('SUCCESS') || text.includes('✅') || text.includes('Grabbed')) {
-            line.classList.add('success');
-        }
-        
-        line.textContent = text;
-        container.appendChild(line);
+        // Store line
+        allLines.push({ text, level });
         lineCount++;
         
-        while (container.children.length > maxLines) {
-            container.removeChild(container.firstChild);
+        // Trim old lines
+        while (allLines.length > maxLines) {
+            allLines.shift();
         }
         
-        document.getElementById('line-count').textContent = `${Math.min(lineCount, maxLines)} lines`;
+        // Only display if matches filter
+        if (shouldShowLine(level, filterLevel)) {
+            const line = document.createElement('div');
+            line.className = `log-line ${level}`;
+            line.textContent = text;
+            container.appendChild(line);
+            
+            // Trim displayed lines
+            while (container.children.length > maxLines) {
+                container.removeChild(container.firstChild);
+            }
+            
+            if (autoScroll) {
+                viewer.scrollTop = viewer.scrollHeight;
+            }
+        }
+        
+        // Update stats
+        document.getElementById('line-count').textContent = `${allLines.length} lines`;
         document.getElementById('last-update').textContent = `Last: ${new Date().toLocaleTimeString()}`;
         
-        if (autoScroll) {
-            viewer.scrollTop = viewer.scrollHeight;
+        // Update filtered count
+        if (filterLevel !== 'all') {
+            const visibleCount = container.children.length;
+            document.getElementById('filtered-count').textContent = `(showing ${visibleCount})`;
         }
     }
     
@@ -102,12 +168,14 @@
     
     function clearLog() {
         document.getElementById('log-content').innerHTML = '';
+        allLines = [];
         lineCount = 0;
         document.getElementById('line-count').textContent = '0 lines';
+        document.getElementById('filtered-count').textContent = '';
     }
     
     function reconnect() {
-        lineCount = 0;
+        clearLog();
         connectToLog();
     }
     
