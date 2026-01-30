@@ -6,7 +6,7 @@
     
     <div class="log-controls">
         <button onclick="toggleAutoScroll()" id="auto-scroll-btn" class="small">📜 Auto-scroll: ON</button>
-        <button onclick="clearLog()" class="small secondary">🗑️ Clear Display</button>
+        <button onclick="clearLog()" class="small secondary">🗑️ Clear</button>
         <button onclick="reconnect()" class="small secondary">🔄 Reconnect</button>
         <span id="connection-status" class="connection-status connected">● Connected</span>
     </div>
@@ -23,51 +23,6 @@
 {% endblock %}
 
 {% block scripts %}
-<style>
-    .log-controls {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        margin-bottom: 15px;
-        flex-wrap: wrap;
-    }
-    .log-viewer {
-        background: #050508;
-        border: 1px solid #1a1a2e;
-        border-radius: 5px;
-        padding: 15px;
-        font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-        font-size: 12px;
-        height: 500px;
-        overflow-y: auto;
-        color: #0f0;
-    }
-    .log-viewer .log-line {
-        white-space: pre-wrap;
-        word-wrap: break-word;
-        line-height: 1.4;
-        padding: 1px 0;
-    }
-    .log-viewer .log-line.error { color: #e74c3c; }
-    .log-viewer .log-line.warning { color: #f39c12; }
-    .log-viewer .log-line.info { color: #3498db; }
-    .log-viewer .log-line.success { color: #27ae60; }
-    .log-stats {
-        display: flex;
-        justify-content: space-between;
-        margin-top: 10px;
-        font-size: 12px;
-        color: #666;
-    }
-    .connection-status {
-        font-size: 12px;
-        padding: 3px 8px;
-        border-radius: 10px;
-    }
-    .connection-status.connected { color: #27ae60; }
-    .connection-status.disconnected { color: #e74c3c; }
-</style>
-
 <script>
     let eventSource = null;
     let autoScroll = true;
@@ -97,8 +52,6 @@
         eventSource.onerror = function() {
             statusEl.className = 'connection-status disconnected';
             statusEl.textContent = '● Disconnected';
-            
-            // Try to reconnect after 5 seconds
             setTimeout(connectToLog, 5000);
         };
     }
@@ -107,7 +60,6 @@
         const container = document.getElementById('log-content');
         const viewer = document.getElementById('log-viewer');
         
-        // Clear initial message
         if (lineCount === 0) {
             container.innerHTML = '';
         }
@@ -115,7 +67,6 @@
         const line = document.createElement('div');
         line.className = 'log-line';
         
-        // Color code based on content
         if (text.includes('ERROR') || text.includes('Error')) {
             line.classList.add('error');
         } else if (text.includes('WARNING') || text.includes('Warning')) {
@@ -130,16 +81,13 @@
         container.appendChild(line);
         lineCount++;
         
-        // Trim old lines
         while (container.children.length > maxLines) {
             container.removeChild(container.firstChild);
         }
         
-        // Update stats
-        document.getElementById('line-count').textContent = `${lineCount} lines`;
-        document.getElementById('last-update').textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+        document.getElementById('line-count').textContent = `${Math.min(lineCount, maxLines)} lines`;
+        document.getElementById('last-update').textContent = `Last: ${new Date().toLocaleTimeString()}`;
         
-        // Auto-scroll
         if (autoScroll) {
             viewer.scrollTop = viewer.scrollHeight;
         }
@@ -159,19 +107,18 @@
     }
     
     function reconnect() {
+        lineCount = 0;
         connectToLog();
     }
     
-    // Start connection on page load
-    window.onload = function() {
+    window.addEventListener('load', function() {
         connectToLog();
-    };
+    });
     
-    // Clean up on page unload
-    window.onbeforeunload = function() {
+    window.addEventListener('beforeunload', function() {
         if (eventSource) {
             eventSource.close();
         }
-    };
+    });
 </script>
 {% endblock %}

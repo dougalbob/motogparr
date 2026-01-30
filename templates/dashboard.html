@@ -5,52 +5,64 @@
 <div class="card">
     <h2>Quick Actions</h2>
     <div class="quick-buttons">
-        <button onclick="runCommand('status')" {{ 'disabled' if status.running }}>📊 Check Status</button>
-        <button onclick="runCommand('scheduled')" {{ 'disabled' if status.running }}>🔍 Run Scheduled Check</button>
-        <button onclick="runCommand('scheduled --dry-run')" class="secondary" {{ 'disabled' if status.running }}>👁️ Scheduled (Dry Run)</button>
-        <button onclick="refreshOutput()" class="secondary">🔄 Refresh Output</button>
+        <button onclick="runCommand('status')" {{ 'disabled' if status.running }}>📊 Status</button>
+        <button onclick="runCommand('scheduled')" {{ 'disabled' if status.running }}>🔍 Scheduled</button>
+        <button onclick="runCommand('scheduled --dry-run')" class="secondary" {{ 'disabled' if status.running }}>👁️ Dry Run</button>
+        <button onclick="refreshOutput()" class="secondary">🔄 Refresh</button>
     </div>
 </div>
 
-<!-- Backfill & Overlay -->
-<div class="card">
-    <h2>Backfill & Overlay Tools</h2>
-    <div class="form-group">
-        <label>Season</label>
-        <select id="season" onchange="updateRounds()">
-            {% for year in seasons %}<option value="{{ year }}" {{ 'selected' if year == 2025 }}>{{ year }}</option>{% endfor %}
-        </select>
+<!-- Backfill - Collapsible -->
+<div class="card collapsible">
+    <div class="card-header" onclick="toggleCollapse(this)">
+        <h2>🚀 Backfill</h2>
+        <span class="collapse-icon">▼</span>
     </div>
-    <div class="form-group">
-        <label>Round (optional)</label>
-        <select id="round">
-            <option value="">All Rounds</option>
-        </select>
+    <div class="card-body">
+        <div class="form-group">
+            <label>Season</label>
+            <select id="season" onchange="updateRounds()">
+                {% for year in seasons %}<option value="{{ year }}" {{ 'selected' if year == 2025 }}>{{ year }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Round (optional)</label>
+            <select id="round">
+                <option value="">All Rounds</option>
+            </select>
+        </div>
+        <div class="form-group checkbox-group">
+            <input type="checkbox" id="force">
+            <label for="force">Force retry failed searches</label>
+        </div>
+        <div class="form-group checkbox-group">
+            <input type="checkbox" id="dry-run">
+            <label for="dry-run">Dry run (don't actually grab)</label>
+        </div>
+        
+        <div class="button-row">
+            <button onclick="runBackfill()" {{ 'disabled' if status.running }}>🚀 Run Backfill</button>
+        </div>
     </div>
-    <div class="form-group checkbox-group">
-        <input type="checkbox" id="force">
-        <label for="force">Force retry failed searches</label>
+</div>
+
+<!-- Overlay Tools - Collapsible -->
+<div class="card collapsible collapsed">
+    <div class="card-header" onclick="toggleCollapse(this)">
+        <h2>🎨 Overlay Tools</h2>
+        <span class="collapse-icon">▼</span>
     </div>
-    <div class="form-group checkbox-group">
-        <input type="checkbox" id="dry-run">
-        <label for="dry-run">Dry run (don't actually grab)</label>
-    </div>
-    
-    <div class="button-row">
-        <button onclick="runBackfill()" {{ 'disabled' if status.running }}>🚀 Run Backfill</button>
-    </div>
-    
-    <hr style="border-color: #1a1a2e; margin: 20px 0;">
-    
-    <h3>Overlay Scaling</h3>
-    <div class="inline-form">
-        <label for="scale-factor">Scale Factor:</label>
-        <input type="number" id="scale-factor" min="0.5" max="3.0" step="0.1" value="1.0">
-        <span style="color: #666; font-size: 14px;">(0.5 - 3.0)</span>
-    </div>
-    <div class="button-row">
-        <button onclick="runOverlay()" class="warning" {{ 'disabled' if status.running }}>🎨 Apply Overlays</button>
-        <button onclick="runOverlay(true)" class="secondary" {{ 'disabled' if status.running }}>👁️ Overlay (Dry Run)</button>
+    <div class="card-body">
+        <div class="inline-form">
+            <label for="scale-factor">Scale Factor:</label>
+            <input type="number" id="scale-factor" min="0.5" max="3.0" step="0.1" value="1.0">
+            <span style="color: #666; font-size: 14px;">(0.5 - 3.0)</span>
+        </div>
+        <div class="button-row">
+            <button onclick="runOverlay()" class="warning" {{ 'disabled' if status.running }}>🎨 Apply Overlays</button>
+            <button onclick="runOverlay(true)" class="secondary" {{ 'disabled' if status.running }}>👁️ Dry Run</button>
+        </div>
+        <p class="help-text">Uses Season/Round selection from Backfill section above.</p>
     </div>
 </div>
 
@@ -66,10 +78,10 @@
 <script>
     const calendarData = {{ calendar_data | tojson }};
     
-    window.onload = function() {
+    window.addEventListener('load', function() {
         updateRounds();
         scrollOutputToBottom();
-    };
+    });
     
     function updateRounds() {
         const season = document.getElementById('season').value;
