@@ -27,6 +27,8 @@ COPY motogp_discord.py .
 COPY motogp_plex_tagger.py .
 COPY motogp_overlay_utility.py .
 COPY motogp_webui.py .
+COPY templates/ ./templates/
+COPY static/ ./static/
 COPY entrypoint.sh .
 
 RUN chmod +x entrypoint.sh *.py

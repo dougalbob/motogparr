@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <!-- Sub-tabs -->
+    <div class="sub-tabs">
+        <button class="sub-tab active" onclick="showSubTab('grabbing')">Grabbing</button>
+        <button class="sub-tab" onclick="showSubTab('app-config')">App Config</button>
+    </div>
+    
+    <!-- Grabbing Sub-tab -->
+    <div id="grabbing-subtab" class="sub-tab-content active">
+        <div class="save-notice" id="save-notice">✅ Settings saved successfully!</div>
+        
+        <h2>Grabbing Settings</h2>
+        <div class="form-group inline-form">
+            <label for="max-grabs">Max grabs per run:</label>
+            <input type="number" id="max-grabs" min="1" max="50" value="{{ settings.max_grabs_per_run }}">
+            <span style="color: #666; font-size: 14px;">Limits how many sessions are grabbed in one scheduled run</span>
+        </div>
+        
+        <h2 style="margin-top: 30px;">Desired Sessions</h2>
+        <p style="color: #666; margin-bottom: 20px;">Select which session types to search for and download.</p>
+        <div class="sessions-grid">
+            {% for group_name, session_keys in session_groups.items() %}
+            <div class="session-group">
+                <h3>{{ group_name }}</h3>
+                {% for key in session_keys %}
+                {% if key in session_types %}
+                <div class="checkbox-group">
+                    <input type="checkbox" id="session-{{ key }}" data-session="{{ key }}"
+                           {{ 'checked' if settings.sessions.get(key, session_types[key].default) }}>
+                    <label for="session-{{ key }}">{{ session_types[key].name }}</label>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% endfor %}
+        </div>
+        <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <button onclick="saveSettings()" class="success">💾 Save Settings</button>
+            <button onclick="selectAll(true)" class="secondary">Select All</button>
+            <button onclick="selectAll(false)" class="secondary">Deselect All</button>
+            <button onclick="resetDefaults()" class="secondary">Reset Defaults</button>
+        </div>
+    </div>
+    
+    <!-- App Config Sub-tab -->
+    <div id="app-config-subtab" class="sub-tab-content">
+        <div class="save-notice" id="config-save-notice">✅ Configuration saved successfully!</div>
+        <div class="validation-status" id="config-validation"></div>
+        
+        <h2>Application Configuration</h2>
+        <p style="color: #666; margin-bottom: 20px;">Configure connections to Prowlarr, SABnzbd, and Plex.</p>
+        
+        <!-- Prowlarr -->
+        <div class="config-section">
+            <h3>🔍 Prowlarr</h3>
+            <div class="config-row">
+                <div class="config-field">
+                    <label for="cfg-prowlarr-url">URL</label>
+                    <input type="text" id="cfg-prowlarr-url" placeholder="http://192.168.1.100:9696">
+                    <div class="config-help">Prowlarr server URL including port</div>
+                </div>
+                <div class="config-field">
+                    <label for="cfg-prowlarr-key">API Key</label>
+                    <div class="input-with-toggle">
+                        <input type="password" id="cfg-prowlarr-key" placeholder="API Key">
+                        <button type="button" class="toggle-visibility" onclick="togglePassword('cfg-prowlarr-key')">👁️</button>
+                    </div>
+                    <div class="config-help">Found in Prowlarr → Settings → General</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- SABnzbd -->
+        <div class="config-section">
+            <h3>📥 SABnzbd</h3>
+            <div class="config-row">
+                <div class="config-field">
+                    <label for="cfg-sabnzbd-url">URL</label>
+                    <input type="text" id="cfg-sabnzbd-url" placeholder="http://192.168.1.100:8080">
+                    <div class="config-help">SABnzbd server URL including port</div>
+                </div>
+                <div class="config-field">
+                    <label for="cfg-sabnzbd-key">API Key</label>
+                    <div class="input-with-toggle">
+                        <input type="password" id="cfg-sabnzbd-key" placeholder="API Key">
+                        <button type="button" class="toggle-visibility" onclick="togglePassword('cfg-sabnzbd-key')">👁️</button>
+                    </div>
+                    <div class="config-help">Found in SABnzbd → Config → General</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Plex -->
+        <div class="config-section">
+            <h3>🎬 Plex</h3>
+            <div class="config-row">
+                <div class="config-field">
+                    <label for="cfg-plex-url">URL</label>
+                    <input type="text" id="cfg-plex-url" placeholder="http://192.168.1.100:32400">
+                    <div class="config-help">Plex server URL including port</div>
+                </div>
+                <div class="config-field">
+                    <label for="cfg-plex-token">Token</label>
+                    <div class="input-with-toggle">
+                        <input type="password" id="cfg-plex-token" placeholder="Plex Token">
+                        <button type="button" class="toggle-visibility" onclick="togglePassword('cfg-plex-token')">👁️</button>
+                    </div>
+                    <div class="config-help"><a href="https://support.plex.tv/articles/204059436" target="_blank" style="color: #ff6600;">How to find your Plex token</a></div>
+                </div>
+            </div>
+            <div class="config-row">
+                <div class="config-field">
+                    <label for="cfg-plex-library-id">Library ID</label>
+                    <input type="text" id="cfg-plex-library-id" placeholder="16">
+                    <div class="config-help">Section ID from Plex URL</div>
+                </div>
+                <div class="config-field">
+                    <label for="cfg-plex-library-name">Library Name</label>
+                    <input type="text" id="cfg-plex-library-name" placeholder="Motorsport - MotoGP">
+                    <div class="config-help">Display name of your MotoGP library in Plex</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Library Paths -->
+        <div class="config-section">
+            <h3>📂 Library Paths</h3>
+            <p style="color: #888; font-size: 13px; margin-bottom: 15px;">
+                Paths inside this container (must match your volume mounts).
+            </p>
+            <div class="config-row">
+                <div class="config-field">
+                    <label for="cfg-motogp-path">MotoGP Library Path</label>
+                    <input type="text" id="cfg-motogp-path" placeholder="/media/Motorsport/MotoGP">
+                    <div class="config-help">Where MotoGP content is stored (inside container)</div>
+                </div>
+                <div class="config-field">
+                    <label for="cfg-downloads-path">Downloads Path</label>
+                    <input type="text" id="cfg-downloads-path" placeholder="/downloads/complete/motogp">
+                    <div class="config-help">Where SABnzbd puts completed MotoGP downloads</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Discord -->
+        <div class="config-section">
+            <h3>💬 Discord (Optional)</h3>
+            <div class="config-row">
+                <div class="config-field" style="flex: 2;">
+                    <label for="cfg-discord-webhook">Webhook URL</label>
+                    <div class="input-with-toggle">
+                        <input type="password" id="cfg-discord-webhook" placeholder="https://discord.com/api/webhooks/...">
+                        <button type="button" class="toggle-visibility" onclick="togglePassword('cfg-discord-webhook')">👁️</button>
+                    </div>
+                    <div class="config-help">Discord webhook for notifications (leave empty to disable)</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Timezone -->
+        <div class="config-section">
+            <h3>🕐 Timezone</h3>
+            <div class="config-row">
+                <div class="config-field">
+                    <label for="cfg-timezone">Timezone</label>
+                    <input type="text" id="cfg-timezone" placeholder="Europe/London">
+                    <div class="config-help">Container timezone (e.g., Europe/London, America/New_York)</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <button onclick="saveAppConfig()" class="success">💾 Save Configuration</button>
+            <button onclick="testConnections()" class="secondary">🔌 Test Connections</button>
+            <button onclick="loadAppConfig()" class="secondary">🔄 Reload</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const sessionDefaults = {{ session_defaults | tojson }};
+    
+    window.onload = function() {
+        // Load app config when switching to that tab
+    };
+    
+    function showSubTab(tabName) {
+        document.querySelectorAll('.sub-tab-content').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+        document.getElementById(tabName + '-subtab').classList.add('active');
+        event.target.classList.add('active');
+        
+        if (tabName === 'app-config') {
+            loadAppConfig();
+        }
+    }
+    
+    function saveSettings() {
+        const sessions = {};
+        document.querySelectorAll('[data-session]').forEach(cb => {
+            sessions[cb.dataset.session] = cb.checked;
+        });
+        
+        const settings = {
+            max_grabs_per_run: parseInt(document.getElementById('max-grabs').value) || 22,
+            sessions: sessions
+        };
+        
+        fetch('/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(settings)
+        }).then(r => r.json()).then(data => {
+            showNotice('save-notice');
+        });
+    }
+    
+    function selectAll(checked) {
+        document.querySelectorAll('[data-session]').forEach(cb => cb.checked = checked);
+    }
+    
+    function resetDefaults() {
+        document.querySelectorAll('[data-session]').forEach(cb => {
+            cb.checked = sessionDefaults[cb.dataset.session] || false;
+        });
+        document.getElementById('max-grabs').value = 22;
+    }
+    
+    function loadAppConfig() {
+        fetch('/app-config')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('cfg-prowlarr-url').value = data.prowlarr?.url || '';
+                document.getElementById('cfg-prowlarr-key').value = data.prowlarr?.api_key || '';
+                document.getElementById('cfg-sabnzbd-url').value = data.sabnzbd?.url || '';
+                document.getElementById('cfg-sabnzbd-key').value = data.sabnzbd?.api_key || '';
+                document.getElementById('cfg-plex-url').value = data.plex?.url || '';
+                document.getElementById('cfg-plex-token').value = data.plex?.token || '';
+                document.getElementById('cfg-plex-library-id').value = data.plex?.library_id || '';
+                document.getElementById('cfg-plex-library-name').value = data.plex?.library_name || '';
+                document.getElementById('cfg-motogp-path').value = data.library?.motogp_path || '';
+                document.getElementById('cfg-downloads-path').value = data.library?.downloads_path || '';
+                document.getElementById('cfg-discord-webhook').value = data.discord?.webhook_url || '';
+                document.getElementById('cfg-timezone').value = data.timezone || 'Europe/London';
+                
+                updateValidationStatus(data.validation);
+            });
+    }
+    
+    function updateValidationStatus(validation) {
+        const el = document.getElementById('config-validation');
+        if (!validation) {
+            el.style.display = 'none';
+            return;
+        }
+        
+        el.style.display = 'block';
+        if (validation.valid) {
+            el.className = 'validation-status valid';
+            el.innerHTML = '✅ All required settings configured';
+        } else {
+            el.className = 'validation-status invalid';
+            el.innerHTML = '⚠️ Missing: ' + validation.missing.join(', ');
+        }
+    }
+    
+    function saveAppConfig() {
+        const config = {
+            prowlarr: {
+                url: document.getElementById('cfg-prowlarr-url').value,
+                api_key: document.getElementById('cfg-prowlarr-key').value
+            },
+            sabnzbd: {
+                url: document.getElementById('cfg-sabnzbd-url').value,
+                api_key: document.getElementById('cfg-sabnzbd-key').value
+            },
+            plex: {
+                url: document.getElementById('cfg-plex-url').value,
+                token: document.getElementById('cfg-plex-token').value,
+                library_id: document.getElementById('cfg-plex-library-id').value,
+                library_name: document.getElementById('cfg-plex-library-name').value
+            },
+            library: {
+                motogp_path: document.getElementById('cfg-motogp-path').value,
+                downloads_path: document.getElementById('cfg-downloads-path').value
+            },
+            discord: {
+                webhook_url: document.getElementById('cfg-discord-webhook').value
+            },
+            timezone: document.getElementById('cfg-timezone').value
+        };
+        
+        fetch('/app-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(config)
+        })
+        .then(r => r.json())
+        .then(data => {
+            showNotice('config-save-notice');
+            if (data.validation) {
+                updateValidationStatus(data.validation);
+            }
+        });
+    }
+    
+    function testConnections() {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '⏳ Testing...';
+        
+        fetch('/test-connections')
+            .then(r => r.json())
+            .then(data => {
+                let msg = 'Connection Test Results:\n\n';
+                msg += `Prowlarr: ${data.prowlarr ? '✅ Connected' : '❌ Failed'}\n`;
+                msg += `SABnzbd: ${data.sabnzbd ? '✅ Connected' : '❌ Failed'}\n`;
+                msg += `Plex: ${data.plex ? '✅ Connected' : '❌ Failed'}\n`;
+                
+                if (data.errors && data.errors.length > 0) {
+                    msg += '\nErrors:\n' + data.errors.join('\n');
+                }
+                
+                alert(msg);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '🔌 Test Connections';
+            });
+    }
+    
+    function showNotice(id) {
+        const notice = document.getElementById(id);
+        notice.classList.add('show');
+        setTimeout(() => notice.classList.remove('show'), 3000);
+    }
+</script>
+{% endblock %}

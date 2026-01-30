@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MotoGParr</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#ff6600">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <h1>🏍️ MotoGParr</h1>
+    
+    <!-- Next Race Countdown -->
+    <div class="next-race {{ 'race-now' if next_race.status == 'now' }}">
+        <div class="next-race-info">
+            <div class="next-race-title">
+                {% if next_race.status == 'now' %}🏁 Race Weekend In Progress
+                {% else %}🏍️ Next Race Weekend{% endif %}
+            </div>
+            <div class="next-race-venue">{{ next_race.venue }}</div>
+            {% if next_race.round %}
+            <div class="next-race-round">Round {{ next_race.round }} • {{ next_race.date }}</div>
+            {% endif %}
+        </div>
+        <div class="next-race-countdown">
+            {% if next_race.status == 'now' %}
+                <div class="countdown-number">🟢 LIVE</div>
+                <div class="countdown-label">Race Weekend Now!</div>
+            {% elif next_race.days is not none %}
+                <div class="countdown-number">{{ next_race.days }}</div>
+                <div class="countdown-label">{{ 'day' if next_race.days == 1 else 'days' }} until Friday</div>
+            {% else %}
+                <div class="countdown-label">{{ next_race.countdown }}</div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="status {{ 'running' if status.running else 'ready' }}">
+        {% if status.running %}⏳ Running: {{ status.command }}
+        {% else %}✅ Ready{% endif %}
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <a href="/" class="tab {{ 'active' if active_tab == 'commands' }}">Commands</a>
+        <a href="/library" class="tab {{ 'active' if active_tab == 'library' }}">Library</a>
+        <a href="/settings-page" class="tab {{ 'active' if active_tab == 'settings' }}">Settings</a>
+        <a href="/logs" class="tab {{ 'active' if active_tab == 'logs' }}">Logs</a>
+    </div>
+
+    {% block content %}{% endblock %}
+
+    <script>
+        const isRunning = {{ 'true' if status.running else 'false' }};
+        {% if status.running %}
+        setTimeout(() => location.reload(), 3000);
+        {% endif %}
+    </script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

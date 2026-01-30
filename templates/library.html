@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Library Status</h2>
+    
+    <div class="library-filter">
+        <label>Season:</label>
+        <select id="library-season" onchange="loadLibraryStatus()">
+            {% for year in seasons %}<option value="{{ year }}" {{ 'selected' if year == 2025 }}>{{ year }}</option>{% endfor %}
+        </select>
+        <label>Round:</label>
+        <select id="library-round" onchange="loadLibraryStatus()">
+            <option value="">All Rounds</option>
+        </select>
+        <button onclick="loadLibraryStatus()" class="secondary small">🔄 Refresh</button>
+    </div>
+    
+    <div id="library-content">
+        <p style="color: #666;">Loading library status...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const calendarData = {{ calendar_data | tojson }};
+    
+    window.onload = function() {
+        updateLibraryRounds();
+        loadLibraryStatus();
+    };
+    
+    function updateLibraryRounds() {
+        const season = document.getElementById('library-season').value;
+        const roundSelect = document.getElementById('library-round');
+        const rounds = calendarData[season] || [];
+        
+        roundSelect.innerHTML = '<option value="">All Rounds</option>';
+        rounds.forEach(r => {
+            roundSelect.innerHTML += `<option value="${r.number}">Round ${r.number} - ${r.venue}</option>`;
+        });
+    }
+    
+    function loadLibraryStatus() {
+        const season = document.getElementById('library-season').value;
+        const round = document.getElementById('library-round').value;
+        updateLibraryRounds();
+        
+        fetch(`/library-status?season=${season}&round=${round}`)
+            .then(r => r.json())
+            .then(data => renderLibraryStatus(data));
+    }
+    
+    function renderLibraryStatus(data) {
+        const container = document.getElementById('library-content');
+        
+        if (!data.rounds || data.rounds.length === 0) {
+            container.innerHTML = '<p style="color: #666;">No past rounds found for this season.</p>';
+            return;
+        }
+        
+        const pct = data.total_desired > 0 ? Math.round(data.total_grabbed / data.total_desired * 100) : 0;
+        
+        let html = `
+            <div class="library-summary">
+                <div class="library-summary-number">${data.total_grabbed} / ${data.total_desired}</div>
+                <div class="library-summary-label">Sessions in Library (${pct}%)</div>
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" style="width: ${pct}%"></div>
+                </div>
+            </div>
+        `;
+        
+        data.rounds.forEach(round => {
+            const roundPct = round.desired_count > 0 ? Math.round(round.grabbed_count / round.desired_count * 100) : 0;
+            const hasMissing = round.grabbed_count < round.desired_count;
+            
+            html += `
+                <div class="library-round">
+                    <div class="library-round-header">
+                        <div>
+                            <span class="library-round-title">Round ${round.number} - ${round.venue}</span>
+                            <span class="library-round-stats">${round.date}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="library-round-stats">${round.grabbed_count}/${round.desired_count} (${roundPct}%)</span>
+                            ${hasMissing ? `<button class="small warning" ${isRunning ? "disabled" : ""} onclick="grabMissing(${round.number})">Grab Missing</button>` : ''}
+                        </div>
+                    </div>
+                    <div class="library-sessions">
+            `;
+            
+            round.sessions.forEach(session => {
+                const cls = session.exists ? 'exists' : 'missing';
+                const icon = session.exists ? '✅' : '❌';
+                html += `<div class="library-session ${cls}">${icon} ${session.name}</div>`;
+            });
+            
+            html += '</div></div>';
+        });
+        
+        container.innerHTML = html;
+    }
+    
+    function grabMissing(roundNum) {
+        const season = document.getElementById('library-season').value;
+        runCommand(`backfill --season ${season} --round ${roundNum} --force`);
+    }
+</script>
+{% endblock %}
