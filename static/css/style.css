@@ -1402,3 +1402,507 @@ button.small { padding: 6px 10px; font-size: 11px; }
         font-size: 8px;
     }
 }
+
+/* ============================================
+   NEW COMPACT RACE BANNER
+   ============================================ */
+.next-race-banner {
+    background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 50%, #0d0d14 100%);
+    border: 1px solid #3a3a4e;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin: 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.next-race-banner.race-now {
+    background: linear-gradient(135deg, #1e4a3a 0%, #1a3a2e 50%, #0d1a14 100%);
+    border-color: #27ae60;
+}
+
+.flag-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid #4a4a5e;
+    flex-shrink: 0;
+    background: #1a1a2e;
+}
+
+.flag-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.race-now .flag-avatar {
+    border-color: #27ae60;
+    box-shadow: 0 0 10px rgba(39, 174, 96, 0.3);
+}
+
+.race-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.race-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #888;
+    margin-bottom: 2px;
+}
+
+.live-badge {
+    background: #27ae60;
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+    animation: pulse 2s infinite;
+}
+
+.race-venue {
+    font-size: 20px;
+    font-weight: bold;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.race-details {
+    font-size: 12px;
+    color: #888;
+    margin-top: 2px;
+}
+
+.race-countdown {
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.countdown-number {
+    font-size: 32px;
+    font-weight: bold;
+    color: #ff6600;
+    line-height: 1;
+}
+
+.countdown-label {
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+}
+
+/* Mobile adjustments for banner */
+@media (max-width: 768px) {
+    .next-race-banner {
+        padding: 10px 12px;
+        gap: 10px;
+    }
+    
+    .flag-avatar {
+        width: 42px;
+        height: 42px;
+    }
+    
+    .race-venue {
+        font-size: 17px;
+    }
+    
+    .countdown-number {
+        font-size: 26px;
+    }
+    
+    .race-title {
+        font-size: 10px;
+    }
+    
+    .race-details {
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 380px) {
+    .flag-avatar {
+        width: 36px;
+        height: 36px;
+    }
+    
+    .race-venue {
+        font-size: 15px;
+    }
+    
+    .countdown-number {
+        font-size: 22px;
+    }
+}
+
+/* ============================================
+   STICKY BANNER
+   ============================================ */
+.next-race-banner {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+/* When sticky banner is disabled */
+.next-race-banner.no-sticky {
+    position: relative;
+}
+
+/* Add some shadow when stuck */
+.next-race-banner.stuck {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* Adjust body padding for mobile to account for both sticky elements */
+@media (max-width: 768px) {
+    .content-wrapper {
+        padding-top: 0;
+    }
+}
+
+/* ============================================
+   LIBRARY ENHANCEMENTS
+   ============================================ */
+
+/* Small flag in round header */
+.round-flag-small {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #3a3a4e;
+    flex-shrink: 0;
+}
+
+.round-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.round-header-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.library-round-date {
+    font-size: 11px;
+    color: #666;
+}
+
+.round-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* Mini progress bar in collapsed header */
+.round-progress-mini {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.round-progress-bar {
+    width: 60px;
+    height: 6px;
+    background: #1a1a2e;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.round-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ff6600, #27ae60);
+    transition: width 0.3s;
+}
+
+.round-progress-text {
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+}
+
+/* Collapsed by default, expanded on click */
+.library-round-details {
+    display: none;
+    padding: 12px;
+    border-top: 1px solid #1a1a2e;
+}
+
+.library-round.expanded .library-round-details {
+    display: block;
+}
+
+.library-round .round-expand-icon {
+    transition: transform 0.3s;
+}
+
+.library-round.expanded .round-expand-icon {
+    transform: rotate(180deg);
+}
+
+/* Session checkboxes */
+.library-session.missing {
+    padding: 0;
+}
+
+.session-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.session-checkbox-label:hover {
+    background: rgba(255, 102, 0, 0.1);
+}
+
+.session-checkbox {
+    display: none;
+}
+
+.checkbox-custom {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #3a3a4e;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+}
+
+.session-checkbox:checked + .checkbox-custom {
+    background: #ff6600;
+    border-color: #ff6600;
+}
+
+.session-checkbox:checked + .checkbox-custom::after {
+    content: '✓';
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.session-name {
+    flex: 1;
+}
+
+/* Sticky download bar */
+.sticky-download-bar {
+    position: fixed;
+    bottom: 70px;
+    left: 0;
+    right: 0;
+    background: linear-gradient(135deg, #1a1a2e 0%, #0d0d14 100%);
+    border-top: 1px solid #ff6600;
+    padding: 12px 20px;
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+    z-index: 99;
+}
+
+.sticky-download-bar.visible {
+    transform: translateY(0);
+}
+
+.download-bar-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.selected-count {
+    color: #ff6600;
+    font-weight: bold;
+}
+
+/* Warning modal additions */
+.modal-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 15px 20px;
+    border-top: 1px solid #1a1a2e;
+}
+
+.failed-sessions-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin: 15px 0;
+}
+
+.failed-session-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(231, 76, 60, 0.1);
+    border-left: 3px solid #e74c3c;
+    margin-bottom: 5px;
+    border-radius: 0 4px 4px 0;
+}
+
+.failed-name {
+    color: #fff;
+}
+
+.failed-reason {
+    color: #888;
+    font-size: 12px;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .round-progress-bar {
+        width: 40px;
+    }
+    
+    .round-progress-text {
+        font-size: 10px;
+    }
+    
+    .round-flag-small {
+        width: 24px;
+        height: 24px;
+    }
+    
+    .sticky-download-bar {
+        bottom: 60px;
+        padding: 10px 15px;
+    }
+    
+    .selected-count {
+        font-size: 13px;
+    }
+    
+    #download-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+}
+
+/* ============================================
+   PLEX BRANDING
+   ============================================ */
+.section-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.plex-logo {
+    height: 24px;
+    width: auto;
+}
+
+.bottom-nav-icon-svg {
+    width: 22px;
+    height: 22px;
+    margin-bottom: 2px;
+}
+
+@media (max-width: 768px) {
+    .plex-logo {
+        height: 20px;
+    }
+    
+    .bottom-nav-icon-svg {
+        width: 18px;
+        height: 18px;
+    }
+}
+
+/* Plex wide logo (branded text) */
+.plex-logo-wide {
+    height: 28px;
+    width: auto;
+}
+
+@media (max-width: 768px) {
+    .plex-logo-wide {
+        height: 24px;
+    }
+}
+
+/* ============================================
+   CALENDAR MODAL ENHANCEMENTS
+   ============================================ */
+.race-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.modal-flag-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #4a4a5e;
+    flex-shrink: 0;
+}
+
+.race-detail-info {
+    flex: 1;
+}
+
+.race-detail-info .race-round {
+    font-size: 12px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.race-detail-info .race-venue {
+    font-size: 22px;
+    font-weight: bold;
+    color: #fff;
+    margin: 3px 0;
+}
+
+.race-detail-info .race-date {
+    font-size: 13px;
+    color: #888;
+}
+
+.race-sessions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 15px 0;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.race-sessions-list .library-session {
+    border-radius: 4px;
+}
+
+.race-sessions-list .library-session.exists {
+    padding: 8px 10px;
+}
+
+#calendar-download-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

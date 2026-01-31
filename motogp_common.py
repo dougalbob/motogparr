@@ -542,16 +542,16 @@ FEATURE_RACE_SESSIONS: Set[SessionType] = {
 
 # Default desired sessions configuration
 DEFAULT_DESIRED_SESSIONS: Dict[SessionType, bool] = {
-    SessionType.MOTOGP_PRESS_CONFERENCE: True,
-    SessionType.MOTO3_FP1: True,
+    SessionType.MOTOGP_PRESS_CONFERENCE: False,
+    SessionType.MOTO3_FP1: False,
     SessionType.MOTOGP_FP1: True,
-    SessionType.MOTO2_FP1: True,
-    SessionType.MOTO3_PRACTICE: True,
+    SessionType.MOTO2_FP1: False,
+    SessionType.MOTO3_PRACTICE: False,
     SessionType.MOTOGP_PRACTICE: True,
     SessionType.MOTO2_PRACTICE: True,
-    SessionType.MOTO3_FP2: True,
+    SessionType.MOTO3_FP2: False,
     SessionType.MOTOGP_FP2: True,
-    SessionType.MOTO2_FP2: True,
+    SessionType.MOTO2_FP2: False,
     SessionType.MOTO3_Q1: True,
     SessionType.MOTO3_Q2: True,
     SessionType.MOTOGP_Q1: True,
@@ -563,7 +563,7 @@ DEFAULT_DESIRED_SESSIONS: Dict[SessionType, bool] = {
     SessionType.MOTO3_RACE: True,
     SessionType.MOTO2_RACE: True,
     SessionType.MOTOGP_RACE: True,
-    SessionType.MOTOGP_CHEQUERED_FLAG: True,
+    SessionType.MOTOGP_CHEQUERED_FLAG: False,
 }
 
 def get_desired_sessions() -> Dict[SessionType, bool]:

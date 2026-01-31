@@ -143,11 +143,15 @@ def get_next_race_info() -> dict:
                 )
                 weekend_end = race_date + timedelta(days=1)
                 
+                # Format date as DD-MM-YYYY
+                formatted_date = race_date.strftime("%d-%m-%Y")
+                
                 if weekend_start <= today <= weekend_end:
                     return {
                         "round": r.get("round"),
                         "venue": r.get("venue"),
-                        "date": race_date_str,
+                        "date": formatted_date,
+                        "flag": r.get("flag", ""),
                         "status": "now",
                         "countdown": "Race Weekend Now!",
                         "days": 0
@@ -169,7 +173,8 @@ def get_next_race_info() -> dict:
                     return {
                         "round": r.get("round"),
                         "venue": r.get("venue"),
-                        "date": race_date_str,
+                        "date": formatted_date,
+                        "flag": r.get("flag", ""),
                         "status": "upcoming",
                         "countdown": countdown,
                         "days": days_until
@@ -181,10 +186,12 @@ def get_next_race_info() -> dict:
         "round": None,
         "venue": "No upcoming races",
         "date": None,
+        "flag": "",
         "status": "none",
         "countdown": "Season ended",
         "days": None
     }
+
 
 
 def load_webui_settings():
@@ -478,6 +485,14 @@ def library():
     next_race = get_next_race_info()
     calendar_data = {str(year): get_rounds_for_season(year) for year in SEASONS}
     
+    # Build flag data per season
+    flag_data = {}
+    for year in SEASONS:
+        flag_data[str(year)] = {}
+        cal = load_calendar_data(year)
+        for r in cal.get("rounds", []):
+            flag_data[str(year)][r.get("round")] = r.get("flag", "")
+    
     return render_template(
         "library.html",
         status=command_output,
@@ -485,6 +500,7 @@ def library():
         settings=settings,
         next_race=next_race,
         calendar_data=calendar_data,
+        flag_data=flag_data,
         active_tab="library"
     )
 
@@ -564,6 +580,8 @@ def library_status():
     
     for round_data in data["rounds"]:
         for session in round_data["sessions"]:
+            # Include episode number for session key building
+            session["episode"] = int(session["type"])
             session["type"] = session["type"].name
     
     return jsonify(data)
@@ -705,6 +723,61 @@ def stats():
     )
 
 
+
+@app.route("/failed-sessions")
+def failed_sessions():
+    """Get recently failed session searches."""
+    state_file = CONFIG_DIR / "grabber_state.json"
+    failed = {}
+    
+    if state_file.exists():
+        try:
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                failed = state.get("failed", {})
+        except Exception:
+            pass
+    
+    return jsonify({"failed": failed})
+
+
+@app.route("/download-selected", methods=["POST"])
+def download_selected():
+    """Download selected missing sessions."""
+    data = request.json
+    season = data.get("season")
+    selections = data.get("selections", [])
+    
+    if not selections:
+        return jsonify({"error": "No sessions selected"}), 400
+    
+    # Group by round for efficiency
+    by_round = {}
+    for sel in selections:
+        round_num = sel.get("round")
+        if round_num not in by_round:
+            by_round[round_num] = []
+        by_round[round_num].append(sel.get("session"))
+    
+    # For now, run backfill per round with --force
+    # Could be optimized to pass specific sessions later
+    commands = []
+    for round_num in by_round.keys():
+        cmd = f"backfill --season {season} --round {round_num} --force"
+        commands.append(cmd)
+    
+    # Run first command (others could be queued)
+    if commands:
+        thread = threading.Thread(target=run_grabber_command, args=(commands[0],))
+        thread.start()
+    
+    return jsonify({
+        "status": "started",
+        "rounds": list(by_round.keys()),
+        "total_sessions": len(selections)
+    })
+
+
 @app.route("/calendar")
 def calendar():
     """Calendar view of race schedule."""
@@ -724,8 +797,16 @@ def calendar():
         library_status[r["number"]] = {
             "grabbed": r["grabbed_count"],
             "total": r["desired_count"],
-            "sessions": r["sessions"]
+            "sessions": [{"name": s["name"], "exists": s["exists"], "type": s["type"], "episode": s.get("episode", 0)} for s in r["sessions"]]
         }
+    
+    # Build flag data per season
+    flag_data = {}
+    for y in SEASONS:
+        flag_data[y] = {}
+        cal = load_calendar_data(y)
+        for r in cal.get("rounds", []):
+            flag_data[y][r.get("round")] = r.get("flag", "")
     
     return render_template(
         "calendar.html",
@@ -734,6 +815,7 @@ def calendar():
         year=year,
         calendar_data=calendar_data,
         library_status=library_status,
+        flag_data=flag_data,
         active_tab="calendar"
     )
 
@@ -756,6 +838,13 @@ def calendar_data_api():
         "year": year,
         "library_status": library_status
     })
+
+
+
+@app.route("/flags/<path:filename>")
+def flag_files(filename):
+    """Serve flag SVG files."""
+    return send_from_directory(str(SCRIPT_DIR / "assets" / "flag_assets_svg"), filename)
 
 
 @app.route("/manifest.json")

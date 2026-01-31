@@ -916,7 +916,7 @@ def cmd_backfill(args):
             continue
         
         print(f"    Found {len(available)} matching releases:")
-        print_search_results(available, limit=3)
+        print_search_results(available, limit=5)  #changed from 3
         
         best = available[0]
         best_title = best.get('title', 'Unknown')

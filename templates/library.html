@@ -2,22 +2,56 @@
 
 {% block content %}
 <div class="card">
-    <h2>Library Status</h2>
+    <h2 class="section-heading">
+                <img src="/assets/plex_svg/plextv-ar21.svg" class="plex-logo-wide" alt="">
+                <span>Library Content</span>
+            </h2>
     
     <div class="library-filter">
-        <label>Season:</label>
-        <select id="library-season" onchange="loadLibraryStatus()">
-            {% for year in seasons %}<option value="{{ year }}" {{ 'selected' if year == 2025 }}>{{ year }}</option>{% endfor %}
-        </select>
-        <label>Round:</label>
-        <select id="library-round" onchange="loadLibraryStatus()">
-            <option value="">All Rounds</option>
-        </select>
-        <button onclick="loadLibraryStatus()" class="secondary small">🔄 Refresh</button>
+        <div class="filter-row">
+            <label>Season:</label>
+            <select id="library-season" onchange="loadLibraryStatus()">
+                {% for year in seasons %}<option value="{{ year }}" {{ 'selected' if year == 2025 }}>{{ year }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="filter-row">
+            <label>Round:</label>
+            <select id="library-round" onchange="loadLibraryStatus()">
+                <option value="">All Rounds</option>
+            </select>
+        </div>
+        <button onclick="loadLibraryStatus()" class="secondary small desktop-only">🔄 Refresh</button>
     </div>
     
     <div id="library-content">
         <p style="color: #666;">Loading library status...</p>
+    </div>
+</div>
+
+<!-- Sticky Download Button -->
+<div class="sticky-download-bar" id="sticky-download-bar">
+    <div class="download-bar-content">
+        <span class="selected-count"><span id="selected-count">0</span> sessions selected</span>
+        <button onclick="downloadSelected()" class="success" id="download-btn">⬇️ Download Selected</button>
+    </div>
+</div>
+
+<!-- Warning Modal -->
+<div class="modal-overlay" id="warning-modal" onclick="closeWarningModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3>⚠️ Recent Search Failures</h3>
+            <button class="modal-close" onclick="closeWarningModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p>The following sessions failed to find downloads recently and may fail again:</p>
+            <div id="failed-sessions-list" class="failed-sessions-list"></div>
+            <p class="help-text">These sessions will still be searched with --force flag.</p>
+        </div>
+        <div class="modal-footer">
+            <button onclick="closeWarningModal()" class="secondary">Cancel</button>
+            <button onclick="proceedWithDownload()" class="success">Proceed Anyway</button>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -25,11 +59,16 @@
 {% block scripts %}
 <script>
     const calendarData = {{ calendar_data | tojson }};
+    const flagData = {{ flag_data | tojson }};
+    let selectedSessions = new Set();
+    let failedSessions = {};
+    let pendingDownloads = [];
     
-    window.onload = function() {
+    window.addEventListener('load', function() {
         updateLibraryRounds();
         loadLibraryStatus();
-    };
+        loadFailedSessions();
+    });
     
     function updateLibraryRounds() {
         const season = document.getElementById('library-season').value;
@@ -42,17 +81,34 @@
         });
     }
     
+    function loadFailedSessions() {
+        fetch('/failed-sessions')
+            .then(r => r.json())
+            .then(data => {
+                failedSessions = data.failed || {};
+            });
+    }
+    
     function loadLibraryStatus() {
         const season = document.getElementById('library-season').value;
         const round = document.getElementById('library-round').value;
         updateLibraryRounds();
         
+        document.getElementById('library-content').innerHTML = '<p style="color: #666;">Loading...</p>';
+        
         fetch(`/library-status?season=${season}&round=${round}`)
             .then(r => r.json())
-            .then(data => renderLibraryStatus(data));
+            .then(data => {
+                renderLibraryStatus(data, season);
+                selectedSessions.clear();
+                updateDownloadBar();
+            })
+            .catch(err => {
+                document.getElementById('library-content').innerHTML = '<p style="color: #e74c3c;">Error loading library status</p>';
+            });
     }
     
-    function renderLibraryStatus(data) {
+    function renderLibraryStatus(data, season) {
         const container = document.getElementById('library-content');
         
         if (!data.rounds || data.rounds.length === 0) {
@@ -74,38 +130,205 @@
         
         data.rounds.forEach(round => {
             const roundPct = round.desired_count > 0 ? Math.round(round.grabbed_count / round.desired_count * 100) : 0;
-            const hasMissing = round.grabbed_count < round.desired_count;
+            const isComplete = round.grabbed_count === round.desired_count;
+            const flag = (flagData[season] && flagData[season][round.number]) || '';
+            const formattedDate = formatDate(round.date);
             
             html += `
-                <div class="library-round">
-                    <div class="library-round-header">
-                        <div>
-                            <span class="library-round-title">Round ${round.number} - ${round.venue}</span>
-                            <span class="library-round-stats">${round.date}</span>
+                <div class="library-round ${isComplete ? 'complete' : ''}" data-round="${round.number}">
+                    <div class="library-round-header" onclick="toggleRoundDetails(this)">
+                        <div class="round-header-left">
+                            ${flag ? `<img src="/flags/${flag}" class="round-flag-small" alt="">` : ''}
+                            <div class="round-header-text">
+                                <span class="library-round-title">Round ${round.number} - ${round.venue}</span>
+                                <span class="library-round-date">${formattedDate}</span>
+                            </div>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="library-round-stats">${round.grabbed_count}/${round.desired_count} (${roundPct}%)</span>
-                            ${hasMissing ? `<button class="small warning" ${isRunning ? "disabled" : ""} onclick="grabMissing(${round.number})">Grab Missing</button>` : ''}
+                        <div class="round-header-right">
+                            <div class="round-progress-mini">
+                                <div class="round-progress-bar">
+                                    <div class="round-progress-fill" style="width: ${roundPct}%"></div>
+                                </div>
+                                <span class="round-progress-text">${round.grabbed_count}/${round.desired_count}</span>
+                            </div>
+                            <span class="round-expand-icon">▼</span>
                         </div>
                     </div>
-                    <div class="library-sessions">
+                    <div class="library-round-details">
+                        <div class="library-sessions">
             `;
             
             round.sessions.forEach(session => {
-                const cls = session.exists ? 'exists' : 'missing';
-                const icon = session.exists ? '✅' : '❌';
-                html += `<div class="library-session ${cls}">${icon} ${session.name}</div>`;
+                const sessionKey = `${season}_R${String(round.number).padStart(2,'0')}_E${String(session.episode).padStart(2,'0')}`;
+                if (session.exists) {
+                    html += `<div class="library-session exists">✅ ${session.name}</div>`;
+                } else {
+                    html += `
+                        <div class="library-session missing">
+                            <label class="session-checkbox-label">
+                                <input type="checkbox" 
+                                       class="session-checkbox" 
+                                       data-session-key="${sessionKey}"
+                                       data-round="${round.number}"
+                                       data-session="${session.type}"
+                                       data-name="${session.name}"
+                                       onchange="toggleSession(this)">
+                                <span class="checkbox-custom"></span>
+                                <span class="session-name">❌ ${session.name}</span>
+                            </label>
+                        </div>
+                    `;
+                }
             });
             
-            html += '</div></div>';
+            html += `
+                        </div>
+                    </div>
+                </div>
+            `;
         });
         
         container.innerHTML = html;
     }
     
-    function grabMissing(roundNum) {
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+        return dateStr;
+    }
+    
+    function toggleRoundDetails(header) {
+        const round = header.closest('.library-round');
+        round.classList.toggle('expanded');
+    }
+    
+    function toggleSession(checkbox) {
+        const key = checkbox.dataset.sessionKey;
+        if (checkbox.checked) {
+            selectedSessions.add(JSON.stringify({
+                key: key,
+                round: checkbox.dataset.round,
+                session: checkbox.dataset.session,
+                name: checkbox.dataset.name
+            }));
+        } else {
+            // Find and remove
+            selectedSessions.forEach(s => {
+                const parsed = JSON.parse(s);
+                if (parsed.key === key) {
+                    selectedSessions.delete(s);
+                }
+            });
+        }
+        updateDownloadBar();
+    }
+    
+    function updateDownloadBar() {
+        const bar = document.getElementById('sticky-download-bar');
+        const count = document.getElementById('selected-count');
+        count.textContent = selectedSessions.size;
+        
+        if (selectedSessions.size > 0) {
+            bar.classList.add('visible');
+        } else {
+            bar.classList.remove('visible');
+        }
+    }
+    
+    function downloadSelected() {
+        if (selectedSessions.size === 0) return;
+        
         const season = document.getElementById('library-season').value;
-        runCommand(`backfill --season ${season} --round ${roundNum} --force`);
+        pendingDownloads = Array.from(selectedSessions).map(s => JSON.parse(s));
+        
+        // Check for recently failed sessions
+        const recentlyFailed = [];
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        
+        pendingDownloads.forEach(dl => {
+            const failInfo = failedSessions[dl.key];
+            if (failInfo) {
+                const failDate = new Date(failInfo.timestamp);
+                if (failDate > sevenDaysAgo) {
+                    recentlyFailed.push({
+                        name: dl.name,
+                        reason: failInfo.reason,
+                        date: failDate.toLocaleDateString()
+                    });
+                }
+            }
+        });
+        
+        if (recentlyFailed.length > 0) {
+            showWarningModal(recentlyFailed);
+        } else {
+            proceedWithDownload();
+        }
+    }
+    
+    function showWarningModal(failedList) {
+        const listEl = document.getElementById('failed-sessions-list');
+        listEl.innerHTML = failedList.map(f => `
+            <div class="failed-session-item">
+                <span class="failed-name">${f.name}</span>
+                <span class="failed-reason">${f.reason} (${f.date})</span>
+            </div>
+        `).join('');
+        
+        document.getElementById('warning-modal').classList.add('active');
+    }
+    
+    function closeWarningModal(event) {
+        if (!event || event.target.classList.contains('modal-overlay')) {
+            document.getElementById('warning-modal').classList.remove('active');
+        }
+    }
+    
+    function proceedWithDownload() {
+        closeWarningModal();
+        
+        const season = document.getElementById('library-season').value;
+        
+        // Group by round
+        const byRound = {};
+        pendingDownloads.forEach(dl => {
+            if (!byRound[dl.round]) byRound[dl.round] = [];
+            byRound[dl.round].push(dl.session);
+        });
+        
+        // Build command - for now we'll do per-round with force
+        const rounds = Object.keys(byRound);
+        
+        // Send to backend
+        fetch('/download-selected', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                season: season,
+                selections: pendingDownloads
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            showToast(`Starting download of ${pendingDownloads.length} sessions...`, 'success');
+            
+            // Clear selections
+            selectedSessions.clear();
+            document.querySelectorAll('.session-checkbox').forEach(cb => cb.checked = false);
+            updateDownloadBar();
+            
+            // Redirect to commands tab to see output
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1500);
+        })
+        .catch(err => {
+            showToast('Failed to start download', 'error');
+        });
     }
 </script>
 {% endblock %}

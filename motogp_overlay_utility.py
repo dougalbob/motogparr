@@ -64,7 +64,7 @@ from utils.config_loader import get_motogp_library_path
 
 MOTOGP_BASE = get_motogp_library_path()
 
-# Default scale factor (can be overridden via command line)
+# Default scale factor (can be overridden via command line or UI)
 DEFAULT_SCALE_FACTOR = 1.0
 
 # Target sizes for resize

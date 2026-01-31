@@ -12,10 +12,10 @@
     </div>
 </div>
 
-<!-- Backfill - Collapsible -->
+<!-- Overlay Tools - Collapsible -->
 <div class="card collapsible">
     <div class="card-header" onclick="toggleCollapse(this)">
-        <h2>🚀 Backfill</h2>
+        <h2>🎨 Overlay Tools</h2>
         <span class="collapse-icon">▼</span>
     </div>
     <div class="card-body">
@@ -31,28 +31,6 @@
                 <option value="">All Rounds</option>
             </select>
         </div>
-        <div class="form-group checkbox-group">
-            <input type="checkbox" id="force">
-            <label for="force">Force retry failed searches</label>
-        </div>
-        <div class="form-group checkbox-group">
-            <input type="checkbox" id="dry-run">
-            <label for="dry-run">Dry run (don't actually grab)</label>
-        </div>
-        
-        <div class="button-row">
-            <button onclick="runBackfill()" {{ 'disabled' if status.running }}>🚀 Run Backfill</button>
-        </div>
-    </div>
-</div>
-
-<!-- Overlay Tools - Collapsible -->
-<div class="card collapsible collapsed">
-    <div class="card-header" onclick="toggleCollapse(this)">
-        <h2>🎨 Overlay Tools</h2>
-        <span class="collapse-icon">▼</span>
-    </div>
-    <div class="card-body">
         <div class="inline-form">
             <label for="scale-factor">Scale Factor:</label>
             <input type="number" id="scale-factor" min="0.5" max="3.0" step="0.1" value="1.0">
@@ -62,7 +40,6 @@
             <button onclick="runOverlay()" class="warning" {{ 'disabled' if status.running }}>🎨 Apply Overlays</button>
             <button onclick="runOverlay(true)" class="secondary" {{ 'disabled' if status.running }}>👁️ Dry Run</button>
         </div>
-        <p class="help-text">Uses Season/Round selection from Backfill section above.</p>
     </div>
 </div>
 
@@ -92,20 +69,6 @@
         rounds.forEach(r => {
             roundSelect.innerHTML += `<option value="${r.number}">Round ${r.number} - ${r.venue}</option>`;
         });
-    }
-    
-    function runBackfill() {
-        const season = document.getElementById('season').value;
-        const round = document.getElementById('round').value;
-        const force = document.getElementById('force').checked;
-        const dryRun = document.getElementById('dry-run').checked;
-        
-        let cmd = `backfill --season ${season}`;
-        if (round) cmd += ` --round ${round}`;
-        if (force) cmd += ' --force';
-        if (dryRun) cmd += ' --dry-run';
-        
-        runCommand(cmd);
     }
     
     function runOverlay(dryRun = false) {
