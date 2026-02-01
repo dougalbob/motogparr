@@ -824,17 +824,27 @@ def activity_stream():
                 event['stage'] = 'searching'
                 event['round'] = m.group(1)
                 event['venue'] = m.group(2)
-                event['name'] = m.group(3)
+                event['name'] = f"{m.group(2)} {m.group(3)}"  # "Americas MotoGP Free Practice 2"
                 event['session_key'] = f"R{m.group(1)}_{m.group(3).replace(' ', '_')}"
         
         elif '📋 Found' in message:
-            # 📋 Found 6 candidates for MotoGP Free Practice 2
-            m = re.search(r'Found (\d+) candidates for (.+)', message)
+            # 📋 Found 6 candidates for Round 4 Qatar - MotoGP Free Practice 2
+            m = re.search(r'Found (\d+) candidates for Round (\d+) (\w+) - (.+)', message)
             if m:
                 event['stage'] = 'found'
                 event['candidates'] = int(m.group(1))
-                event['name'] = m.group(2)
-                event['session_key'] = f"search_{m.group(2).replace(' ', '_')}"
+                event['round'] = m.group(2)
+                event['venue'] = m.group(3)
+                event['name'] = f"{m.group(3)} {m.group(4)}"  # "Qatar MotoGP Free Practice 2"
+                event['session_key'] = f"R{m.group(2)}_{m.group(4).replace(' ', '_')}"
+            else:
+                # Fallback for old format without Round/Venue
+                m = re.search(r'Found (\d+) candidates for (.+)', message)
+                if m:
+                    event['stage'] = 'found'
+                    event['candidates'] = int(m.group(1))
+                    event['name'] = m.group(2)
+                    event['session_key'] = f"search_{m.group(2).replace(' ', '_')}"
         
         elif '⬇️ Sending to SABnzbd:' in message:
             # ⬇️ Sending to SABnzbd: MotoGP.2025.The.Americas...
@@ -885,22 +895,33 @@ def activity_stream():
         elif 'Triggering Plex refresh' in message:
             event['stage'] = 'plex'
         
-        elif '✅ Plex refresh triggered' in message:
-            event['stage'] = 'complete'
-        
         elif '✅ Successfully processed:' in message:
+            # ✅ Successfully processed: 25R03E09 Americas MotoGP Free Practice 2
             m = re.search(r'Successfully processed: (\S+) (.+)', message)
             if m:
                 event['stage'] = 'complete'
                 event['session_key'] = m.group(1)
                 event['name'] = m.group(2)
         
+        elif '✅ Sort completed:' in message:
+            # ✅ Sort completed: 25R08E07 Aragon Moto2 Practice
+            m = re.search(r'Sort completed: (\S+) (.+)', message)
+            if m:
+                event['stage'] = 'complete'
+                event['session_key'] = m.group(1)
+                event['name'] = m.group(2)
+                
+        elif '✅ Plex refresh triggered' in message:
+            # This one doesn't have session info in the message
+            # Skip it - let "Successfully processed" be the complete trigger
+            return None
+        
         elif '❌' in message or 'Error' in message or 'error' in message.lower():
             event['stage'] = 'error'
             event['detail'] = message
         
         return event if event.get('stage') or event.get('release') or event.get('score') else None
-    
+        
     def generate():
         try:
             log_file = CONFIG_DIR / "logs" / "motogp.log"
@@ -998,6 +1019,74 @@ def calendar_data_api():
         "library_status": library_status
     })
 
+@app.route("/api/sabnzbd/queue")
+def sabnzbd_queue():
+    """Get SABnzbd queue status for motogp category."""
+    import requests
+    
+    try:
+        # Load SABnzbd settings
+        settings_file = CONFIG_DIR / "settings.yml"
+        if not settings_file.exists():
+            return jsonify({"error": "Settings file not found"}), 404
+        
+        with open(settings_file, 'r') as f:
+            import yaml
+            settings = yaml.safe_load(f)
+        
+        sab_config = settings.get('sabnzbd', {})
+        sab_url = sab_config.get('url', '').rstrip('/')
+        sab_api_key = sab_config.get('api_key', '')
+        
+        if not sab_url or not sab_api_key:
+            return jsonify({"error": "SABnzbd not configured"}), 400
+        
+        # Call SABnzbd API
+        api_url = f"{sab_url}/api"
+        params = {
+            'apikey': sab_api_key,
+            'mode': 'queue',
+            'output': 'json'
+        }
+        
+        response = requests.get(api_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        queue = data.get('queue', {})
+        slots = queue.get('slots', [])
+        
+        # Filter for motogp category
+        motogp_downloads = []
+        for slot in slots:
+            if slot.get('cat', '').lower() == 'motogp':
+                motogp_downloads.append({
+                    'filename': slot.get('filename', 'Unknown'),
+                    'size': slot.get('size', '0 MB'),
+                    'sizeleft': slot.get('sizeleft', '0 MB'),
+                    'percentage': slot.get('percentage', '0'),
+                    'timeleft': slot.get('timeleft', 'Unknown'),
+                    'status': slot.get('status', 'Unknown')
+                })
+        
+        # Get total queue info
+        result = {
+            'motogp_downloads': motogp_downloads,
+            'motogp_count': len(motogp_downloads),
+            'total_size': queue.get('size', '0 MB'),
+            'total_sizeleft': queue.get('sizeleft', '0 MB'),
+            'speed': queue.get('speed', '0 KB/s'),
+            'timeleft': queue.get('timeleft', 'Unknown'),
+            'paused': queue.get('paused', False),
+            'total_slots': len(slots)
+        }
+        
+        return jsonify(result)
+    
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Failed to connect to SABnzbd: {str(e)}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/flags/<path:filename>")

@@ -2029,6 +2029,167 @@ button.small { padding: 6px 10px; font-size: 11px; }
     color: #666;
     white-space: nowrap;
 }
+/* ============================================
+   SABnzbd Queue Monitor
+   ============================================ */
+
+.sab-summary {
+    display: flex;
+    gap: 20px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.sab-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 80px;
+}
+
+.sab-stat-label {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+}
+
+.sab-stat-value {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #3498db;
+}
+
+.sab-downloads {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sab-download-item {
+    background: rgba(0, 0, 0, 0.2);
+    background-color: #1a1a2e;
+    border-radius: 8px;
+    padding: 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.sab-download-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.sab-filename {
+    font-weight: 500;
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: 10px;
+}
+
+.sab-status {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.sab-status.downloading {
+    background: #27ae60;
+    color: #fff;
+}
+
+.sab-status.queued {
+    background: #f39c12;
+    color: #fff;
+}
+
+.sab-status.paused {
+    background: #e74c3c;
+    color: #fff;
+}
+
+.sab-progress-container {
+    height: 6px;
+    width: 100%;
+    min-height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.sab-progress-bar {
+    height: 100%;
+    background-color: #3498db;
+    background: -webkit-linear-gradient(left, #3498db, #2ecc71);
+    background: linear-gradient(90deg, #3498db, #2ecc71);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    -webkit-transition: width 0.3s ease;
+    min-width: 0;
+}
+
+.sab-progress-container {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    background-color: #333;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.sab-download-details {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: #888;
+}
+
+.sab-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#sab-last-update {
+    font-size: 0.8rem;
+    color: #666;
+}
+
+.sab-empty {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+}
+
+.sab-error {
+    text-align: center;
+    padding: 15px;
+    color: #e74c3c;
+    background: rgba(231, 76, 60, 0.1);
+    border-radius: 8px;
+}
+
+.badge {
+    background: #e74c3c;
+    color: #fff;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+}
 
 /* Mobile */
 @media (max-width: 768px) {

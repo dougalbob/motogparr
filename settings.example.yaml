@@ -1,0 +1,30 @@
+# MotoGParr Settings Example
+# ==========================
+# Copy to /config/settings.yml and fill in your values
+
+prowlarr:
+  url: http://192.168.1.100:9696
+  api_key: your_prowlarr_api_key
+
+sabnzbd:
+  url: http://192.168.1.100:8080
+  api_key: your_sabnzbd_api_key
+
+plex:
+  url: http://192.168.1.100:32400
+  token: your_plex_token
+  library_id: '16'
+  library_name: Motorsport - MotoGP
+  path_mapping:
+    container: /media          # Path as seen by MotoGParr container
+    plex: /data/media          # Path as seen by Plex container
+
+library:
+  motogp_path: /media/Motorssport/MotoGP
+  downloads_path: /downloads/complete/motogp
+
+discord:
+  webhook_url:                 # Optional - leave empty to disable
+
+# Timezone
+timezone: Europe/London
