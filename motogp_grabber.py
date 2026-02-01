@@ -626,7 +626,11 @@ def grab_release(release: dict, session_info: dict, season: int) -> bool:
         if response.status_code == 200:
             result = response.json()
             if result.get('status', False):
+                release_title = release.get('title', 'Unknown')
+                release_score = release.get('_score', 0)
                 logger.info(f"✅ Grabbed: {enriched_name}")
+                logger.info(f"   📦 Release: {release_title[:70]}")
+                logger.info(f"   📊 Score: {release_score}")
                 return True
             else:
                 logger.error(f"SABnzbd error: {result.get('error', 'Unknown')}")
@@ -836,6 +840,24 @@ def cmd_backfill(args):
     print(f"  Found {total_existing} existing sessions across {len(existing)} rounds")
     
     missing = identify_missing_sessions(season, calendar, existing, round_filter)
+    
+    # Filter by specific sessions if provided
+    sessions_filter = getattr(args, 'sessions', None)
+    if sessions_filter:
+        session_nums = []
+        for s in sessions_filter.split(','):
+            s = s.strip().upper()
+            if s.startswith('E'):
+                s = s[1:]
+            try:
+                session_nums.append(int(s))
+            except ValueError:
+                pass
+        
+        if session_nums:
+            missing = [m for m in missing if int(m['session_type']) in session_nums]
+            print(f"\n  Filtered to {len(missing)} sessions: {sessions_filter}")
+    
     print_missing_summary(missing)
     
     if not missing:
@@ -897,6 +919,7 @@ def cmd_backfill(args):
             print(f"      Already covered by combined release grabbed earlier")
             continue
         
+        logger.info(f"🔍 Searching: Round {round_num} {venue} - {session_type.full_display_name}")
         print(f"\n  🔍 Round {round_num} {venue}: {session_type.full_display_name}")
         
         results = search_for_session(round_info, session_type, season, indexers, calendar)
@@ -915,6 +938,7 @@ def cmd_backfill(args):
             state.mark_failed(session_key, "All results already grabbed")
             continue
         
+        logger.info(f"📋 Found {len(available)} candidates for {session_type.full_display_name}")
         print(f"    Found {len(available)} matching releases:")
         print_search_results(available, limit=5)  #changed from 3
         
@@ -933,6 +957,7 @@ def cmd_backfill(args):
                 if other_key:
                     sessions_satisfied_this_run.add(other_key)
         else:
+            logger.info(f"⬇️ Sending to SABnzbd: {best_title[:60]}")
             print(f"\n    ⬇️  Sending to SABnzbd...")
             
             if grab_release(best, item, season):
@@ -1149,6 +1174,7 @@ def main():
     backfill_p.add_argument('--dry-run', action='store_true', help='Preview only')
     backfill_p.add_argument('--force', action='store_true', help='Ignore search history')
     backfill_p.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    backfill_p.add_argument('--sessions', type=str, help='Comma-separated session numbers (e.g., E09,E11,E12)')
     
     # Scheduled
     scheduled_p = subparsers.add_parser('scheduled', help='Check for recently aired sessions')

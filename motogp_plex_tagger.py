@@ -11,7 +11,6 @@ import sys
 import re
 import argparse
 import time
-import logging
 from pathlib import Path
 from plexapi.server import PlexServer
 
@@ -21,6 +20,8 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 # Import from motogp_common
 from motogp_common import (
+    setup_logging,
+    get_logger,
     SessionType,
     RaceClass,
     load_calendar,
@@ -41,6 +42,9 @@ from utils.config_loader import (
     get as config_get,
 )
 
+# Get module logger
+logger = get_logger("plex_tagger")
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -52,7 +56,7 @@ PLEX_LIBRARY = get_plex_library_name()
 
 # Validate required settings
 if not PLEX_URL or not PLEX_TOKEN:
-    logging.warning("Plex URL or Token not configured - tagging will fail")
+    print("WARNING: Plex URL or Token not configured - tagging will fail")
 
 # Library path
 MOTOGP_BASE_PATH = MOTOGP_LIBRARY_PATH
@@ -60,7 +64,7 @@ MOTOGP_BASE_PATH = MOTOGP_LIBRARY_PATH
 # Config directory
 CONFIG_DIR = SCRIPT_DIR / "config"
 
-MAX_RETRIES = 6
+MAX_RETRIES = 6    
 RETRY_DELAY = 20
 
 _plex_connection = None
@@ -69,8 +73,8 @@ _plex_connection = None
 # HELPER FUNCTIONS
 # =============================================================================
 
-def get_logger():
-    return logging.getLogger("motogp_plex_tagger")
+# Module logger - uses centralized logging from motogp_common
+logger = get_logger("plex_tagger")
 
 
 def host_to_plex_path(host_path):
@@ -107,7 +111,6 @@ def get_country_from_venue(venue):
 
 
 def trigger_library_scan(plex, library_name):
-    logger = get_logger()
     logger.info(f"Triggering Plex library scan for '{library_name}'...")
     try:
         plex.library.section(library_name).update()
@@ -119,7 +122,6 @@ def trigger_library_scan(plex, library_name):
 
 
 def find_plex_item_by_path(plex, library_name, file_path, retries=MAX_RETRIES):
-    logger = get_logger()
     library = plex.library.section(library_name)
     
     for attempt in range(retries):
@@ -140,7 +142,6 @@ def find_plex_item_by_path(plex, library_name, file_path, retries=MAX_RETRIES):
 
 def apply_tags_and_collection(video, year, round_num, session_type, round_info, dry_run=False):
     """Apply tags, collection, genre, and country to a MotoGP video."""
-    logger = get_logger()
     
     session_name = session_type.display_name
     venue = round_info.get('venue', f'Round {round_num}')
@@ -223,7 +224,6 @@ def apply_tags_and_collection(video, year, round_num, session_type, round_info, 
 
 def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     """Tag a single MotoGP file in Plex."""
-    logger = get_logger()
     logger.info(f"=== MotoGP Plex Tagger: Processing ===")
     logger.info(f"  Path: {file_path}")
     
@@ -319,7 +319,6 @@ def tag_from_host_path(host_path, dry_run=False, wait_for_plex=True):
 
 def build_plex_index(plex, library_name):
     """Build an index of all files in the Plex library."""
-    logger = get_logger()
     logger.info(f"Building Plex library index for '{library_name}'...")
     index = {}
     
@@ -336,7 +335,6 @@ def build_plex_index(plex, library_name):
 
 def scan_full_library(dry_run=False):
     """Scan and tag all MotoGP content in the library."""
-    logger = get_logger()
     
     plex = get_plex_connection()
     plex_index = build_plex_index(plex, PLEX_LIBRARY)
@@ -436,13 +434,8 @@ def main():
                         help='List all session types')
     args = parser.parse_args()
     
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    logger = get_logger()
+    setup_logging(debug_mode=args.verbose if hasattr(args, 'verbose') else False)
+    logger = get_logger("plex_tagger")
     logger.info("=" * 70)
     logger.info("MOTOGP PLEX TAGGER")
     logger.info("=" * 70)

@@ -123,9 +123,12 @@ def setup_logging(
         
         # Clear existing handlers
         logger.handlers.clear()
-        
+
+        # Prevent propagation to root logger (avoids double logging)
+        logger.propagate = False        
+
         # Formatter with module identification
-        detailed_formatter = logging.Formatter(
+        detailed_formatter = logging.Formatter(        
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S"
         )

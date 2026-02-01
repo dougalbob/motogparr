@@ -25,7 +25,12 @@ except ImportError:
     def get_config_dir():
         return SCRIPT_DIR / "config"
 
-logger = logging.getLogger(__name__)
+# Import centralized logging
+try:
+    from motogp_common import get_logger
+    logger = get_logger("discord")
+except ImportError:
+    logger = logging.getLogger(__name__)
 
 # =============================================================================
 # RATE LIMITING

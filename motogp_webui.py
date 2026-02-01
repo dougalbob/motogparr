@@ -757,25 +757,184 @@ def download_selected():
         round_num = sel.get("round")
         if round_num not in by_round:
             by_round[round_num] = []
-        by_round[round_num].append(sel.get("session"))
+        # Extract episode number from session key (e.g., "2025_R03_E09" -> "E09")
+        session_key = sel.get("key", "")
+        if "_E" in session_key:
+            episode = session_key.split("_E")[-1]
+            by_round[round_num].append(f"E{episode}")
     
-    # For now, run backfill per round with --force
-    # Could be optimized to pass specific sessions later
+    # Build commands with specific sessions
     commands = []
-    for round_num in by_round.keys():
-        cmd = f"backfill --season {season} --round {round_num} --force"
+    for round_num, episodes in by_round.items():
+        sessions_str = ",".join(episodes)
+        cmd = f"backfill --season {season} --round {round_num} --sessions {sessions_str} --force"
         commands.append(cmd)
     
-    # Run first command (others could be queued)
+    # Run commands sequentially in background
+    def run_all_commands(cmds):
+        for cmd in cmds:
+            run_grabber_command(cmd)
+    
     if commands:
-        thread = threading.Thread(target=run_grabber_command, args=(commands[0],))
+        thread = threading.Thread(target=run_all_commands, args=(commands,))
         thread.start()
     
     return jsonify({
         "status": "started",
         "rounds": list(by_round.keys()),
-        "total_sessions": len(selections)
+        "total_sessions": len(selections),
+        "commands": commands
     })
+
+
+
+@app.route("/activity")
+def activity():
+    """Activity feed page."""
+    next_race = get_next_race_info()
+    
+    return render_template(
+        "activity.html",
+        status=command_output,
+        next_race=next_race,
+        active_tab="activity"
+    )
+
+
+@app.route("/activity/stream")
+def activity_stream():
+    """Stream activity events parsed from log file."""
+    import re
+    
+    def parse_log_line(line):
+        """Parse a log line into an activity event."""
+        # Pattern: 2026-01-31 19:24:30 [INFO] motogp.grabber: message
+        match = re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[(\w+)\] ([\w.]+): (.+)', line)
+        if not match:
+            return None
+        
+        timestamp, level, source, message = match.groups()
+        event = {'timestamp': timestamp, 'level': level, 'source': source, 'raw': message}
+        
+        # Parse specific event types
+        if '🔍 Searching:' in message:
+            # 🔍 Searching: Round 3 Americas - MotoGP Free Practice 2
+            m = re.search(r'Round (\d+) (\w+) - (.+)', message)
+            if m:
+                event['stage'] = 'searching'
+                event['round'] = m.group(1)
+                event['venue'] = m.group(2)
+                event['name'] = m.group(3)
+                event['session_key'] = f"R{m.group(1)}_{m.group(3).replace(' ', '_')}"
+        
+        elif '📋 Found' in message:
+            # 📋 Found 6 candidates for MotoGP Free Practice 2
+            m = re.search(r'Found (\d+) candidates for (.+)', message)
+            if m:
+                event['stage'] = 'found'
+                event['candidates'] = int(m.group(1))
+                event['name'] = m.group(2)
+                event['session_key'] = f"search_{m.group(2).replace(' ', '_')}"
+        
+        elif '⬇️ Sending to SABnzbd:' in message:
+            # ⬇️ Sending to SABnzbd: MotoGP.2025.The.Americas...
+            m = re.search(r'Sending to SABnzbd: (.+)', message)
+            if m:
+                event['stage'] = 'sending'
+                event['release'] = m.group(1)
+        
+        elif '✅ Grabbed:' in message:
+            # ✅ Grabbed: 25R03E09 Americas MotoGP Free Practice 2
+            m = re.search(r'Grabbed: (\S+) (.+)', message)
+            if m:
+                event['stage'] = 'grabbed'
+                event['session_key'] = m.group(1)
+                event['name'] = m.group(2)
+        
+        elif '📦 Release:' in message:
+            # 📦 Release: MotoGP.2025.The.Americas...
+            m = re.search(r'Release: (.+)', message)
+            if m:
+                event['release'] = m.group(1)
+        
+        elif '📊 Score:' in message:
+            # 📊 Score: 155
+            m = re.search(r'Score: (\d+)', message)
+            if m:
+                event['score'] = int(m.group(1))
+        
+        elif '📂 New download ready:' in message:
+            # 📂 New download ready: 25R03E09 Americas MotoGP Free Practice 2
+            m = re.search(r'New download ready: (\S+) (.+)', message)
+            if m:
+                event['stage'] = 'ready'
+                event['session_key'] = m.group(1)
+                event['name'] = m.group(2)
+        
+        elif 'Processing:' in message and 'motogp.sort' in source:
+            # Processing: 25R03E09 Americas MotoGP Free Practice 2
+            m = re.search(r'Processing: (\S+) (.+)', message)
+            if m:
+                event['stage'] = 'sorting'
+                event['session_key'] = m.group(1)
+                event['name'] = m.group(2)
+        
+        elif 'Applying Plex tags' in message:
+            event['stage'] = 'tagging'
+        
+        elif 'Triggering Plex refresh' in message:
+            event['stage'] = 'plex'
+        
+        elif '✅ Plex refresh triggered' in message:
+            event['stage'] = 'complete'
+        
+        elif '✅ Successfully processed:' in message:
+            m = re.search(r'Successfully processed: (\S+) (.+)', message)
+            if m:
+                event['stage'] = 'complete'
+                event['session_key'] = m.group(1)
+                event['name'] = m.group(2)
+        
+        elif '❌' in message or 'Error' in message or 'error' in message.lower():
+            event['stage'] = 'error'
+            event['detail'] = message
+        
+        return event if event.get('stage') or event.get('release') or event.get('score') else None
+    
+    def generate():
+        try:
+            log_file = CONFIG_DIR / "logs" / "motogp.log"
+            
+            if not log_file.exists():
+                yield "data: " + json.dumps({"error": "Log file not found"}) + "\n\n"
+                return
+            
+            # Send last 50 lines initially
+            with open(log_file, 'r') as f:
+                lines = f.readlines()[-50:]
+                for line in lines:
+                    event = parse_log_line(line.strip())
+                    if event:
+                        yield "data: " + json.dumps(event) + "\n\n"
+            
+            # Then tail the file
+            with open(log_file, 'r') as f:
+                f.seek(0, 2)  # Go to end
+                while True:
+                    line = f.readline()
+                    if line:
+                        event = parse_log_line(line.strip())
+                        if event:
+                            yield "data: " + json.dumps(event) + "\n\n"
+                    else:
+                        import time
+                        time.sleep(0.5)
+        except GeneratorExit:
+            pass
+        except Exception as e:
+            yield "data: " + json.dumps({"error": str(e)}) + "\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream')
 
 
 @app.route("/calendar")
