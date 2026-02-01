@@ -130,9 +130,16 @@
                 .catch(err => console.log('SW failed:', err));
         }
         
+ 
         {% if status.running %}
-        setTimeout(() => location.reload(), 3000);
+        // Don't auto-reload pages with live streams (activity, logs)
+        const noReloadPages = ['activity', 'logs'];        
+        if (!noReloadPages.includes(currentTab)) {
+            setTimeout(() => location.reload(), 3000);
+        }
         {% endif %}
+
+        
     
         // Apply sticky setting
         document.addEventListener('DOMContentLoaded', function() {

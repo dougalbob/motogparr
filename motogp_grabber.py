@@ -938,7 +938,7 @@ def cmd_backfill(args):
             state.mark_failed(session_key, "All results already grabbed")
             continue
         
-        logger.info(f"📋 Found {len(available)} candidates for {session_type.full_display_name}")
+        logger.info(f"📋 Found {len(available)} candidates for Round {round_num} {venue} - {session_type.full_display_name}")
         print(f"    Found {len(available)} matching releases:")
         print_search_results(available, limit=5)  #changed from 3
         

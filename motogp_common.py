@@ -1066,7 +1066,7 @@ def has_session_times(calendar: dict) -> bool:
 # =============================================================================
 
 PREFERRED_BROADCASTERS = {
-    "tnt": 25,
+    "tnt": 40, #was 25
     "bt sport": 20,
     "bt.sport": 20,
     "btsport": 20,
@@ -1266,7 +1266,7 @@ def filter_releases(
             score += 20
             release['_group'] = 'VERUM'
         elif "mwr" in title_lower:
-            score += 20
+            score += 40
             release['_group'] = 'MWR'
         
         if "1080p" in title_lower:

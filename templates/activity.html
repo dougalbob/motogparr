@@ -18,7 +18,7 @@
 </div>
 
 <!-- Optional: Raw logs collapsible -->
-<div class="card collapsible collapsed">
+<div class="card collapsible collapsed" id="logs-card">
     <div class="card-header" onclick="toggleCollapse(this)">
         <h2>📋 Raw Logs</h2>
         <span class="collapse-icon">▼</span>
@@ -27,7 +27,7 @@
         <div class="log-controls">
             <select id="log-level" onchange="filterLogs()">
                 <option value="all">All Levels</option>
-                <option value="info" selected>Info+</option>
+                <option value="info" selected>Info+</option>activity.html
                 <option value="warning">Warning+</option>
                 <option value="error">Error Only</option>
             </select>
@@ -44,7 +44,7 @@
 <script>
     let activitySource = null;
     let activities = {};
-    const maxActivities = 30;
+    const maxActivities = 50;
     
     // Activity stages with their order and display info
     const stages = {
@@ -115,6 +115,11 @@
         const activity = activities[sessionKey];
         activity.lastUpdate = new Date();
         
+        // Update venue if provided (it might come in later events)
+        if (event.venue && !activity.venue) {
+            activity.venue = event.venue;
+        }
+        
         // Update based on event type
         if (event.stage) {
             activity.stage = event.stage;
@@ -137,6 +142,18 @@
         renderActivities();
     }
     
+    // Build display name with venue
+    function getDisplayName(activity) {
+        if (activity.venue && activity.name) {
+            // Check if venue is already in the name to avoid duplication
+            if (activity.name.toLowerCase().includes(activity.venue.toLowerCase())) {
+                return activity.name;
+            }
+            return `${activity.venue} ${activity.name}`;
+        }
+        return activity.name || 'Unknown';
+    }
+    
     function renderActivities() {
         const feed = document.getElementById('activity-feed');
         
@@ -150,32 +167,114 @@
             return;
         }
         
-        let html = '';
-        sorted.forEach(activity => {
+        // Build a map of existing elements by key
+        const existingElements = {};
+        feed.querySelectorAll('.activity-item[data-key]').forEach(el => {
+            existingElements[el.dataset.key] = el;
+        });
+        
+        // Track which keys we've processed
+        const processedKeys = new Set();
+        
+        sorted.forEach((activity, index) => {
+            processedKeys.add(activity.key);
             const stageInfo = stages[activity.stage] || stages['searching'];
             const isComplete = activity.stage === 'complete';
             const isError = activity.stage === 'error';
+            const displayName = getDisplayName(activity);
             
-            html += `
-                <div class="activity-item ${isComplete ? 'complete' : ''} ${isError ? 'error' : ''}">
-                    <div class="activity-icon" style="background: ${stageInfo.color}">
-                        ${stageInfo.icon}
-                    </div>
-                    <div class="activity-content">
-                        <div class="activity-title">${activity.name}</div>
-                        <div class="activity-status">${stageInfo.label}</div>
-                        ${activity.release ? `<div class="activity-release">📦 ${activity.release}</div>` : ''}
-                        ${activity.score ? `<div class="activity-score">Score: ${activity.score}</div>` : ''}
-                        ${activity.candidates ? `<div class="activity-candidates">${activity.candidates} candidates found</div>` : ''}
-                    </div>
-                    <div class="activity-time">
-                        ${formatTime(activity.lastUpdate)}
-                    </div>
-                </div>
-            `;
+            let element = existingElements[activity.key];
+            
+            if (element) {
+                // Update existing element in place
+                updateActivityElement(element, activity, stageInfo, displayName, isComplete, isError);
+            } else {
+                // Create new element
+                element = createActivityElement(activity, stageInfo, displayName, isComplete, isError);
+                feed.appendChild(element);
+            }
+            
+            // Ensure correct order
+            if (feed.children[index] !== element) {
+                feed.insertBefore(element, feed.children[index]);
+            }
         });
         
-        feed.innerHTML = html;
+        // Remove elements that are no longer in the list
+        Object.keys(existingElements).forEach(key => {
+            if (!processedKeys.has(key)) {
+                existingElements[key].remove();
+            }
+        });
+        
+        // Remove empty message if present
+        const emptyMsg = feed.querySelector('.activity-empty');
+        if (emptyMsg && sorted.length > 0) {
+            emptyMsg.remove();
+        }
+    }
+    
+    function createActivityElement(activity, stageInfo, displayName, isComplete, isError) {
+        const div = document.createElement('div');
+        div.className = `activity-item ${isComplete ? 'complete' : ''} ${isError ? 'error' : ''}`;
+        div.dataset.key = activity.key;
+        
+        div.innerHTML = `
+            <div class="activity-icon" style="background: ${stageInfo.color}">
+                ${stageInfo.icon}
+            </div>
+            <div class="activity-content">
+                <div class="activity-title">${escapeHtml(displayName)}</div>
+                <div class="activity-status">${stageInfo.label}</div>
+                <div class="activity-release" style="${activity.release ? '' : 'display:none'}">📦 ${escapeHtml(activity.release || '')}</div>
+                <div class="activity-score" style="${activity.score ? '' : 'display:none'}">Score: ${activity.score || ''}</div>
+                <div class="activity-candidates" style="${activity.candidates ? '' : 'display:none'}">${activity.candidates || ''} candidates found</div>
+            </div>
+            <div class="activity-time">
+                ${formatTime(activity.lastUpdate)}
+            </div>
+        `;
+        
+        return div;
+    }
+    
+    function updateActivityElement(element, activity, stageInfo, displayName, isComplete, isError) {
+        // Update classes
+        element.className = `activity-item ${isComplete ? 'complete' : ''} ${isError ? 'error' : ''}`;
+        
+        // Update individual parts
+        const icon = element.querySelector('.activity-icon');
+        if (icon) {
+            icon.style.background = stageInfo.color;
+            icon.textContent = stageInfo.icon;
+        }
+        
+        const title = element.querySelector('.activity-title');
+        if (title) title.textContent = displayName;
+        
+        const status = element.querySelector('.activity-status');
+        if (status) status.textContent = stageInfo.label;
+        
+        const release = element.querySelector('.activity-release');
+        if (release) {
+            release.style.display = activity.release ? '' : 'none';
+            if (activity.release) release.innerHTML = `📦 ${escapeHtml(activity.release)}`;
+        }
+        
+        const score = element.querySelector('.activity-score');
+        if (score) {
+            score.style.display = activity.score ? '' : 'none';
+            if (activity.score) score.textContent = `Score: ${activity.score}`;
+        }
+        
+        const candidates = element.querySelector('.activity-candidates');
+        if (candidates) {
+            candidates.style.display = activity.candidates ? '' : 'none';
+            if (activity.candidates) candidates.textContent = `${activity.candidates} candidates found`;
+        }
+        
+        const time = element.querySelector('.activity-time');
+        if (time) time.textContent = formatTime(activity.lastUpdate);
     }
     
     function formatTime(date) {
@@ -191,33 +290,66 @@
     let logSource = null;
     let logLines = [];
     const maxLogLines = 500;
+    let pendingLogUpdate = null;
     
     function connectToLogs() {
         if (logSource) logSource.close();
         
+        const container = document.getElementById('log-content');
+        container.textContent = 'Connecting...';
+        
         logSource = new EventSource('/logs/stream');
+        
         logSource.onmessage = function(event) {
             appendLogLine(event.data);
+        };
+        
+        logSource.onerror = function() {
+            // Don't spam reconnection attempts
+            setTimeout(connectToLogs, 5000);
         };
     }
     
     function appendLogLine(text) {
-        const container = document.getElementById('log-content');
-        const filterLevel = document.getElementById('log-level').value;
-        
         logLines.push(text);
         if (logLines.length > maxLogLines) logLines.shift();
         
-        // Filter and display
-        const filtered = logLines.filter(line => shouldShowLine(line, filterLevel));
-        container.innerHTML = filtered.map(line => {
-            let cls = 'log-line';
-            if (line.includes('[ERROR]')) cls += ' error';
-            else if (line.includes('[WARNING]')) cls += ' warning';
-            else if (line.includes('[INFO]')) cls += ' info';
-            return `<div class="${cls}">${escapeHtml(line)}</div>`;
-        }).join('');
+        // Debounce updates to prevent excessive redraws
+        if (pendingLogUpdate) return;
         
+        pendingLogUpdate = requestAnimationFrame(() => {
+            pendingLogUpdate = null;
+            renderLogs();
+        });
+    }
+    
+    function renderLogs() {
+        const container = document.getElementById('log-content');
+        const filterLevel = document.getElementById('log-level').value;
+        
+        // Check if log viewer is collapsed - skip heavy rendering if so
+        const logsCard = document.getElementById('logs-card');
+        if (logsCard && logsCard.classList.contains('collapsed')) {
+            return; // Don't render if collapsed
+        }
+        
+        const filtered = logLines.filter(line => shouldShowLine(line, filterLevel));
+        
+        // Use DocumentFragment for better performance
+        const fragment = document.createDocumentFragment();
+        
+        filtered.forEach(line => {
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            if (line.includes('[ERROR]')) div.classList.add('error');
+            else if (line.includes('[WARNING]')) div.classList.add('warning');
+            else if (line.includes('[INFO]')) div.classList.add('info');
+            div.textContent = line;
+            fragment.appendChild(div);
+        });
+        
+        container.innerHTML = '';
+        container.appendChild(fragment);
         container.scrollTop = container.scrollHeight;
     }
     
@@ -230,15 +362,7 @@
     }
     
     function filterLogs() {
-        const container = document.getElementById('log-content');
-        const filterLevel = document.getElementById('log-level').value;
-        const filtered = logLines.filter(line => shouldShowLine(line, filterLevel));
-        container.innerHTML = filtered.map(line => {
-            let cls = 'log-line';
-            if (line.includes('[ERROR]')) cls += ' error';
-            else if (line.includes('[WARNING]')) cls += ' warning';
-            return `<div class="${cls}">${escapeHtml(line)}</div>`;
-        }).join('');
+        renderLogs();
     }
     
     function reconnectLogs() {
@@ -247,9 +371,22 @@
     }
     
     function escapeHtml(text) {
+        if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    // Custom toggle that preserves state
+    function toggleCollapse(header) {
+        const card = header.closest('.collapsible');
+        if (card) {
+            card.classList.toggle('collapsed');
+            // If we just expanded the logs, render them
+            if (!card.classList.contains('collapsed') && card.id === 'logs-card') {
+                renderLogs();
+            }
+        }
     }
     
     // Initialize

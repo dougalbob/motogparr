@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <div class="activity-header">
+        <h2>🏁 Activity Feed</h2>
+        <div class="activity-controls">
+            <span class="live-indicator" id="live-indicator">● Live</span>
+            <button onclick="clearActivity()" class="small secondary">Clear</button>
+        </div>
+    </div>
+    
+    <div class="activity-feed" id="activity-feed">
+        <div class="activity-empty">
+            <p>No recent activity. Start a download to see progress here.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Optional: Raw logs collapsible -->
+<div class="card collapsible collapsed">
+    <div class="card-header" onclick="toggleCollapse(this)">
+        <h2>📋 Raw Logs</h2>
+        <span class="collapse-icon">▼</span>
+    </div>
+    <div class="card-body">
+        <div class="log-controls">
+            <select id="log-level" onchange="filterLogs()">
+                <option value="all">All Levels</option>
+                <option value="info" selected>Info+</option>
+                <option value="warning">Warning+</option>
+                <option value="error">Error Only</option>
+            </select>
+            <button onclick="reconnectLogs()" class="small secondary">🔄 Reconnect</button>
+        </div>
+        <div class="log-viewer" id="log-viewer">
+            <div id="log-content">Connecting...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let activitySource = null;
+    let activities = {};
+    const maxActivities = 30;
+    
+    // Activity stages with their order and display info
+    const stages = {
+        'searching': { icon: '🔍', label: 'Searching', order: 1, color: '#3498db' },
+        'found': { icon: '📋', label: 'Found candidates', order: 2, color: '#9b59b6' },
+        'sending': { icon: '⬇️', label: 'Sending to SABnzbd', order: 3, color: '#f39c12' },
+        'grabbed': { icon: '📥', label: 'Download started', order: 4, color: '#e67e22' },
+        'downloading': { icon: '⬇️', label: 'Downloading', order: 5, color: '#e67e22' },
+        'ready': { icon: '📂', label: 'Download complete', order: 6, color: '#27ae60' },
+        'processing': { icon: '⚙️', label: 'Processing', order: 7, color: '#3498db' },
+        'sorting': { icon: '📁', label: 'Sorting to library', order: 8, color: '#9b59b6' },
+        'tagging': { icon: '🏷️', label: 'Applying Plex tags', order: 9, color: '#1abc9c' },
+        'plex': { icon: '📺', label: 'Refreshing Plex', order: 10, color: '#e74c3c' },
+        'complete': { icon: '✅', label: 'Ready in Plex', order: 11, color: '#27ae60' },
+        'error': { icon: '❌', label: 'Error', order: 99, color: '#e74c3c' }
+    };
+    
+    function connectToActivity() {
+        if (activitySource) {
+            activitySource.close();
+        }
+        
+        const indicator = document.getElementById('live-indicator');
+        indicator.classList.remove('connected', 'disconnected');
+        indicator.textContent = '● Connecting...';
+        
+        activitySource = new EventSource('/activity/stream');
+        
+        activitySource.onopen = function() {
+            indicator.classList.add('connected');
+            indicator.textContent = '● Live';
+        };
+        
+        activitySource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                processActivityEvent(data);
+            } catch (e) {
+                console.error('Error parsing activity event:', e);
+            }
+        };
+        
+        activitySource.onerror = function() {
+            indicator.classList.remove('connected');
+            indicator.classList.add('disconnected');
+            indicator.textContent = '● Disconnected';
+            setTimeout(connectToActivity, 5000);
+        };
+    }
+    
+    function processActivityEvent(event) {
+        const sessionKey = event.session_key || event.name || 'unknown';
+        
+        if (!activities[sessionKey]) {
+            activities[sessionKey] = {
+                key: sessionKey,
+                name: event.name || sessionKey,
+                venue: event.venue || '',
+                round: event.round || '',
+                stage: 'searching',
+                stages: {},
+                lastUpdate: new Date(),
+                release: null,
+                score: null
+            };
+        }
+        
+        const activity = activities[sessionKey];
+        activity.lastUpdate = new Date();
+        
+        // Update based on event type
+        if (event.stage) {
+            activity.stage = event.stage;
+            activity.stages[event.stage] = {
+                time: new Date(),
+                detail: event.detail || ''
+            };
+        }
+        
+        if (event.release) {
+            activity.release = event.release;
+        }
+        if (event.score) {
+            activity.score = event.score;
+        }
+        if (event.candidates) {
+            activity.candidates = event.candidates;
+        }
+        
+        renderActivities();
+    }
+    
+    function renderActivities() {
+        const feed = document.getElementById('activity-feed');
+        
+        // Sort by last update, newest first
+        const sorted = Object.values(activities)
+            .sort((a, b) => b.lastUpdate - a.lastUpdate)
+            .slice(0, maxActivities);
+        
+        if (sorted.length === 0) {
+            feed.innerHTML = '<div class="activity-empty"><p>No recent activity.</p></div>';
+            return;
+        }
+        
+        let html = '';
+        sorted.forEach(activity => {
+            const stageInfo = stages[activity.stage] || stages['searching'];
+            const isComplete = activity.stage === 'complete';
+            const isError = activity.stage === 'error';
+            
+            html += `
+                <div class="activity-item ${isComplete ? 'complete' : ''} ${isError ? 'error' : ''}">
+                    <div class="activity-icon" style="background: ${stageInfo.color}">
+                        ${stageInfo.icon}
+                    </div>
+                    <div class="activity-content">
+                        <div class="activity-title">${activity.name}</div>
+                        <div class="activity-status">${stageInfo.label}</div>
+                        ${activity.release ? `<div class="activity-release">📦 ${activity.release}</div>` : ''}
+                        ${activity.score ? `<div class="activity-score">Score: ${activity.score}</div>` : ''}
+                        ${activity.candidates ? `<div class="activity-candidates">${activity.candidates} candidates found</div>` : ''}
+                    </div>
+                    <div class="activity-time">
+                        ${formatTime(activity.lastUpdate)}
+                    </div>
+                </div>
+            `;
+        });
+        
+        feed.innerHTML = html;
+    }
+    
+    function formatTime(date) {
+        return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    
+    function clearActivity() {
+        activities = {};
+        renderActivities();
+    }
+    
+    // Log viewer functions (simplified from logs.html)
+    let logSource = null;
+    let logLines = [];
+    const maxLogLines = 500;
+    
+    function connectToLogs() {
+        if (logSource) logSource.close();
+        
+        logSource = new EventSource('/logs/stream');
+        logSource.onmessage = function(event) {
+            appendLogLine(event.data);
+        };
+    }
+    
+    function appendLogLine(text) {
+        const container = document.getElementById('log-content');
+        const filterLevel = document.getElementById('log-level').value;
+        
+        logLines.push(text);
+        if (logLines.length > maxLogLines) logLines.shift();
+        
+        // Filter and display
+        const filtered = logLines.filter(line => shouldShowLine(line, filterLevel));
+        container.innerHTML = filtered.map(line => {
+            let cls = 'log-line';
+            if (line.includes('[ERROR]')) cls += ' error';
+            else if (line.includes('[WARNING]')) cls += ' warning';
+            else if (line.includes('[INFO]')) cls += ' info';
+            return `<div class="${cls}">${escapeHtml(line)}</div>`;
+        }).join('');
+        
+        container.scrollTop = container.scrollHeight;
+    }
+    
+    function shouldShowLine(line, level) {
+        if (level === 'all') return true;
+        if (level === 'error') return line.includes('[ERROR]');
+        if (level === 'warning') return line.includes('[ERROR]') || line.includes('[WARNING]');
+        if (level === 'info') return !line.includes('[DEBUG]');
+        return true;
+    }
+    
+    function filterLogs() {
+        const container = document.getElementById('log-content');
+        const filterLevel = document.getElementById('log-level').value;
+        const filtered = logLines.filter(line => shouldShowLine(line, filterLevel));
+        container.innerHTML = filtered.map(line => {
+            let cls = 'log-line';
+            if (line.includes('[ERROR]')) cls += ' error';
+            else if (line.includes('[WARNING]')) cls += ' warning';
+            return `<div class="${cls}">${escapeHtml(line)}</div>`;
+        }).join('');
+    }
+    
+    function reconnectLogs() {
+        logLines = [];
+        connectToLogs();
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Initialize
+    window.addEventListener('load', function() {
+        connectToActivity();
+        connectToLogs();
+    });
+    
+    window.addEventListener('beforeunload', function() {
+        if (activitySource) activitySource.close();
+        if (logSource) logSource.close();
+    });
+</script>
+{% endblock %}
