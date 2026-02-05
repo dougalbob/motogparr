@@ -1,0 +1,441 @@
+================================================================================
+MOTOGPARR V1.8 → V1.9 AI CONTEXTUAL DOCUMENT
+================================================================================
+Date: 2026-02-05
+Purpose: Document UI refactoring changes and bug fixes for AI agent reference
+
+================================================================================
+PART 1: BROAD UI REFACTORING OVERVIEW
+================================================================================
+
+This version aligns the MotoGParr UI with the F1arr application design patterns,
+following a comprehensive refactoring effort to ensure consistency across both
+motorsport applications.
+
+REFERENCE APPLICATION: F1arr (authoritative UI design source)
+TARGET APPLICATION: MotoGParr (refactored to match F1arr)
+
+--------------------------------------------------------------------------------
+1.1 COLOR PALETTE CHANGES
+--------------------------------------------------------------------------------
+
+REPLACED COLORS (Orange MotoGP branding → Blue theme):
+┌─────────────┬─────────────┬─────────────────────────────┐
+│ Find        │ Replace     │ Description                 │
+├─────────────┼─────────────┼─────────────────────────────┤
+│ #ff6600     │ #52aad8     │ Primary brand color         │
+│ #cc5200     │ #3d8ab8     │ Primary dark (hover/gradient)│
+│ #e65c00     │ #4a9bc9     │ Mid-tone accent             │
+│ #1a1a2e     │ #52aad8     │ Meta theme-color            │
+└─────────────┴─────────────┴─────────────────────────────┘
+
+PRESERVED COLORS (No changes):
+- #27ae60 - Green (success buttons, save actions)
+- #e74c3c - Red (errors, danger states)
+- #f39c12 - Amber (warnings)
+- #e5a00d - Plex Gamboge (Plex branding elements)
+- #282a2d - Plex Shark (dark backgrounds)
+
+COMPANION PALETTE FOR FUTURE USE:
+- Primary: #52aad8 (RGB: 82, 170, 216)
+- Primary Dark: #3d8ab8
+- Primary Light: #7bc0e4
+- Primary Pale: #a8d8f0
+- Primary Deep: #2d7aa8
+
+--------------------------------------------------------------------------------
+1.2 NAVIGATION CHANGES
+--------------------------------------------------------------------------------
+
+TAB RENAMING:
+┌──────────────┬──────────────┬─────────────┐
+│ Old Name     │ New Name     │ Icon Change │
+├──────────────┼──────────────┼─────────────┤
+│ Commands     │ Home         │ ⚡ → 🏠      │
+│ Library      │ Download     │ Plex SVG → ⬇️│
+│ Activity     │ (unchanged)  │ 🏁 → 🏍️     │
+└──────────────┴──────────────┴─────────────┘
+
+ACTIVE_TAB VALUES (Backend Flask routes updated):
+- "commands" → "home" (dashboard route)
+- "library" → "download" (library route)
+
+CRITICAL: The tabs array in base.html JavaScript MUST match the active_tab
+values sent from Flask routes. Mismatch causes swipe navigation to fail.
+
+JavaScript tabs array:
+    const tabs = ['home', 'download', 'settings', 'stats', 'calendar', 'activity'];
+    const tabUrls = {
+        'home': '/', 
+        'download': '/library', 
+        'settings': '/settings-page', 
+        'stats': '/stats', 
+        'calendar': '/calendar', 
+        'activity': '/activity'
+    };
+
+--------------------------------------------------------------------------------
+1.3 TEMPLATE CHANGES
+--------------------------------------------------------------------------------
+
+BASE.HTML:
+- Meta theme-color updated to #52aad8
+- Navigation tabs renamed (Home/Download)
+- Admin password modal added
+- Status polling added for Activity/Logs pages (see Part 2)
+- Plex brand color constants added to JavaScript
+
+DASHBOARD.HTML (Home Tab):
+- Simplified to welcome message and navigation hints
+- Removed Quick Actions buttons
+- Removed Overlay Tools (moved to Settings → ADMIN)
+- Kept Quick Status output display
+- Terminology: "Last run" → "Last activity"
+
+LIBRARY.HTML (Download Tab):
+- Heading: "Library Content" → "Download New Content" (with .plex-gamboge class)
+- Plex logo class: plex-logo-wide → plex-logo-wide-large (50% larger)
+- Added "Expand All" / "Collapse All" buttons for rounds
+- Terminology: "sessions" → "episodes" throughout
+- Library summary split into:
+  - "Preferred Episodes" (time-aware, past rounds only)
+  - "Total Episodes in Plex" (all files)
+- Added future rounds support:
+  - Rounds with future dates shown but dimmed (opacity: 0.6)
+  - Checkboxes disabled for future rounds
+  - "(upcoming)" label next to date
+- Season dropdown uses current_year variable instead of hardcoded 2025
+- Redirect after download: "/" → "/activity"
+
+SETTINGS.HTML:
+- Sub-tab renamed: "Grabbing" → "User Pref."
+- Sub-tab renamed: "App Config" → "(ADMIN)"
+- Admin password protection added for ADMIN tab
+- Section renamed: "Desired Sessions" → "Wanted Episodes"
+- Button renamed: "Reset" → "Core Sessions"
+- "Max grabs per run" moved to ADMIN tab
+- Path Mapping section added
+- Overlay Tools moved from dashboard to ADMIN tab (collapsible)
+
+--------------------------------------------------------------------------------
+1.4 BACKEND ROUTE CHANGES
+--------------------------------------------------------------------------------
+
+VERIFY-ADMIN ROUTE (/verify-admin):
+The original implementation used a non-existent load_settings() function.
+Fixed to directly read settings.yml with proper error handling:
+
+    @app.route('/verify-admin', methods=['POST'])
+    def verify_admin():
+        import yaml
+        data = request.get_json()
+        password = data.get("password", "") if data else ""
+        
+        try:
+            settings_file = CONFIG_DIR / "settings.yml"
+            if settings_file.exists():
+                with open(settings_file, "r") as f:
+                    settings = yaml.safe_load(f)
+                    admin_password = settings.get("uiadminpassword", "")
+                    if admin_password and password == admin_password:
+                        return jsonify({"valid": True})
+        except Exception as e:
+            print(f"Error verifying admin password: {e}")
+        
+        return jsonify({"valid": False})
+
+GET_LIBRARY_STATUS FUNCTION:
+Updated to include future rounds instead of skipping them:
+- Added is_future flag to each round
+- Added past_rounds_grabbed / past_rounds_desired (time-aware stats)
+- Added total_in_library count
+- Future rounds are displayed but with disabled checkboxes
+
+DOWNLOAD-SELECTED ROUTE:
+Fixed session type conversion - was incorrectly parsing session keys.
+Now properly converts SessionType enum to episode numbers:
+
+    session_type = SessionType[session_name]
+    episode_num = f"E{int(session_type):02d}"
+
+================================================================================
+PART 2: STATUS LABEL BUG - DETAILED ANALYSIS AND SOLUTION
+================================================================================
+
+This section provides comprehensive detail for implementing the same fix in F1arr.
+
+--------------------------------------------------------------------------------
+2.1 PROBLEM DESCRIPTION
+--------------------------------------------------------------------------------
+
+SYMPTOM:
+When downloading episodes from multiple rounds, the status label in the header
+would display the first job correctly but fail to update for subsequent jobs.
+
+Example observed behavior:
+- Selected: E01,E22 from Round 1, E10 from Round 3
+- Label showed: "Running: Searching (1/2): Season 2025 R1 E22,E01"
+- Label NEVER updated to show "(2/2)" for Round 3
+- Downloads completed successfully (backend working correctly)
+- Label only updated after manual page refresh
+
+AFFECTED PAGES:
+- Activity tab
+- Logs tab
+- Any page where noReloadPages prevents auto-refresh
+
+--------------------------------------------------------------------------------
+2.2 ROOT CAUSE ANALYSIS
+--------------------------------------------------------------------------------
+
+The issue has multiple contributing factors:
+
+FACTOR 1: PAGE AUTO-RELOAD EXCLUSION
+In base.html, certain pages are excluded from auto-reload:
+
+    const noReloadPages = ['activity', 'logs'];        
+    if (!noReloadPages.includes(currentTab)) {
+        setTimeout(() => location.reload(), 3000);
+    }
+
+Activity and Logs pages use streaming/EventSource for live updates of their
+content, so full page reloads are disabled. However, the status label in the
+header is NOT updated by the streaming mechanism.
+
+FACTOR 2: MULTI-COMMAND EXECUTION FLOW
+When user selects episodes from multiple rounds, the download-selected route:
+1. Groups selections by round
+2. Creates separate backfill commands for each round
+3. Runs commands sequentially via run_all_commands()
+
+The command_output["command"] IS updated at the start of each command, but
+the Activity page never fetches this updated value.
+
+FACTOR 3: SERVER-SIDE RENDERING
+The status label is rendered server-side in base.html:
+
+    <div class="status {{ 'running' if status.running else 'ready' }}">
+        {% if status.running %}⏳ Running: {{ status.command }}
+        {% else %}✅ Idle{% endif %}
+    </div>
+
+This only updates on page load/reload. Without polling, it remains stale.
+
+--------------------------------------------------------------------------------
+2.3 SOLUTION IMPLEMENTED
+--------------------------------------------------------------------------------
+
+APPROACH: Add client-side polling for status label on non-reloading pages.
+
+The /status endpoint already exists and returns command_output:
+
+    @app.route("/status")
+    def status():
+        return jsonify(command_output)
+
+Returns:
+    {
+        "running": true/false,
+        "command": "current command string",
+        "output": "command output text",
+        "timestamp": "2025-02-05 09:30:00",
+        "batch_total": 2,
+        "batch_current": 1
+    }
+
+IMPLEMENTATION IN BASE.HTML:
+
+Added after the existing noReloadPages definition:
+
+    // Status polling for pages that don't auto-reload
+    const noReloadPages = ['activity', 'logs'];
+    let statusPollInterval = null;
+    
+    function updateStatusLabel() {
+        fetch('/status')
+            .then(r => r.json())
+            .then(data => {
+                const statusEl = document.querySelector('.header-row .status');
+                if (statusEl) {
+                    if (data.running) {
+                        statusEl.className = 'status running';
+                        statusEl.innerHTML = '⏳ Running: ' + data.command;
+                    } else {
+                        statusEl.className = 'status ready';
+                        statusEl.innerHTML = '✅ Idle';
+                        // Stop polling when idle
+                        if (statusPollInterval) {
+                            clearInterval(statusPollInterval);
+                            statusPollInterval = null;
+                        }
+                    }
+                }
+            })
+            .catch(err => console.log('Status poll error:', err));
+    }
+    
+    function startStatusPolling() {
+        if (!statusPollInterval) {
+            updateStatusLabel(); // Immediate first update
+            statusPollInterval = setInterval(updateStatusLabel, 3000);
+        }
+    }
+    
+    {% if status.running %}
+    if (!noReloadPages.includes(currentTab)) {
+        // Regular pages: full reload
+        setTimeout(() => location.reload(), 3000);
+    } else {
+        // Activity/Logs pages: poll status label only
+        startStatusPolling();
+    }
+    {% else %}
+    // Even when idle, start polling on activity page to catch new jobs
+    if (noReloadPages.includes(currentTab)) {
+        startStatusPolling();
+    }
+    {% endif %}
+
+KEY DESIGN DECISIONS:
+
+1. POLLING INTERVAL: 3000ms matches the existing reload interval for consistency
+
+2. IMMEDIATE FIRST UPDATE: updateStatusLabel() called immediately before 
+   setInterval to avoid 3-second delay on page load
+
+3. AUTO-STOP ON IDLE: Polling stops when status.running becomes false to 
+   conserve resources. This is important for mobile/PWA usage.
+
+4. ALWAYS POLL ON ACTIVITY PAGE: Even when initially idle, polling starts
+   on Activity page so it detects when new jobs begin
+
+5. MINIMAL DOM UPDATES: Only the status label element is updated, not the
+   entire page. This preserves the streaming activity feed state.
+
+--------------------------------------------------------------------------------
+2.4 ENHANCED BATCH STATUS DISPLAY
+--------------------------------------------------------------------------------
+
+The run_all_commands function was also enhanced to provide clearer status:
+
+COMMAND_OUTPUT STRUCTURE (Extended):
+    command_output = {
+        "running": False,
+        "command": "",
+        "output": "",
+        "timestamp": None,
+        "batch_total": 0,      # NEW: Total commands in batch
+        "batch_current": 0     # NEW: Current command number
+    }
+
+RUN_ALL_COMMANDS FUNCTION (in download-selected route):
+
+    def run_all_commands(cmds, season, round_info):
+        global command_output
+        total = len(cmds)
+        command_output["batch_total"] = total
+        
+        for i, (cmd, info) in enumerate(zip(cmds, round_info)):
+            command_output["running"] = True
+            command_output["batch_current"] = i + 1
+            round_num = info["round"]
+            episodes = info["episodes"]
+            
+            # Clear status format for UI display
+            command_output["command"] = f"Searching ({i+1}/{total}): Season {season} R{round_num} {episodes}"
+            command_output["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Enhanced output logging
+            if i == 0:
+                command_output["output"] = f"Starting batch download of {total} job(s)...\n\n"
+            else:
+                command_output["output"] += f"\n{'='*60}\n"
+            
+            command_output["output"] += f">>> Search {i+1}/{total}: Season {season} Round {round_num} - {episodes}\n\n"
+            
+            # Execute command...
+            
+        # Only set running=False after ALL commands complete
+        command_output["running"] = False
+        command_output["batch_total"] = 0
+        command_output["batch_current"] = 0
+        command_output["output"] += f"\n{'='*60}\n✅ All {total} searches completed.\n"
+
+STATUS LABEL OUTPUT FORMAT:
+    "Searching (1/2): Season 2025 R15 E01,E22"
+    "Searching (2/2): Season 2025 R3 E10"
+
+This format clearly shows:
+- Current job number / Total jobs
+- Season being searched
+- Round number
+- Episode(s) for that round
+
+--------------------------------------------------------------------------------
+2.5 F1ARR IMPLEMENTATION CHECKLIST
+--------------------------------------------------------------------------------
+
+To implement the same fix in F1arr:
+
+□ 1. Update command_output initialization to include batch_total, batch_current
+     File: f1arr_webui.py (around line 97)
+
+□ 2. Update run_all_commands in download-selected route
+     - Accept (cmds, season, round_info) parameters
+     - Update command string format to "Searching (X/Y): Season..."
+     - Keep running=True until ALL commands complete
+     File: f1arr_webui.py (download-selected route)
+
+□ 3. Update thread start to pass round_info
+     File: f1arr_webui.py (download-selected route)
+
+□ 4. Add status polling JavaScript to base.html
+     - Add updateStatusLabel() function
+     - Add startStatusPolling() function  
+     - Modify the reload logic to poll on noReloadPages
+     File: templates/base.html
+
+□ 5. Verify /status endpoint exists and returns command_output
+     File: f1arr_webui.py
+
+================================================================================
+PART 3: OTHER BUG FIXES
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 SWIPE NAVIGATION FIX
+--------------------------------------------------------------------------------
+
+PROBLEM: Swipe gestures not working on Download tab
+CAUSE: active_tab values in Flask routes didn't match tabs array in JavaScript
+FIX: Updated Flask routes:
+     - active_tab="commands" → active_tab="home"
+     - active_tab="library" → active_tab="download"
+
+--------------------------------------------------------------------------------
+3.2 ADMIN MODAL SUBMIT FIX
+--------------------------------------------------------------------------------
+
+PROBLEM: Admin password submit button not working (500 error)
+CAUSE: verify-admin route used non-existent load_settings() function
+FIX: Replaced with direct YAML file reading (see Part 1.4)
+
+--------------------------------------------------------------------------------
+3.3 FUTURE ROUNDS NOT SHOWING
+--------------------------------------------------------------------------------
+
+PROBLEM: 2026 rounds not appearing in Download tab
+CAUSE: get_library_status() was skipping future rounds entirely with 'continue'
+FIX: Changed to flag rounds as is_future instead of skipping them
+
+--------------------------------------------------------------------------------
+3.4 DOWNLOAD SESSION PARSING
+--------------------------------------------------------------------------------
+
+PROBLEM: "--sessions: expected one argument" error
+CAUSE: Session key format mismatch - code expected "_E" but keys use "_TYPE"
+FIX: Convert session type name to episode number via SessionType enum
+
+================================================================================
+END OF DOCUMENT
+================================================================================

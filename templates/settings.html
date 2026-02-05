@@ -4,21 +4,14 @@
 <div class="card">
     <!-- Sub-tabs -->
     <div class="sub-tabs">
-        <button class="sub-tab active" onclick="showSubTab('grabbing')">Grabbing</button>
-        <button class="sub-tab" onclick="showSubTab('app-config')">App Config</button>
+        <button class="sub-tab active" onclick="showSubTab('user-pref')">User Pref.</button>
+        <button class="sub-tab" onclick="showAdminTab()">(ADMIN)</button>
     </div>
     
-    <!-- Grabbing Sub-tab -->
-    <div id="grabbing-subtab" class="sub-tab-content active">
-        <h2>Grabbing Settings</h2>
-        <div class="form-group inline-form">
-            <label for="max-grabs">Max grabs per run:</label>
-            <input type="number" id="max-grabs" min="1" max="50" value="{{ settings.max_grabs_per_run }}">
-        </div>
-        <p class="help-text">Limits how many sessions are grabbed in one scheduled run</p>
-        
-        <h2 style="margin-top: 30px;">Desired Sessions</h2>
-        <p class="help-text" style="margin-bottom: 15px;">Select which session types to search for and download.</p>
+    <!-- User Preferences Sub-tab -->
+    <div id="user-pref-subtab" class="sub-tab-content active">
+        <h2>Wanted Episodes</h2>
+        <p class="help-text" style="margin-bottom: 15px;">Select which episode types to search for and download.</p>
         
         <div class="sessions-grid">
             {% for group_name, session_keys in session_groups.items() %}
@@ -46,13 +39,25 @@
             <button onclick="saveSettings()" class="success">💾 Save Settings</button>
             <button onclick="selectAll(true)" class="secondary">Select All</button>
             <button onclick="selectAll(false)" class="secondary">Deselect All</button>
-            <button onclick="resetDefaults()" class="secondary">Reset</button>
+            <button onclick="resetDefaults()" class="secondary">Core Sessions</button>
         </div>
     </div>
     
-    <!-- App Config Sub-tab -->
-    <div id="app-config-subtab" class="sub-tab-content">
+    <!-- Admin Sub-tab -->
+    <div id="admin-subtab" class="sub-tab-content">
         <div class="validation-status" id="config-validation"></div>
+        
+        <!-- Max Grabs Setting -->
+        <div class="config-section">
+            <h3>⚙️ Grabber Settings</h3>
+            <div class="config-row">
+                <div class="config-field">
+                    <label for="max-grabs">Max grabs per run:</label>
+                    <input type="number" id="max-grabs" min="1" max="50" value="{{ settings.max_grabs_per_run }}" style="width: 100px;">
+                    <div class="config-help">Limits how many episodes are grabbed in one scheduled run</div>
+                </div>
+            </div>
+        </div>
         
         <h2>Application Configuration</h2>
         <p class="help-text" style="margin-bottom: 15px;">Configure connections to Prowlarr, SABnzbd, and Plex.</p>
@@ -137,6 +142,29 @@
             </div>
         </div>
         
+        <!-- Path Mapping -->
+        <div class="config-section collapsible">
+            <div class="config-section-header" onclick="toggleCollapse(this)">
+                <h3>🔄 Path Mapping</h3>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="config-section-body">
+                <p class="help-text" style="margin-bottom: 10px;">Map paths between this container and Plex if they differ.</p>
+                <div class="config-row">
+                    <div class="config-field">
+                        <label for="cfg-path-container">Container Path</label>
+                        <input type="text" id="cfg-path-container" placeholder="/media">
+                        <div class="config-help">Path as seen by MotoGParr (e.g., /media)</div>
+                    </div>
+                    <div class="config-field">
+                        <label for="cfg-path-plex">Plex Path</label>
+                        <input type="text" id="cfg-path-plex" placeholder="/data/media">
+                        <div class="config-help">Same path as seen by Plex (e.g., /data/media)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- Library Paths -->
         <div class="config-section collapsible">
             <div class="config-section-header" onclick="toggleCollapse(this)">
@@ -192,6 +220,37 @@
             </div>
         </div>
         
+        <!-- Overlay Tools (moved from Home) -->
+        <div class="config-section collapsible collapsed">
+            <div class="config-section-header" onclick="toggleCollapse(this)">
+                <h3>🎨 Overlay Tools</h3>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="config-section-body">
+                <div class="form-group">
+                    <label>Season</label>
+                    <select id="overlay-season">
+                        {% for year in seasons %}<option value="{{ year }}" {{ 'selected' if year == current_year }}>{{ year }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Round (optional)</label>
+                    <select id="overlay-round">
+                        <option value="">All Rounds</option>
+                    </select>
+                </div>
+                <div class="inline-form">
+                    <label for="scale-factor">Scale Factor:</label>
+                    <input type="number" id="scale-factor" min="0.5" max="3.0" step="0.1" value="1.0" style="width: 80px;">
+                    <span class="help-text">(0.5 - 3.0)</span>
+                </div>
+                <div class="button-row">
+                    <button onclick="runOverlay()" class="warning">🎨 Apply Overlays</button>
+                    <button onclick="runOverlay(true)" class="secondary">👁️ Overlay Dry Run</button>
+                </div>
+            </div>
+        </div>
+        
         <div class="button-row" style="margin-top: 20px;">
             <button onclick="saveAppConfig()" class="success">💾 Save Configuration</button>
             <button onclick="testConnections()" class="secondary">🔌 Test Connections</button>
@@ -204,6 +263,7 @@
 {% block scripts %}
 <script>
     const sessionDefaults = {{ session_defaults | tojson }};
+    const calendarData = {{ calendar_data | tojson if calendar_data is defined else '{}' }};
     
     function showSubTab(tabName) {
         document.querySelectorAll('.sub-tab-content').forEach(t => t.classList.remove('active'));
@@ -211,8 +271,22 @@
         document.getElementById(tabName + '-subtab').classList.add('active');
         event.target.classList.add('active');
         
-        if (tabName === 'app-config') {
+        if (tabName === 'admin') {
             loadAppConfig();
+            updateOverlayRounds();
+        }
+    }
+    
+    function showAdminTab() {
+        if (isAdminAuthed()) {
+            showSubTab('admin');
+        } else {
+            showAdminModal(function() {
+                showSubTab('admin');
+                // Update button to show active
+                document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.sub-tab')[1].classList.add('active');
+            });
         }
     }
     
@@ -227,8 +301,9 @@
             sessions[cb.dataset.session] = cb.checked;
         });
         
+        const maxGrabsEl = document.getElementById('max-grabs');
         const settings = {
-            max_grabs_per_run: parseInt(document.getElementById('max-grabs').value) || 22,
+            max_grabs_per_run: parseInt(maxGrabsEl.value) || 22,
             sessions: sessions
         };
         
@@ -251,8 +326,7 @@
         document.querySelectorAll('[data-session]').forEach(cb => {
             cb.checked = sessionDefaults[cb.dataset.session] || false;
         });
-        document.getElementById('max-grabs').value = 22;
-        showToast('Reset to defaults (not saved yet)', 'info');
+        showToast('Reset to core sessions (not saved yet)', 'info');
     }
     
     function loadAppConfig() {
@@ -267,10 +341,17 @@
                 document.getElementById('cfg-plex-token').value = data.plex?.token || '';
                 document.getElementById('cfg-plex-library-id').value = data.plex?.library_id || '';
                 document.getElementById('cfg-plex-library-name').value = data.plex?.library_name || '';
+                document.getElementById('cfg-path-container').value = data.plex?.path_mapping?.container || '';
+                document.getElementById('cfg-path-plex').value = data.plex?.path_mapping?.plex || '';
                 document.getElementById('cfg-motogp-path').value = data.library?.motogp_path || '';
                 document.getElementById('cfg-downloads-path').value = data.library?.downloads_path || '';
                 document.getElementById('cfg-discord-webhook').value = data.discord?.webhook_url || '';
                 document.getElementById('cfg-timezone').value = data.timezone || 'Europe/London';
+                
+                // Load max_grabs_per_run if present
+                if (data.max_grabs_per_run) {
+                    document.getElementById('max-grabs').value = data.max_grabs_per_run;
+                }
                 
                 updateValidationStatus(data.validation);
             });
@@ -307,7 +388,11 @@
                 url: document.getElementById('cfg-plex-url').value,
                 token: document.getElementById('cfg-plex-token').value,
                 library_id: document.getElementById('cfg-plex-library-id').value,
-                library_name: document.getElementById('cfg-plex-library-name').value
+                library_name: document.getElementById('cfg-plex-library-name').value,
+                path_mapping: {
+                    container: document.getElementById('cfg-path-container').value,
+                    plex: document.getElementById('cfg-path-plex').value
+                }
             },
             library: {
                 motogp_path: document.getElementById('cfg-motogp-path').value,
@@ -316,7 +401,8 @@
             discord: {
                 webhook_url: document.getElementById('cfg-discord-webhook').value
             },
-            timezone: document.getElementById('cfg-timezone').value
+            timezone: document.getElementById('cfg-timezone').value,
+            max_grabs_per_run: parseInt(document.getElementById('max-grabs').value) || 22
         };
         
         fetch('/app-config', {
@@ -360,5 +446,51 @@
                 btn.textContent = '🔌 Test Connections';
             });
     }
+    
+    // Overlay functions
+    function updateOverlayRounds() {
+        const seasonEl = document.getElementById('overlay-season');
+        const roundSelect = document.getElementById('overlay-round');
+        
+        if (!seasonEl || !roundSelect || !calendarData) return;
+        
+        const season = seasonEl.value;
+        const rounds = calendarData[season] || [];
+        
+        roundSelect.innerHTML = '<option value="">All Rounds</option>';
+        rounds.forEach(r => {
+            roundSelect.innerHTML += `<option value="${r.number}">Round ${r.number} - ${r.venue}</option>`;
+        });
+    }
+    
+    function runOverlay(dryRun = false) {
+        const season = document.getElementById('overlay-season').value;
+        const round = document.getElementById('overlay-round').value;
+        let scale = parseFloat(document.getElementById('scale-factor').value);
+        
+        if (isNaN(scale) || scale < 0.5) scale = 0.5;
+        if (scale > 3.0) scale = 3.0;
+        document.getElementById('scale-factor').value = scale;
+        
+        let cmd;
+        if (round) {
+            cmd = `overlay apply-round ${season} ${round} --scale ${scale}`;
+        } else {
+            cmd = `overlay apply-season ${season} --scale ${scale}`;
+        }
+        if (dryRun) cmd += ' --dry-run';
+        
+        runCommand(cmd);
+        showToast('Overlay command started...', 'info');
+    }
+    
+    // Initialize overlay rounds dropdown
+    document.addEventListener('DOMContentLoaded', function() {
+        const overlaySeasonEl = document.getElementById('overlay-season');
+        if (overlaySeasonEl) {
+            updateOverlayRounds();
+            overlaySeasonEl.addEventListener('change', updateOverlayRounds);
+        }
+    });
 </script>
 {% endblock %}

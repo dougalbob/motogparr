@@ -1,94 +1,33 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Quick Actions -->
+<!-- Home Tab - Simplified welcome and navigation -->
 <div class="card">
-    <h2>Quick Actions</h2>
-    <div class="quick-buttons">
-        <button onclick="runCommand('status')" {{ 'disabled' if status.running }}>📊 Status</button>
-        <button onclick="runCommand('scheduled')" {{ 'disabled' if status.running }}>🔍 Scheduled</button>
-        <button onclick="runCommand('scheduled --dry-run')" class="secondary" {{ 'disabled' if status.running }}>👁️ Dry Run</button>
-        <button onclick="refreshOutput()" class="secondary">🔄 Refresh</button>
+    <h2>Welcome to MotoGParr</h2>
+    <p class="help-text">MotoGP Automated Recording & Retrieval</p>
+    
+    <div class="home-status">
+        <p>Use the tabs above to navigate:</p>
+        <ul class="home-nav-hints">
+            <li><strong>Download</strong> - View library and download missing episodes</li>
+            <li><strong>Settings</strong> - Configure preferences and app settings</li>
+            <li><strong>Stats</strong> - View grab statistics</li>
+            <li><strong>Calendar</strong> - Race schedule and calendar view</li>
+            <li><strong>Activity</strong> - Live activity feed and logs</li>
+        </ul>
     </div>
 </div>
 
-<!-- Overlay Tools - Collapsible -->
-<div class="card collapsible">
-    <div class="card-header" onclick="toggleCollapse(this)">
-        <h2>🎨 Overlay Tools</h2>
-        <span class="collapse-icon">▼</span>
-    </div>
-    <div class="card-body">
-        <div class="form-group">
-            <label>Season</label>
-            <select id="season" onchange="updateRounds()">
-                {% for year in seasons %}<option value="{{ year }}" {{ 'selected' if year == 2025 }}>{{ year }}</option>{% endfor %}
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Round (optional)</label>
-            <select id="round">
-                <option value="">All Rounds</option>
-            </select>
-        </div>
-        <div class="inline-form">
-            <label for="scale-factor">Scale Factor:</label>
-            <input type="number" id="scale-factor" min="0.5" max="3.0" step="0.1" value="1.0">
-            <span style="color: #666; font-size: 14px;">(0.5 - 3.0)</span>
-        </div>
-        <div class="button-row">
-            <button onclick="runOverlay()" class="warning" {{ 'disabled' if status.running }}>🎨 Apply Overlays</button>
-            <button onclick="runOverlay(true)" class="secondary" {{ 'disabled' if status.running }}>👁️ Dry Run</button>
-        </div>
-    </div>
-</div>
-
-<!-- Output -->
+<!-- Quick Status -->
 <div class="card">
-    <h2>Output</h2>
-    {% if status.timestamp %}<div class="timestamp">Last run: {{ status.timestamp }}</div>{% endif %}
-    <div class="output" id="output">{{ status.output or 'No output yet. Run a command to see results.' }}</div>
+    <h2>Quick Status</h2>
+    {% if status.timestamp %}<div class="timestamp">Last activity: {{ status.timestamp }}</div>{% endif %}
+    <div class="output" id="output">{{ status.output or 'No recent activity.' }}</div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const calendarData = {{ calendar_data | tojson }};
-    
-    window.addEventListener('load', function() {
-        updateRounds();
-        scrollOutputToBottom();
-    });
-    
-    function updateRounds() {
-        const season = document.getElementById('season').value;
-        const roundSelect = document.getElementById('round');
-        const rounds = calendarData[season] || [];
-        
-        roundSelect.innerHTML = '<option value="">All Rounds</option>';
-        rounds.forEach(r => {
-            roundSelect.innerHTML += `<option value="${r.number}">Round ${r.number} - ${r.venue}</option>`;
-        });
-    }
-    
-    function runOverlay(dryRun = false) {
-        const season = document.getElementById('season').value;
-        const round = document.getElementById('round').value;
-        let scale = parseFloat(document.getElementById('scale-factor').value);
-        
-        if (isNaN(scale) || scale < 0.5) scale = 0.5;
-        if (scale > 3.0) scale = 3.0;
-        document.getElementById('scale-factor').value = scale;
-        
-        let cmd;
-        if (round) {
-            cmd = `overlay apply-round ${season} ${round} --scale ${scale}`;
-        } else {
-            cmd = `overlay apply-season ${season} --scale ${scale}`;
-        }
-        if (dryRun) cmd += ' --dry-run';
-        
-        runCommand(cmd);
-    }
+    // Home tab - minimal JS needed
 </script>
 {% endblock %}

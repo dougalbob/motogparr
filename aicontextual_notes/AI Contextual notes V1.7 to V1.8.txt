@@ -1,0 +1,259 @@
+
+================================================================================
+AI CONTEXTUAL NOTES: MotoGParr Activity Feed & Plex Tagger Session
+Date: 01 February 2025
+================================================================================
+
+PROJECT OVERVIEW
+----------------
+MotoGParr - Docker container automating MotoGP content download/sorting to Plex
+Scripts location: /mnt/user/data/pythonscripts/motorsport/motogparr/
+Appdata location: /mnt/user/appdata/motogparr/
+Container port: 5679
+GitHub: https://github.com/dougalbob/motogparr
+GHCR: ghcr.io/dougalbob/motogparr
+
+================================================================================
+CHANGES MADE THIS SESSION (v1.7 -> v1.8)
+================================================================================
+
+1. ACTIVITY FEED - MISSING VENUE INFORMATION
+---------------------------------------------
+PROBLEM:
+Activity feed displayed incomplete session names:
+- Showing: "MotoGP Sprint"
+- Should show: "Qatar MotoGP Sprint"
+
+ROOT CAUSE:
+The activity events are parsed from log lines in motogp_webui.py using regex.
+The regex patterns weren't capturing venue information from the updated log format.
+
+FIX:
+Updated parse_log_line() function in motogp_webui.py to handle new log format:
+
+BEFORE (log line):
+  logger.info(f"📋 Found {len(available)} candidates for {session_type.full_display_name}")
+
+AFTER (log line in motogp_grabber.py):
+  logger.info(f"📋 Found {len(available)} candidates for Round {round_num} {venue} - {session_type.full_display_name}")
+
+Updated regex in parse_log_line() to capture round, venue, and session name separately.
+
+2. ACTIVITY FEED - "UNKNOWN" DISPLAY
+------------------------------------
+PROBLEM:
+Final "Ready in Plex" activity showed "unknown" instead of session name.
+
+FIX:
+- Changed "unknown" to "Working..." for better UX in activity.html JavaScript
+- Added new parser for "Sort completed:" log line which contains full session info:
+  
+  elif '✅ Sort completed:' in message:
+      m = re.search(r'Sort completed: (\S+) (.+)', message)
+      if m:
+          event['stage'] = 'complete'
+          event['session_key'] = m.group(1)
+          event['name'] = m.group(2)
+
+3. ACTIVITY FEED - PAGE FLICKERING
+----------------------------------
+PROBLEM:
+Activity page flickered every 3-10 seconds, causing:
+- Annoying visual flicker
+- Log viewer collapsing repeatedly
+- Poor user experience
+
+ROOT CAUSE:
+Found in base.html - auto-reload mechanism:
+  {% if status.running %}
+  setTimeout(() => location.reload(), 3000);
+  {% endif %}
+
+This reloaded the ENTIRE page every 3 seconds when any command was running,
+destroying SSE connections and UI state.
+
+FIX:
+Modified base.html to exclude pages with live SSE streams:
+
+  {% if status.running %}
+  const noReloadPages = ['activity', 'logs'];
+  if (!noReloadPages.includes(currentTab)) {
+      setTimeout(() => location.reload(), 3000);
+  }
+  {% endif %}
+
+4. SABNZBD QUEUE MONITOR
+------------------------
+ADDED:
+New collapsible panel on Activity page showing SABnzbd download status.
+
+Features:
+- Shows all "motogp" category downloads with progress bars
+- Displays filename, size, percentage, time remaining
+- Shows total queue speed and size (all categories)
+- Auto-polls every 15 seconds while downloads active
+- Stops polling when queue empty
+- Badge showing number of active MotoGP downloads
+
+Files modified:
+- motogp_webui.py: Added /api/sabnzbd/queue endpoint
+- templates/activity.html: Added SAB queue HTML and JavaScript
+- static/css/style.css: Added SAB queue styling
+
+NOTE: Progress bar gradient may not render on mobile PWA - fallback text info works.
+
+5. PLEX TAGGER - PATH MAPPING FIX
+---------------------------------
+PROBLEM:
+Plex tagger couldn't find files after sorting:
+  "File not in Plex yet, waiting 20s... (1/6)"
+  "❌ File not found in Plex"
+
+But files WERE visible in Plex UI within 20 seconds.
+
+ROOT CAUSE:
+Docker volume mount mismatch:
+- MotoGParr container: /mnt/user/data/media → /media
+- Plex container: /mnt/user/data/media → /data/media
+
+App searched for: /media/Motorssport/MotoGP/...
+Plex stored as:   /data/media/Motorssport/MotoGP/...
+
+Path comparison failed because they didn't match.
+
+FIX:
+Added path_mapping to settings.yml:
+
+  plex:
+    url: http://192.168.1.241:32400
+    token: redacted
+    library_id: '16'
+    library_name: Motorsport - MotoGP
+    path_mapping:
+      container: /media          # Path as seen by MotoGParr
+      plex: /data/media          # Path as seen by Plex
+
+The translate_path_for_plex() function in utils/config_loader.py uses this
+mapping to convert paths when querying Plex API.
+
+6. SETTINGS EXAMPLE FILE
+------------------------
+ADDED: settings.example.yml to prevent future config issues.
+Contains all settings with comments, including path_mapping section.
+
+================================================================================
+FILES MODIFIED
+================================================================================
+
+motogp_webui.py
+- Added /api/sabnzbd/queue endpoint for queue monitoring
+- Updated parse_log_line() regex patterns for venue capture
+- Added "Sort completed" parser for complete stage
+
+templates/activity.html
+- Added SABnzbd queue monitor HTML section
+- Added SAB queue JavaScript (fetch, display, polling)
+- Changed "unknown" fallback to "Working..."
+- Increased maxActivities from 30 to 50
+
+templates/base.html
+- Excluded activity/logs pages from auto-reload during running jobs
+
+static/css/style.css
+- Added SABnzbd queue monitor styles (.sab-* classes)
+
+motogp_grabber.py
+- Updated log statements to include Round and Venue
+
+settings.yml (user config - not in repo)
+- Added plex.path_mapping.container and plex.path_mapping.plex
+
+NEW FILES:
+- settings.example.yml - Template with all settings documented
+
+================================================================================
+ACTIVITY FEED ARCHITECTURE
+================================================================================
+
+The activity feed works by:
+1. SSE endpoint /activity/stream tails motogp.log file
+2. parse_log_line() uses regex to extract structured events from log lines
+3. Events sent to browser contain: stage, name, venue, release, score, candidates
+4. Frontend JavaScript maintains activity state and renders updates
+
+Stage flow:
+searching → found → sending → grabbed → downloading → ready → 
+processing → sorting → tagging → plex → complete
+
+Key regex patterns in parse_log_line():
+- 🔍 Searching: Round (\d+) (\w+) - (.+)
+- 📋 Found (\d+) candidates for Round (\d+) (\w+) - (.+)
+- ✅ Sort completed: (\S+) (.+)
+- ✅ Successfully processed: (\S+) (.+)
+
+================================================================================
+DOCKER VOLUME MOUNTS (for reference)
+================================================================================
+
+MotoGParr container:
+  /mnt/user/data/media      → /media
+  /mnt/user/data/downloads  → /downloads
+  /mnt/user/appdata/motogparr → /config
+
+Plex container:
+  /mnt/user/data/media      → /data/media
+
+This is why path_mapping is needed!
+
+================================================================================
+VERSION HISTORY
+================================================================================
+
+v1.8 (01 Feb 2025)
+- Activity feed venue display fix
+- Activity feed flickering fix
+- SABnzbd queue monitor
+- Plex tagger path mapping fix
+- Added settings.example.yml
+
+v1.7 (01 Feb 2025)
+- Initial activity feed fixes (partial)
+
+v1.6 and earlier
+- See previous session notes
+
+================================================================================
+PUSH COMMANDS USED
+================================================================================
+
+# Git
+cd /mnt/user/data/pythonscripts/motorsport/motogparr
+git add .
+git commit -m "v1.8 - Activity feed improvements, SABnzbd queue monitor, Plex path mapping fix"
+git tag -a v1.8 -m "Version 1.8"
+git push origin main --tags
+
+# Docker
+docker build -t ghcr.io/dougalbob/motogparr:v1.8 .
+docker tag ghcr.io/dougalbob/motogparr:v1.8 ghcr.io/dougalbob/motogparr:latest
+docker push ghcr.io/dougalbob/motogparr:v1.8
+docker push ghcr.io/dougalbob/motogparr:latest
+
+================================================================================
+REMAINING/KNOWN ISSUES
+================================================================================
+
+1. SABnzbd progress bar gradient may not render on mobile PWA
+   - Fallback text info is sufficient
+   - Would need webkit prefixes or simpler styling to fix
+
+2. Some activity stages (tagging, plex) don't capture session name
+   - Works but shows generic status
+   - Would need additional log parsing if names needed
+
+================================================================================
+END OF SESSION NOTES
+================================================================================
+EOF
+
+echo "✅ Created: ~/Desktop/motogparr_session_notes_20250201.txt"

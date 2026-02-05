@@ -98,7 +98,9 @@ command_output = {
     "running": False,
     "command": "",
     "output": "",
-    "timestamp": None
+    "timestamp": None,
+    "batch_total": 0,
+    "batch_current": 0
 }
 
 
@@ -281,6 +283,7 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
     existing = scan_library_for_season(year)
     settings = load_webui_settings()
     
+    # Build desired sessions set from settings
     desired_set = set()
     for key, enabled in settings.get("sessions", {}).items():
         if enabled:
@@ -292,8 +295,19 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
     if not desired_set:
         desired_set = {st for st, enabled in DEFAULT_DESIRED_SESSIONS.items() if enabled}
     
-    result = {"rounds": [], "total_grabbed": 0, "total_desired": 0}
+    result = {
+        "rounds": [], 
+        "total_grabbed": 0, 
+        "total_desired": 0,
+        "past_rounds_grabbed": 0,
+        "past_rounds_desired": 0,
+        "total_in_library": 0
+    }
     today = datetime.now().date()
+    
+    # Count total files in library (all sessions, not just desired)
+    for round_num, sessions in existing.items():
+        result["total_in_library"] += len(sessions)
     
     for r in calendar.get("rounds", []):
         round_num = r.get("round")
@@ -301,11 +315,12 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
         if round_filter and round_num != round_filter:
             continue
         
+        # Check if future round (don't skip, just flag it)
         race_date_str = r.get("date", "")
+        is_future = False
         if race_date_str:
             try:
-                if datetime.strptime(race_date_str, "%Y-%m-%d").date() > today:
-                    continue
+                is_future = datetime.strptime(race_date_str, "%Y-%m-%d").date() > today
             except ValueError:
                 pass
         
@@ -329,6 +344,7 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
             "number": round_num,
             "venue": r.get("venue", "Unknown"),
             "date": r.get("date", ""),
+            "is_future": is_future,
             "sessions": sessions,
             "grabbed_count": grabbed_count,
             "desired_count": desired_count,
@@ -336,6 +352,11 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
         
         result["total_grabbed"] += grabbed_count
         result["total_desired"] += desired_count
+        
+        # Only count past rounds for the "preferred" stats
+        if not is_future:
+            result["past_rounds_grabbed"] += grabbed_count
+            result["past_rounds_desired"] += desired_count
     
     return result
 
@@ -475,7 +496,7 @@ def index():
         session_defaults=session_defaults,
         next_race=next_race,
         calendar_data=calendar_data,
-        active_tab="commands"
+        active_tab="home"
     )
 
 
@@ -501,7 +522,7 @@ def library():
         next_race=next_race,
         calendar_data=calendar_data,
         flag_data=flag_data,
-        active_tab="library"
+        active_tab="download"
     )
 
 
@@ -757,26 +778,79 @@ def download_selected():
         round_num = sel.get("round")
         if round_num not in by_round:
             by_round[round_num] = []
-        # Extract episode number from session key (e.g., "2025_R03_E09" -> "E09")
-        session_key = sel.get("key", "")
-        if "_E" in session_key:
-            episode = session_key.split("_E")[-1]
-            by_round[round_num].append(f"E{episode}")
+        
+        # Convert session type name to episode number
+        session_name = sel.get("session", "")
+        try:
+            # SessionType is an IntEnum, so we can get its value
+            session_type = SessionType[session_name]
+            episode_num = f"E{int(session_type):02d}"
+            by_round[round_num].append(episode_num)
+        except (KeyError, ValueError) as e:
+            # If conversion fails, skip this session
+            print(f"Could not convert session: {session_name} - {e}")
+            continue
     
     # Build commands with specific sessions
     commands = []
     for round_num, episodes in by_round.items():
-        sessions_str = ",".join(episodes)
-        cmd = f"backfill --season {season} --round {round_num} --sessions {sessions_str} --force"
-        commands.append(cmd)
+        if episodes:  # Only if we have valid episodes
+            sessions_str = ",".join(episodes)
+            cmd = f"backfill --season {season} --round {round_num} --sessions {sessions_str} --force"
+            commands.append(cmd)
     
-    # Run commands sequentially in background
-    def run_all_commands(cmds):
-        for cmd in cmds:
-            run_grabber_command(cmd)
+    # Run commands sequentially in background, keeping running=True until all complete
+    def run_all_commands(cmds, season, round_info):
+        global command_output
+        total = len(cmds)
+        command_output["batch_total"] = total
+        
+        for i, (cmd, info) in enumerate(zip(cmds, round_info)):
+            # Update command display with clear search status
+            command_output["running"] = True
+            command_output["batch_current"] = i + 1
+            round_num = info["round"]
+            episodes = info["episodes"]
+            command_output["command"] = f"Searching ({i+1}/{total}): Season {season} R{round_num} {episodes}"
+            command_output["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            if i == 0:
+                command_output["output"] = f"Starting batch download of {total} job(s)...\n\n"
+            else:
+                command_output["output"] += f"\n{'='*60}\n"
+            
+            command_output["output"] += f">>> Search {i+1}/{total}: Season {season} Round {round_num} - {episodes}\n\n"
+            
+            try:
+                cmd_parts = [PYTHON_PATH, str(GRABBER_SCRIPT)] + cmd.split()
+                process = subprocess.Popen(
+                    cmd_parts, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1
+                )
+                
+                for line in process.stdout:
+                    command_output["output"] += line
+                
+                process.wait()
+                
+            except Exception as e:
+                command_output["output"] += f"\nError: {e}\n"
+        
+        # Only set running=False after ALL commands complete
+        command_output["running"] = False
+        command_output["batch_total"] = 0
+        command_output["batch_current"] = 0
+        command_output["output"] += f"\n{'='*60}\n✅ All {total} searches completed.\n"
+        command_output["output"] += f"\n{'='*60}\nAll {len(cmds)} commands completed.\n"
+    
+    # Build round info for status display
+    round_info = []
+    for round_num, episodes in by_round.items():
+        if episodes:
+            round_info.append({"round": round_num, "episodes": ",".join(episodes)})
     
     if commands:
-        thread = threading.Thread(target=run_all_commands, args=(commands,))
+        thread = threading.Thread(target=run_all_commands, args=(commands, season, round_info))
         thread.start()
     
     return jsonify({
@@ -915,7 +989,20 @@ def activity_stream():
             # This one doesn't have session info in the message
             # Skip it - let "Successfully processed" be the complete trigger
             return None
-        
+
+        elif '❌ No candidates:' in message:
+            m = re.search(r'No candidates: Round (\d+) (.+?) - (.+)', message)
+            if m:
+                event['stage'] = 'error'
+                event['round'] = m.group(1)
+                event['venue'] = m.group(2)
+                event['name'] = f"{m.group(2)} {m.group(3)}"
+                event['session_key'] = f"R{m.group(1)}_{m.group(3).replace(' ', '_')}"
+                event['detail'] = 'No matching releases found'
+                event['candidates'] = 0
+                event['error_message'] = 'Episode unavailable - no matching releases after filtering'
+
+           
         elif '❌' in message or 'Error' in message or 'error' in message.lower():
             event['stage'] = 'error'
             event['detail'] = message
@@ -1123,6 +1210,27 @@ def manifest():
         ]
     })
 
+@app.route('/verify-admin', methods=['POST'])
+def verify_admin():
+    """Verify admin password."""
+    import yaml
+    
+    data = request.get_json()
+    password = data.get("password", "") if data else ""
+    
+    try:
+        settings_file = CONFIG_DIR / "settings.yml"
+        if settings_file.exists():
+            with open(settings_file, "r") as f:
+                settings = yaml.safe_load(f)
+                admin_password = settings.get("uiadminpassword", "")
+                
+                if admin_password and password == admin_password:
+                    return jsonify({"valid": True})
+    except Exception as e:
+        print(f"Error verifying admin password: {e}")
+    
+    return jsonify({"valid": False})
 
 @app.route("/sw.js")
 def service_worker():

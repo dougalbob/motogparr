@@ -928,6 +928,7 @@ def cmd_backfill(args):
         
         if not results:
             print("    ❌ No matching releases found")
+            logger.info(f"❌ No candidates: Round {round_num} {venue} - {session_type.full_display_name}")
             state.mark_failed(session_key, "No results")
             continue
         

@@ -79,19 +79,19 @@
     let activities = {};
     const maxActivities = 50;
     
-    // Activity stages with their order and display info
+    // Activity stages with their order and display info (some stages are currently skipped in feed by design, see line 132)
     const stages = {
         'searching': { icon: '🔍', label: 'Searching', order: 1, color: '#3498db' },
         'found': { icon: '📋', label: 'Found candidates', order: 2, color: '#9b59b6' },
         'sending': { icon: '⬇️', label: 'Sending to SABnzbd', order: 3, color: '#f39c12' },
-        'grabbed': { icon: '📥', label: 'Download started', order: 4, color: '#e67e22' },
+        'grabbed': { icon: '📥', label: 'Downloading then processing', order: 4, color: '#e67e22' },
         'downloading': { icon: '⬇️', label: 'Downloading', order: 5, color: '#e67e22' },
         'ready': { icon: '📂', label: 'Download complete', order: 6, color: '#27ae60' },
         'processing': { icon: '⚙️', label: 'Processing', order: 7, color: '#3498db' },
-        'sorting': { icon: '📁', label: 'Sorting to library', order: 8, color: '#9b59b6' },
+        'sorting': { icon: '📁', label: 'Applying PLEX metadata', order: 8, color: '#9b59b6' },
         'tagging': { icon: '🏷️', label: 'Applying Plex tags', order: 9, color: '#1abc9c' },
         'plex': { icon: '📺', label: 'Refreshing Plex', order: 10, color: '#e74c3c' },
-        'complete': { icon: '✅', label: 'Ready in Plex', order: 11, color: '#27ae60' },
+        'complete': { icon: '✅', label: 'Ready in PLEX', order: 11, color: '#27ae60' },
         'error': { icon: '❌', label: 'Error', order: 99, color: '#e74c3c' }
     };
     
@@ -129,51 +129,57 @@
     }
     
     function processActivityEvent(event) {
-        const sessionKey = event.session_key || event.name || 'working....'
-        
-        if (!activities[sessionKey]) {
-            activities[sessionKey] = {
-                key: sessionKey,
-                name: event.name || sessionKey,
-                venue: event.venue || '',
-                round: event.round || '',
-                stage: 'searching',
-                stages: {},
-                lastUpdate: new Date(),
-                release: null,
-                score: null
-            };
-        }
-        
-        const activity = activities[sessionKey];
-        activity.lastUpdate = new Date();
-        
-        // Update venue if provided (it might come in later events)
-        if (event.venue && !activity.venue) {
-            activity.venue = event.venue;
-        }
-        
-        // Update based on event type
-        if (event.stage) {
-            activity.stage = event.stage;
-            activity.stages[event.stage] = {
-                time: new Date(),
-                detail: event.detail || ''
-            };
-        }
-        
-        if (event.release) {
-            activity.release = event.release;
-        }
-        if (event.score) {
-            activity.score = event.score;
-        }
-        if (event.candidates) {
-            activity.candidates = event.candidates;
-        }
-        
-        renderActivities();
+    // Skip these stages from the feed
+    const hiddenStages = ['plex', 'sending', 'tagging']
+    if (hiddenStages.includes(event.stage)) {
+        return;
     }
+    
+    const sessionKey = event.session_key || event.name || 'working....'
+    
+    if (!activities[sessionKey]) {
+        activities[sessionKey] = {
+            key: sessionKey,
+            name: event.name || sessionKey,
+            venue: event.venue || '',
+            round: event.round || '',
+            stage: 'searching',
+            stages: {},
+            lastUpdate: new Date(),
+            release: null,
+            score: null
+        };
+    }
+    
+    const activity = activities[sessionKey];
+    activity.lastUpdate = new Date();
+    
+    // Update venue if provided (it might come in later events)
+    if (event.venue && !activity.venue) {
+        activity.venue = event.venue;
+    }
+    
+    // Update based on event type
+    if (event.stage) {
+        activity.stage = event.stage;
+        activity.stages[event.stage] = {
+            time: new Date(),
+            detail: event.detail || ''
+        };
+        
+        // Auto-refresh SABnzbd queue when download starts
+        if (event.stage === 'grabbed') {
+            setTimeout(refreshSabQueue, 2000);
+        }
+    }
+    
+    if (event.release) activity.release = event.release;
+    if (event.score) activity.score = event.score;
+    if (event.candidates !== undefined) activity.candidates = event.candidates;
+    if (event.error_message) activity.error_message = event.error_message;
+    
+    renderActivities();
+}
     
     // Build display name with venue
     function getDisplayName(activity) {
@@ -253,7 +259,7 @@
         div.dataset.key = activity.key;
         
         div.innerHTML = `
-            <div class="activity-icon" style="background: ${stageInfo.color}">
+            <div class="activity-icon ${activity.stage}" style="background: ${stageInfo.color}">
                 ${stageInfo.icon}
             </div>
             <div class="activity-content">
@@ -261,7 +267,8 @@
                 <div class="activity-status">${stageInfo.label}</div>
                 <div class="activity-release" style="${activity.release ? '' : 'display:none'}">📦 ${escapeHtml(activity.release || '')}</div>
                 <div class="activity-score" style="${activity.score ? '' : 'display:none'}">Score: ${activity.score || ''}</div>
-                <div class="activity-candidates" style="${activity.candidates ? '' : 'display:none'}">${activity.candidates || ''} candidates found</div>
+                <div class="activity-candidates" style="${activity.candidates && activity.stage !== 'error' ? '' : 'display:none'}">${activity.candidates || ''} candidates found</div>
+                <div class="activity-error" style="${activity.error_message ? '' : 'display:none'}">⚠️ ${activity.error_message || ''}</div>
             </div>
             <div class="activity-time">
                 ${formatTime(activity.lastUpdate)}
@@ -280,6 +287,7 @@
         if (icon) {
             icon.style.background = stageInfo.color;
             icon.textContent = stageInfo.icon;
+            icon.className = `activity-icon ${activity.stage}`;
         }
         
         const title = element.querySelector('.activity-title');
@@ -302,8 +310,14 @@
         
         const candidates = element.querySelector('.activity-candidates');
         if (candidates) {
-            candidates.style.display = activity.candidates ? '' : 'none';
+            candidates.style.display = activity.candidates && activity.stage !== 'error' ? '' : 'none';
             if (activity.candidates) candidates.textContent = `${activity.candidates} candidates found`;
+        }
+        
+        const errorMsg = element.querySelector('.activity-error');
+        if (errorMsg) {
+            errorMsg.style.display = activity.error_message ? '' : 'none';
+            if (activity.error_message) errorMsg.innerHTML = `⚠️ ${activity.error_message}`;
         }
         
         const time = element.querySelector('.activity-time');
