@@ -5,8 +5,8 @@
     <div class="activity-header">
         <h2>🏁 Activity Feed</h2>
         <div class="activity-controls">
-            <span class="live-indicator" id="live-indicator">● Live</span>
-            <button onclick="clearActivity()" class="small secondary">Clear</button>
+            <span class="live-indicator connected" id="live-indicator">● Live</span>
+            <button onclick="clearAllActivity()" class="small secondary">Clear</button>
         </div>
     </div>
     
@@ -17,9 +17,22 @@
     </div>
 </div>
 
+<!-- Completed History -->
+<div class="card" id="history-card">
+    <div class="activity-header">
+        <h2>✅ Recently Completed</h2>
+        <span class="badge" id="history-count">0</span>
+    </div>
+    <div class="activity-feed" id="history-feed">
+        <div class="activity-empty">
+            <p>No completed downloads yet.</p>
+        </div>
+    </div>
+</div>
+
 <!-- Optional: Raw logs collapsible -->
 <div class="card collapsible collapsed" id="logs-card">
-    <div class="card-header" onclick="toggleCollapse(this)">
+    <div class="card-header" onclick="toggleLogsCard()">
         <h2>📋 Raw Logs</h2>
         <span class="collapse-icon">▼</span>
     </div>
@@ -27,7 +40,7 @@
         <div class="log-controls">
             <select id="log-level" onchange="filterLogs()">
                 <option value="all">All Levels</option>
-                <option value="info" selected>Info+</option>activity.html
+                <option value="info" selected>Info+</option>
                 <option value="warning">Warning+</option>
                 <option value="error">Error Only</option>
             </select>
@@ -38,410 +51,298 @@
         </div>
     </div>
 </div>
-
-<!-- SABnzbd Queue Monitor -->
-<div class="card collapsible" id="sab-card">
-    <div class="card-header" onclick="toggleCollapse(this)">
-        <h2>⬇️ SABnzbd Queue <span id="sab-badge" class="badge" style="display:none;">0</span></h2>
-        <span class="collapse-icon">▼</span>
-    </div>
-    <div class="card-body">
-        <div class="sab-summary" id="sab-summary">
-            <div class="sab-stat">
-                <span class="sab-stat-label">Speed</span>
-                <span class="sab-stat-value" id="sab-speed">--</span>
-            </div>
-            <div class="sab-stat">
-                <span class="sab-stat-label">Queue Size</span>
-                <span class="sab-stat-value" id="sab-total-size">--</span>
-            </div>
-            <div class="sab-stat">
-                <span class="sab-stat-label">Time Left</span>
-                <span class="sab-stat-value" id="sab-timeleft">--</span>
-            </div>
-        </div>
-        
-        <div id="sab-motogp-queue">
-            <div class="sab-empty">No MotoGP downloads in queue</div>
-        </div>
-        
-        <div class="sab-footer">
-            <span id="sab-last-update">Last update: --</span>
-            <button onclick="refreshSabQueue()" class="small secondary">🔄 Refresh</button>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    let activitySource = null;
-    let activities = {};
-    const maxActivities = 50;
+    // ===== Configuration =====
+    const POLL_INTERVAL = 3000;  // 3 seconds
+    const MAX_HISTORY = 10;
     
-    // Activity stages with their order and display info (some stages are currently skipped in feed by design, see line 132)
-    const stages = {
-        'searching': { icon: '🔍', label: 'Searching', order: 1, color: '#3498db' },
-        'found': { icon: '📋', label: 'Found candidates', order: 2, color: '#9b59b6' },
-        'sending': { icon: '⬇️', label: 'Sending to SABnzbd', order: 3, color: '#f39c12' },
-        'grabbed': { icon: '📥', label: 'Downloading then processing', order: 4, color: '#e67e22' },
-        'downloading': { icon: '⬇️', label: 'Downloading', order: 5, color: '#e67e22' },
-        'ready': { icon: '📂', label: 'Download complete', order: 6, color: '#27ae60' },
-        'processing': { icon: '⚙️', label: 'Processing', order: 7, color: '#3498db' },
-        'sorting': { icon: '📁', label: 'Applying PLEX metadata', order: 8, color: '#9b59b6' },
-        'tagging': { icon: '🏷️', label: 'Applying Plex tags', order: 9, color: '#1abc9c' },
-        'plex': { icon: '📺', label: 'Refreshing Plex', order: 10, color: '#e74c3c' },
-        'complete': { icon: '✅', label: 'Ready in PLEX', order: 11, color: '#27ae60' },
-        'error': { icon: '❌', label: 'Error', order: 99, color: '#e74c3c' }
-    };
+    let pollTimer = null;
+    let lastActivityData = null;
     
-    function connectToActivity() {
-        if (activitySource) {
-            activitySource.close();
+    // ===== Activity Polling =====
+    function startPolling() {
+        fetchActivity();  // Immediate first fetch
+        pollTimer = setInterval(fetchActivity, POLL_INTERVAL);
+        updateIndicator(true);
+        // Also check SABnzbd for download progress
+        setTimeout(fetchSabProgress, 1000);
+    }
+    
+    function stopPolling() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
         }
-        
+        updateIndicator(false);
+    }
+    
+    function updateIndicator(connected) {
         const indicator = document.getElementById('live-indicator');
-        indicator.classList.remove('connected', 'disconnected');
-        indicator.textContent = '● Connecting...';
-        
-        activitySource = new EventSource('/activity/stream');
-        
-        activitySource.onopen = function() {
+        if (connected) {
             indicator.classList.add('connected');
+            indicator.classList.remove('disconnected');
             indicator.textContent = '● Live';
-        };
-        
-        activitySource.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                processActivityEvent(data);
-            } catch (e) {
-                console.error('Error parsing activity event:', e);
-            }
-        };
-        
-        activitySource.onerror = function() {
+        } else {
             indicator.classList.remove('connected');
             indicator.classList.add('disconnected');
             indicator.textContent = '● Disconnected';
-            setTimeout(connectToActivity, 5000);
-        };
-    }
-    
-    function processActivityEvent(event) {
-    // Skip these stages from the feed
-    const hiddenStages = ['plex', 'sending', 'tagging']
-    if (hiddenStages.includes(event.stage)) {
-        return;
-    }
-    
-    const sessionKey = event.session_key || event.name || 'working....'
-    
-    if (!activities[sessionKey]) {
-        activities[sessionKey] = {
-            key: sessionKey,
-            name: event.name || sessionKey,
-            venue: event.venue || '',
-            round: event.round || '',
-            stage: 'searching',
-            stages: {},
-            lastUpdate: new Date(),
-            release: null,
-            score: null
-        };
-    }
-    
-    const activity = activities[sessionKey];
-    activity.lastUpdate = new Date();
-    
-    // Update venue if provided (it might come in later events)
-    if (event.venue && !activity.venue) {
-        activity.venue = event.venue;
-    }
-    
-    // Update based on event type
-    if (event.stage) {
-        activity.stage = event.stage;
-        activity.stages[event.stage] = {
-            time: new Date(),
-            detail: event.detail || ''
-        };
-        
-        // Auto-refresh SABnzbd queue when download starts
-        if (event.stage === 'grabbed') {
-            setTimeout(refreshSabQueue, 2000);
         }
     }
     
-    if (event.release) activity.release = event.release;
-    if (event.score) activity.score = event.score;
-    if (event.candidates !== undefined) activity.candidates = event.candidates;
-    if (event.error_message) activity.error_message = event.error_message;
-    
-    renderActivities();
-}
-    
-    // Build display name with venue
-    function getDisplayName(activity) {
-        if (activity.venue && activity.name) {
-            // Check if venue is already in the name to avoid duplication
-            if (activity.name.toLowerCase().includes(activity.venue.toLowerCase())) {
-                return activity.name;
-            }
-            return `${activity.venue} ${activity.name}`;
-        }
-        return activity.name || 'Unknown';
+    function fetchActivity() {
+        fetch('/api/activity-events')
+            .then(response => {
+                if (!response.ok) throw new Error('Network error');
+                return response.json();
+            })
+            .then(data => {
+                updateIndicator(true);
+                renderActivity(data);
+                lastActivityData = data;
+                
+                // Check if any events are in downloading stage and start SAB polling
+                const hasDownloading = (data.active || []).some(e => e.stage === 'downloading');
+                if (hasDownloading) {
+                    startSabPolling();
+                }
+            })
+            .catch(err => {
+                console.error('Failed to fetch activity:', err);
+                updateIndicator(false);
+            });
     }
     
-    function renderActivities() {
+    function renderActivity(data) {
+        renderActiveEvents(data.active || []);
+        renderHistory(data.history || []);
+    }
+    
+    // Store SAB progress data separately so it persists across activity fetches
+    let sabProgressCache = {};
+    
+    function renderActiveEvents(events) {
         const feed = document.getElementById('activity-feed');
         
-        // Sort by last update, newest first
-        const sorted = Object.values(activities)
-            .sort((a, b) => b.lastUpdate - a.lastUpdate)
-            .slice(0, maxActivities);
-        
-        if (sorted.length === 0) {
-            feed.innerHTML = '<div class="activity-empty"><p>No recent activity.</p></div>';
+        if (events.length === 0) {
+            feed.innerHTML = '<div class="activity-empty"><p>No active downloads.</p></div>';
+            sabProgressCache = {};  // Clear cache when no events
             return;
         }
         
-        // Build a map of existing elements by key
-        const existingElements = {};
-        feed.querySelectorAll('.activity-item[data-key]').forEach(el => {
-            existingElements[el.dataset.key] = el;
+        // Sort by timestamp, newest first
+        events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        let html = '';
+        events.forEach(event => {
+            // Merge cached SAB progress if available
+            if (event.stage === 'downloading' && sabProgressCache[event.id]) {
+                const cached = sabProgressCache[event.id];
+                event.progress = cached.progress;
+                event.details = cached.details;
+            }
+            html += createActivityItem(event, false);
         });
         
-        // Track which keys we've processed
-        const processedKeys = new Set();
-        
-        sorted.forEach((activity, index) => {
-            processedKeys.add(activity.key);
-            const stageInfo = stages[activity.stage] || stages['searching'];
-            const isComplete = activity.stage === 'complete';
-            const isError = activity.stage === 'error';
-            const displayName = getDisplayName(activity);
-            
-            let element = existingElements[activity.key];
-            
-            if (element) {
-                // Update existing element in place
-                updateActivityElement(element, activity, stageInfo, displayName, isComplete, isError);
-            } else {
-                // Create new element
-                element = createActivityElement(activity, stageInfo, displayName, isComplete, isError);
-                feed.appendChild(element);
-            }
-            
-            // Ensure correct order
-            if (feed.children[index] !== element) {
-                feed.insertBefore(element, feed.children[index]);
-            }
-        });
-        
-        // Remove elements that are no longer in the list
-        Object.keys(existingElements).forEach(key => {
-            if (!processedKeys.has(key)) {
-                existingElements[key].remove();
-            }
-        });
-        
-        // Remove empty message if present
-        const emptyMsg = feed.querySelector('.activity-empty');
-        if (emptyMsg && sorted.length > 0) {
-            emptyMsg.remove();
-        }
+        feed.innerHTML = html;
     }
     
-    function createActivityElement(activity, stageInfo, displayName, isComplete, isError) {
-        const div = document.createElement('div');
-        div.className = `activity-item ${isComplete ? 'complete' : ''} ${isError ? 'error' : ''}`;
-        div.dataset.key = activity.key;
+    function renderHistory(events) {
+        const feed = document.getElementById('history-feed');
+        const badge = document.getElementById('history-count');
         
-        div.innerHTML = `
-            <div class="activity-icon ${activity.stage}" style="background: ${stageInfo.color}">
-                ${stageInfo.icon}
-            </div>
-            <div class="activity-content">
-                <div class="activity-title">${escapeHtml(displayName)}</div>
-                <div class="activity-status">${stageInfo.label}</div>
-                <div class="activity-release" style="${activity.release ? '' : 'display:none'}">📦 ${escapeHtml(activity.release || '')}</div>
-                <div class="activity-score" style="${activity.score ? '' : 'display:none'}">Score: ${activity.score || ''}</div>
-                <div class="activity-candidates" style="${activity.candidates && activity.stage !== 'error' ? '' : 'display:none'}">${activity.candidates || ''} candidates found</div>
-                <div class="activity-error" style="${activity.error_message ? '' : 'display:none'}">⚠️ ${activity.error_message || ''}</div>
-            </div>
-            <div class="activity-time">
-                ${formatTime(activity.lastUpdate)}
+        badge.textContent = events.length;
+        
+        if (events.length === 0) {
+            feed.innerHTML = '<div class="activity-empty"><p>No completed downloads yet.</p></div>';
+            return;
+        }
+        
+        let html = '';
+        events.forEach(event => {
+            html += createActivityItem(event, true);
+        });
+        
+        feed.innerHTML = html;
+    }
+    
+    function createActivityItem(event, isHistory) {
+        const stageClass = event.stage || 'unknown';
+        const isComplete = event.stage === 'complete';
+        const isError = event.stage === 'error';
+        const icon = event.stage_icon || '❓';
+        const color = event.stage_color || '#666';
+        const label = event.stage_label || event.stage || 'Unknown';
+        
+        // Build display name
+        let displayName = event.name || 'Unknown';
+        if (event.venue) {
+            displayName = `${event.venue} - ${displayName}`;
+        }
+        if (event.round) {
+            displayName = `R${event.round} ${displayName}`;
+        }
+        
+        // Format timestamp
+        const time = formatTime(event.timestamp);
+        
+        // Build details section
+        let details = '';
+        if (event.details) {
+            details += `<div class="activity-detail">${escapeHtml(event.details)}</div>`;
+        }
+        if (event.release_name) {
+            details += `<div class="activity-release">📦 ${escapeHtml(truncate(event.release_name, 60))}</div>`;
+        }
+        if (event.error_message) {
+            details += `<div class="activity-error">⚠️ ${escapeHtml(event.error_message)}</div>`;
+        }
+        if (event.progress !== null && event.progress !== undefined) {
+            details += `
+                <div class="activity-progress">
+                    <div class="progress-bar-mini">
+                        <div class="progress-fill" style="width: ${event.progress}%"></div>
+                    </div>
+                    <span class="progress-text">${event.progress}%</span>
+                </div>
+            `;
+        }
+        
+        return `
+            <div class="activity-item ${stageClass} ${isComplete ? 'complete' : ''} ${isError ? 'error' : ''} ${isHistory ? 'history' : ''}">
+                <div class="activity-icon" style="background: ${color}">
+                    ${icon}
+                </div>
+                <div class="activity-content">
+                    <div class="activity-title">${escapeHtml(displayName)}</div>
+                    <div class="activity-status" style="color: ${color}">${label}</div>
+                    ${details}
+                </div>
+                <div class="activity-time">
+                    ${time}
+                </div>
             </div>
         `;
-        
-        return div;
     }
     
-    function updateActivityElement(element, activity, stageInfo, displayName, isComplete, isError) {
-        // Update classes
-        element.className = `activity-item ${isComplete ? 'complete' : ''} ${isError ? 'error' : ''}`;
-        
-        // Update individual parts
-        const icon = element.querySelector('.activity-icon');
-        if (icon) {
-            icon.style.background = stageInfo.color;
-            icon.textContent = stageInfo.icon;
-            icon.className = `activity-icon ${activity.stage}`;
-        }
-        
-        const title = element.querySelector('.activity-title');
-        if (title) title.textContent = displayName;
-        
-        const status = element.querySelector('.activity-status');
-        if (status) status.textContent = stageInfo.label;
-        
-        const release = element.querySelector('.activity-release');
-        if (release) {
-            release.style.display = activity.release ? '' : 'none';
-            if (activity.release) release.innerHTML = `📦 ${escapeHtml(activity.release)}`;
-        }
-        
-        const score = element.querySelector('.activity-score');
-        if (score) {
-            score.style.display = activity.score ? '' : 'none';
-            if (activity.score) score.textContent = `Score: ${activity.score}`;
-        }
-        
-        const candidates = element.querySelector('.activity-candidates');
-        if (candidates) {
-            candidates.style.display = activity.candidates && activity.stage !== 'error' ? '' : 'none';
-            if (activity.candidates) candidates.textContent = `${activity.candidates} candidates found`;
-        }
-        
-        const errorMsg = element.querySelector('.activity-error');
-        if (errorMsg) {
-            errorMsg.style.display = activity.error_message ? '' : 'none';
-            if (activity.error_message) errorMsg.innerHTML = `⚠️ ${activity.error_message}`;
-        }
-        
-        const time = element.querySelector('.activity-time');
-        if (time) time.textContent = formatTime(activity.lastUpdate);
+    function formatTime(timestamp) {
+        if (!timestamp) return '--:--';
+        const date = new Date(timestamp);
+        return date.toLocaleTimeString('en-GB', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            second: '2-digit'
+        });
     }
     
-    function formatTime(date) {
-        return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    function truncate(text, maxLength) {
+        if (!text || text.length <= maxLength) return text;
+        return text.substring(0, maxLength - 3) + '...';
     }
     
-    function clearActivity() {
-        activities = {};
-        renderActivities();
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
     
-    // ===== SABnzbd Queue Monitor =====
-    let sabPollInterval = null;
-    const SAB_POLL_RATE = 15000; // 15 seconds
+    function clearAllActivity() {
+        fetch('/api/activity-events/clear', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                fetchActivity();  // Refresh display
+                showToast('Activity cleared', 'success');
+            })
+            .catch(err => {
+                console.error('Failed to clear activity:', err);
+                showToast('Failed to clear activity', 'error');
+            });
+    }
+    
 
-    function refreshSabQueue() {
+    // ===== SABnzbd Progress Integration =====
+    let sabPollTimer = null;
+    const SAB_POLL_INTERVAL = 4000;  // 4 seconds
+    
+    function startSabPolling() {
+        if (!sabPollTimer) {
+            fetchSabProgress();
+            sabPollTimer = setInterval(fetchSabProgress, SAB_POLL_INTERVAL);
+        }
+    }
+    
+    function stopSabPolling() {
+        if (sabPollTimer) {
+            clearInterval(sabPollTimer);
+            sabPollTimer = null;
+        }
+    }
+    
+    function fetchSabProgress() {
         fetch('/api/sabnzbd/queue')
             .then(response => response.json())
             .then(data => {
-                if (data.error) {
-                    console.error('SABnzbd error:', data.error);
-                    document.getElementById('sab-motogp-queue').innerHTML = 
-                        `<div class="sab-error">⚠️ ${data.error}</div>`;
-                    return;
-                }
-                
-                updateSabDisplay(data);
+                if (data.error) return;
+                updateDownloadProgress(data);
             })
-            .catch(err => {
-                console.error('Failed to fetch SABnzbd queue:', err);
-                document.getElementById('sab-motogp-queue').innerHTML = 
-                    '<div class="sab-error">⚠️ Failed to connect to SABnzbd</div>';
-            });
+            .catch(err => console.error('SABnzbd fetch error:', err));
     }
-
-    function updateSabDisplay(data) {
-        // Update summary stats
-        document.getElementById('sab-speed').textContent = data.speed || '--';
-        document.getElementById('sab-total-size').textContent = data.total_sizeleft || '--';
-        document.getElementById('sab-timeleft').textContent = data.timeleft || '--';
-        document.getElementById('sab-last-update').textContent = 
-            `Last update: ${new Date().toLocaleTimeString('en-GB')}`;
+    
+    function updateDownloadProgress(sabData) {
+        if (!lastActivityData || !lastActivityData.active) return;
         
-        // Update badge
-        const badge = document.getElementById('sab-badge');
-        if (data.motogp_count > 0) {
-            badge.textContent = data.motogp_count;
-            badge.style.display = 'inline-block';
-        } else {
-            badge.style.display = 'none';
-        }
+        const downloads = sabData.motogp_downloads || [];
+        let hasActiveDownloads = false;
         
-        // Update MotoGP downloads list
-        const container = document.getElementById('sab-motogp-queue');
-        
-        if (data.motogp_downloads.length === 0) {
-            container.innerHTML = '<div class="sab-empty">No MotoGP downloads in queue</div>';
-            stopSabPolling();
-            return;
-        }
-        
-        let html = '<div class="sab-downloads">';
-        data.motogp_downloads.forEach(dl => {
-            const percent = parseInt(dl.percentage) || 0;
-            html += `
-                <div class="sab-download-item">
-                    <div class="sab-download-header">
-                        <span class="sab-filename" title="${escapeHtml(dl.filename)}">${escapeHtml(truncateFilename(dl.filename, 50))}</span>
-                        <span class="sab-status ${dl.status.toLowerCase()}">${dl.status}</span>
-                    </div>
-                    <div class="sab-progress-container">
-                        <div class="sab-progress-bar" style="width: ${percent}%"></div>
-                    </div>
-                    <div class="sab-download-details">
-                        <span>${dl.sizeleft} / ${dl.size}</span>
-                        <span>${percent}%</span>
-                        <span>⏱️ ${dl.timeleft}</span>
-                    </div>
-                </div>
-            `;
+        // Update any DOWNLOADING events with SABnzbd progress
+        lastActivityData.active.forEach(event => {
+            if (event.stage === 'downloading') {
+                hasActiveDownloads = true;
+                
+                // Extract episode key from event.id (e.g., "2025_R02_E09")
+                // SAB filename is like "25R02E09 Argentina MotoGP Free Practice 2"
+                const eventId = event.id || '';
+                const match = eventId.match(/(\d{4})_R(\d{2})_E(\d{2})/);
+                
+                if (match) {
+                    const yearShort = match[1].slice(-2);  // "2025" -> "25"
+                    const roundNum = match[2];             // "02"
+                    const episodeNum = match[3];           // "09"
+                    const prefix = `${yearShort}R${roundNum}E${episodeNum}`;  // "25R02E09"
+                    
+                    // Find matching SAB download by prefix
+                    const sabMatch = downloads.find(dl => 
+                        dl.filename && dl.filename.startsWith(prefix)
+                    );
+                    
+                    if (sabMatch) {
+                        event.progress = parseInt(sabMatch.percentage) || 0;
+                        event.details = `${sabMatch.sizeleft} left @ ${sabData.speed || '--'}`;
+                        event.sab_timeleft = sabMatch.timeleft;
+                        
+                        // Cache the progress so it persists across activity fetches
+                        sabProgressCache[event.id] = {
+                            progress: event.progress,
+                            details: event.details
+                        };
+                    }
+                }
+            }
         });
-        html += '</div>';
         
-        container.innerHTML = html;
-        
-        // Keep polling while there are downloads
-        startSabPolling();
-    }
-
-    function truncateFilename(filename, maxLength) {
-        if (filename.length <= maxLength) return filename;
-        return filename.substring(0, maxLength - 3) + '...';
-    }
-
-    function startSabPolling() {
-        if (!sabPollInterval) {
-            sabPollInterval = setInterval(refreshSabQueue, SAB_POLL_RATE);
+        // Re-render with updated progress
+        if (hasActiveDownloads || downloads.length > 0) {
+            renderActiveEvents(lastActivityData.active);
+            startSabPolling();
+        } else {
+            stopSabPolling();
         }
     }
-
-    function stopSabPolling() {
-        if (sabPollInterval) {
-            clearInterval(sabPollInterval);
-            sabPollInterval = null;
-        }
-    }
-
-    // // Initial load
-    // window.addEventListener('load', function() {
-    //     // ... existing code ...
-    //     refreshSabQueue();
-    // });
-
-    // window.addEventListener('beforeunload', function() {
-    //     // ... existing code ...
-    //     stopSabPolling();
-    // });
-
-
-    // Log viewer functions (simplified from logs.html)
+    
+    // ===== Log Viewer (kept for debugging) =====
     let logSource = null;
     let logLines = [];
     const maxLogLines = 500;
@@ -460,7 +361,6 @@
         };
         
         logSource.onerror = function() {
-            // Don't spam reconnection attempts
             setTimeout(connectToLogs, 5000);
         };
     }
@@ -469,7 +369,6 @@
         logLines.push(text);
         if (logLines.length > maxLogLines) logLines.shift();
         
-        // Debounce updates to prevent excessive redraws
         if (pendingLogUpdate) return;
         
         pendingLogUpdate = requestAnimationFrame(() => {
@@ -482,17 +381,14 @@
         const container = document.getElementById('log-content');
         const filterLevel = document.getElementById('log-level').value;
         
-        // Check if log viewer is collapsed - skip heavy rendering if so
         const logsCard = document.getElementById('logs-card');
         if (logsCard && logsCard.classList.contains('collapsed')) {
-            return; // Don't render if collapsed
+            return;
         }
         
         const filtered = logLines.filter(line => shouldShowLine(line, filterLevel));
         
-        // Use DocumentFragment for better performance
         const fragment = document.createDocumentFragment();
-        
         filtered.forEach(line => {
             const div = document.createElement('div');
             div.className = 'log-line';
@@ -525,36 +421,234 @@
         connectToLogs();
     }
     
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-    
-    // Custom toggle that preserves state
-    function toggleCollapse(header) {
-        const card = header.closest('.collapsible');
+    function toggleLogsCard() {
+        const card = document.getElementById('logs-card');
         if (card) {
             card.classList.toggle('collapsed');
-            // If we just expanded the logs, render them
-            if (!card.classList.contains('collapsed') && card.id === 'logs-card') {
+            if (!card.classList.contains('collapsed')) {
                 renderLogs();
             }
         }
     }
     
-    // Initialize
+    // ===== Initialize =====
     window.addEventListener('load', function() {
-        connectToActivity();
+        startPolling();
         connectToLogs();
-        refreshSabQueue();
     });
     
     window.addEventListener('beforeunload', function() {
-        if (activitySource) activitySource.close();
+        stopPolling();
         if (logSource) logSource.close();
-        stopSabPolling();
+    });
+    
+    // Restart polling if page becomes visible again
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            if (!pollTimer) startPolling();
+        }
     });
 </script>
+
+<style>
+    /* Activity-specific styles */
+    .activity-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    
+    .activity-header h2 {
+        margin: 0;
+    }
+    
+    .activity-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .live-indicator {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 12px;
+        background: #333;
+    }
+    
+    .live-indicator.connected {
+        color: #27ae60;
+    }
+    
+    .live-indicator.disconnected {
+        color: #e74c3c;
+    }
+    
+    .activity-feed {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .activity-empty {
+        text-align: center;
+        color: #666;
+        padding: 20px;
+    }
+    
+    .activity-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px;
+        background: #1a1a2e;
+        border-radius: 8px;
+        border-left: 3px solid #52aad8;
+    }
+    
+    .activity-item.complete {
+        border-left-color: #27ae60;
+        opacity: 0.9;
+    }
+    
+    .activity-item.error {
+        border-left-color: #e74c3c;
+        background: rgba(231, 76, 60, 0.1);
+    }
+    
+    .activity-item.history {
+        opacity: 0.7;
+    }
+    
+    .activity-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+    
+    .activity-content {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .activity-title {
+        font-weight: 600;
+        color: #fff;
+        margin-bottom: 4px;
+    }
+    
+    .activity-status {
+        font-size: 13px;
+        font-weight: 500;
+        margin-bottom: 4px;
+    }
+    
+    .activity-detail {
+        font-size: 12px;
+        color: #999;
+    }
+    
+    .activity-release {
+        font-size: 11px;
+        color: #888;
+        margin-top: 4px;
+        word-break: break-all;
+    }
+    
+    .activity-error {
+        font-size: 12px;
+        color: #e74c3c;
+        margin-top: 4px;
+    }
+    
+    .activity-time {
+        font-size: 11px;
+        color: #666;
+        white-space: nowrap;
+    }
+    
+    .activity-progress {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+    }
+    
+    .progress-bar-mini {
+        flex: 1;
+        height: 6px;
+        background: #333;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #52aad8, #3d8ab8);
+        transition: width 0.3s ease;
+    }
+    
+    .progress-text {
+        font-size: 11px;
+        color: #999;
+        min-width: 35px;
+    }
+    
+    .badge {
+        background: #52aad8;
+        color: #fff;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    
+    #history-card {
+        margin-top: 15px;
+    }
+    
+    #history-card .activity-item {
+        padding: 10px;
+    }
+    
+    /* Pulse animation for downloading state */
+    @keyframes pulse-download {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+    
+    .activity-item:has(.activity-status:contains("Downloading")) {
+        animation: pulse-download 2s infinite;
+    }
+
+    /* Spinner animation for searching */
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    .activity-item.searching .activity-icon {
+        animation: spin 2s linear infinite;
+    }
+    
+    .activity-item.searching {
+        border-left-color: #52aad8;
+    }
+    
+    /* Pulse animation for downloading */
+    @keyframes pulse-glow {
+        0%, 100% { box-shadow: 0 0 5px rgba(243, 156, 18, 0.3); }
+        50% { box-shadow: 0 0 15px rgba(243, 156, 18, 0.6); }
+    }
+    
+    .activity-item.downloading {
+        animation: pulse-glow 2s ease-in-out infinite;
+        border-left-color: #f39c12;
+    }
+</style>
 {% endblock %}

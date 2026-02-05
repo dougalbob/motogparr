@@ -566,18 +566,7 @@ class DownloadWatcher:
                 self.state_manager.mark_processed(folder_name)
                 # Invalidate library cache so new item is recognized
                 self.library_checker.invalidate_cache()
-                
-                # Emit PROCESSING update - file moved to library
-                # (Will be upgraded to COMPLETE after Plex metadata integration)
-                if episode_key:
-                    emit_activity(
-                        episode_key=episode_key,
-                        episode_name=episode_name,
-                        stage=ActivityStage.PROCESSING,
-                        details="Moved to library, awaiting Plex scan",
-                        round_info={"round": round_num, "venue": None}
-                    )
-                
+                # Note: COMPLETE event is emitted by plex_tagger after successful tagging
                 return True
             else:
                 error_msg = "Processor returned False"

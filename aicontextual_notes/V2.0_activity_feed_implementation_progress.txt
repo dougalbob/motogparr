@@ -226,3 +226,80 @@ REMAINING WORK:
 - Phase 5: WebUI activity.html rewrite (replace log parsing with event-based display)
 - Phase 6: SABnzbd progress tracking (optional enhancement)
 
+
+[2025-02-05 PHASE 5 COMPLETE]
+================================================================================
+
+PHASE 5: WEBUI ACTIVITY.HTML REWRITE - COMPLETED
+================================================================================
+
+Successfully replaced the SSE/log-parsing activity feed with event-driven polling.
+
+CHANGES MADE:
+-------------
+1. Removed SSE (Server-Sent Events) log parsing approach
+2. Removed separate SABnzbd queue monitor window
+3. Implemented polling of /api/activity-events endpoint (3 second interval)
+4. Added SABnzbd progress polling (4 second interval)
+5. Single row per episode with stage-based styling
+6. Split display: Active events + Recently Completed history
+
+BUGS FIXED DURING IMPLEMENTATION:
+---------------------------------
+
+BUG 1: "Moved to library, awaiting Plex scan" appearing AFTER "Complete"
+- Cause: Watcher emitted PROCESSING event after plex_tagger emitted COMPLETE
+- Fix: Removed the late "Moved to library" emit from motogp_watcher.py
+- The COMPLETE event from plex_tagger is now the final event
+
+BUG 2: SABnzbd progress not showing
+- Cause: Matching logic tried to match release_name with SAB filename
+- Problem: SAB filename is "25R02E09 Argentina MotoGP FP1" (renamed)
+           Release name is "MotoGP.2025.Round02.Argentina.FP1.WEB-DL..."
+- Fix: Match by episode key prefix instead
+       Extract prefix from event.id (2025_R02_E09 -> 25R02E09)
+       Match against SAB filename.startsWith(prefix)
+
+BUG 3: SABnzbd polling not starting automatically
+- Cause: setTimeout only called fetchSabProgress once on page load
+- Fix: Added check in fetchActivity callback to start SAB polling
+       when any event has stage === 'downloading'
+
+BUG 4: Progress bar flickering/alternating display
+- Cause: Activity polling (3s) overwrites SAB progress with server data
+         SAB polling (4s) updates progress, then activity polling resets it
+- Fix: Implemented sabProgressCache object
+       - Cache stores {progress, details} keyed by event.id
+       - updateDownloadProgress writes to cache when SAB match found
+       - renderActiveEvents reads from cache and merges with server data
+       - Cache cleared when no active events
+
+ANIMATIONS ADDED:
+-----------------
+- Spinner animation for SEARCHING stage (rotating icon)
+- Pulse glow animation for DOWNLOADING stage
+
+FILES MODIFIED IN PHASE 5:
+--------------------------
+- templates/activity.html - Complete rewrite
+- motogp_watcher.py - Removed late "Moved to library" emit
+
+KEY LESSONS FOR F1ARR IMPLEMENTATION:
+-------------------------------------
+1. Match SAB downloads by episode prefix, not release name
+2. Cache SAB progress separately from server data
+3. Start SAB polling based on event stage, not just on page load
+4. Remove any post-plex-tagger emits from watcher to avoid race conditions
+5. Ensure sabProgressCache is declared before renderActiveEvents function
+
+================================================================================
+V2.0 IMPLEMENTATION COMPLETE
+================================================================================
+
+All phases completed:
+✅ Phase 1: Core Infrastructure (activity_emitter.py, API endpoints)
+✅ Phase 2: Grabber Integration (SEARCHING, CANDIDATES_FOUND, DOWNLOADING, ERROR)
+✅ Phase 3: Watcher Integration (DOWNLOAD_COMPLETE, PROCESSING, ERROR)
+✅ Phase 4: Plex Integration (METADATA, COMPLETE)
+✅ Phase 5: WebUI Rewrite (event-driven activity feed with SAB progress)
+
