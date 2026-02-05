@@ -42,6 +42,8 @@ from utils.config_loader import (
     get as config_get,
 )
 
+from activity_emitter import emit_activity, ActivityStage, mark_complete
+
 # Get module logger
 logger = get_logger("plex_tagger")
 
@@ -222,6 +224,11 @@ def apply_tags_and_collection(video, year, round_num, session_type, round_info, 
 # PUBLIC API
 # =============================================================================
 
+
+def _build_episode_key_from_parsed(year: int, round_num: int, session_type) -> str:
+    """Build episode key for activity tracking."""
+    return f"{year}_R{round_num:02d}_E{int(session_type):02d}"
+
 def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     """Tag a single MotoGP file in Plex."""
     logger.info(f"=== MotoGP Plex Tagger: Processing ===")
@@ -283,6 +290,16 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     
     trigger_library_scan(plex, PLEX_LIBRARY)
     
+    # Emit METADATA activity
+    episode_key = _build_episode_key_from_parsed(year, round_num, session_type)
+    emit_activity(
+        episode_key=episode_key,
+        episode_name=session_type.display_name if hasattr(session_type, 'display_name') else str(session_type),
+        stage=ActivityStage.METADATA,
+        details="Scanning Plex library",
+        round_info={"round": round_num, "venue": venue}
+    )
+    
     if wait_for_plex:
         logger.info(f"  Waiting for Plex to index...")
         time.sleep(5)
@@ -304,6 +321,13 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     )
     
     logger.info(f"=== MotoGP Plex Tagger: Complete ===")
+    
+    # Emit COMPLETE activity - episode is ready in Plex
+    mark_complete(
+        episode_key=episode_key,
+        details="Ready in Plex"
+    )
+    
     return True
 
 

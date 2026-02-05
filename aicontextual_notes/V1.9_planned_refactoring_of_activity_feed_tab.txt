@@ -1,0 +1,417 @@
+================================================================================
+MOTOGPARR V1.9 → V2.0 PLANNED REFACTORING
+ACTIVITY FEED TAB - EVENT-DRIVEN ARCHITECTURE
+================================================================================
+Date Created: 2025-02-05
+Status: PLANNING DOCUMENT - Implementation in progress
+
+================================================================================
+PART 1: PROBLEM STATEMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 CURRENT IMPLEMENTATION ISSUES
+--------------------------------------------------------------------------------
+
+The current Activity feed uses LOG PARSING to populate the activity display.
+This approach has fundamental flaws:
+
+ISSUE 1: TIMING UNRELIABILITY
+- Log messages are parsed "after the fact"
+- Delay between event occurrence and log write is unpredictable
+- Multiple processes writing logs creates race conditions
+
+ISSUE 2: FORMAT FRAGILITY
+- Log message formats can change
+- Parsing relies on string matching which breaks easily
+- INFO level lines may not contain all required information
+
+ISSUE 3: CONFUSING USER EXPERIENCE
+- Events appear out of order
+- Duplicate entries for same episode
+- Missing stages in the lifecycle
+- No clear visual progression
+
+ISSUE 4: REDUNDANT UI ELEMENTS
+- SABnzbd queue monitor in separate window
+- Activity feed shows partial/duplicate download info
+- Wasted screen space with inconsistent layouts
+
+--------------------------------------------------------------------------------
+1.2 CURRENT ACTIVITY STAGES (INCOMPLETE)
+--------------------------------------------------------------------------------
+
+The current log-parsing attempts to capture:
+- "Searching" - Inconsistently captured
+- "found candidates" - Raw search results (often missed)
+- "downloading" - When release sent to SABnzbd
+- "processing" - Various stages lumped together
+- "Complete" - Inconsistently detected
+
+MISSING STAGES:
+- "download complete" - Not currently tracked
+- Clear delineation between processing sub-stages
+- Plex metadata/scan completion
+
+================================================================================
+PART 2: PROPOSED ARCHITECTURE
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 DESIGN PRINCIPLE: EVENT-DRIVEN UPDATES
+--------------------------------------------------------------------------------
+
+Instead of parsing logs, scripts will EMIT STRUCTURED EVENTS directly.
+
+ARCHITECTURE DIAGRAM:
+
+    ┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
+    │  grabber.py     │────▶│                      │     │                 │
+    │  watcher.py     │────▶│  activity_events.json│◀────│  WebUI SSE      │
+    │  sort.py        │────▶│  (shared event store)│     │  /activity-stream│
+    │  plex_tagger.py │────▶│                      │     │                 │
+    └─────────────────┘     └──────────────────────┘     └─────────────────┘
+                                      │
+                                      ▼
+                            ┌──────────────────────┐
+                            │  Browser Activity    │
+                            │  Feed Display        │
+                            │  (Single row/episode)│
+                            └──────────────────────┘
+
+KEY DESIGN DECISIONS:
+
+1. SINGLE ROW PER EPISODE
+   - Each episode (e.g., "2025_R01_E05") has exactly one row
+   - Row updates as episode progresses through stages
+   - Reduces clutter, provides clear status
+
+2. SHARED JSON EVENT STORE
+   - File: /config/activity_events.json
+   - Keyed by episode_key for O(1) updates
+   - All scripts import common emitter module
+
+3. STAGE-BASED VISUAL STATES
+   - Each stage has distinct color/icon
+   - Visual progression is immediately clear
+   - Errors are prominently displayed
+
+4. EVENT RETENTION
+   - Keep last 10 completed events
+   - Active/in-progress events always shown
+   - Auto-cleanup of old events
+
+--------------------------------------------------------------------------------
+2.2 ACTIVITY STAGES DEFINED
+--------------------------------------------------------------------------------
+
+┌─────────────────────┬────────┬─────────────────────────────────────────────┐
+│ Stage               │ Icon   │ Description                                 │
+├─────────────────────┼────────┼─────────────────────────────────────────────┤
+│ SEARCHING           │ 🔍     │ Querying indexers via Prowlarr              │
+│ CANDIDATES_FOUND    │ 📋     │ X candidates found, Y after filtering       │
+│ DOWNLOADING         │ ⬇️     │ Sent to SABnzbd, includes progress %        │
+│ DOWNLOAD_COMPLETE   │ 📦     │ SABnzbd finished, file in watch folder      │
+│ PROCESSING          │ ⚙️     │ Sorting, renaming, moving to library        │
+│ METADATA            │ 🎬     │ Plex metadata creation                      │
+│ COMPLETE            │ ✅     │ Ready in Plex, available to watch           │
+│ ERROR               │ ❌     │ Failed at any stage, with error message     │
+└─────────────────────┴────────┴─────────────────────────────────────────────┘
+
+COLOR CODING:
+- SEARCHING, CANDIDATES_FOUND: Blue (#52aad8)
+- DOWNLOADING: Orange/Amber (#f39c12) with pulse animation
+- DOWNLOAD_COMPLETE, PROCESSING, METADATA: Yellow (#f1c40f)
+- COMPLETE: Green (#27ae60)
+- ERROR: Red (#e74c3c)
+
+--------------------------------------------------------------------------------
+2.3 EVENT DATA STRUCTURE
+--------------------------------------------------------------------------------
+
+Each event in activity_events.json:
+
+{
+    "id": "2025_R01_E05",
+    "name": "Moto3 Free Practice 1",
+    "stage": "downloading",
+    "details": "45% complete - 2.3GB",
+    "timestamp": "2025-02-05T09:30:00.000000",
+    "round": 1,
+    "venue": "Thailand",
+    "progress": 45,           // Optional: for download stage
+    "error_message": null     // Optional: populated on error
+}
+
+The activity_events.json structure:
+
+{
+    "events": {
+        "2025_R01_E05": { ... event object ... },
+        "2025_R01_E09": { ... event object ... },
+        "2025_R03_E01": { ... event object ... }
+    },
+    "completed_history": [
+        { ... completed event 1 ... },
+        { ... completed event 2 ... }
+    ]
+}
+
+NOTES:
+- "events" dict: Currently active/in-progress episodes
+- "completed_history" array: Last 10 completed episodes (FIFO)
+- When episode reaches COMPLETE or ERROR, moved from events to history
+
+================================================================================
+PART 3: IMPLEMENTATION MODULES
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 ACTIVITY_EMITTER.PY - CORE MODULE
+--------------------------------------------------------------------------------
+
+Location: /app/activity_emitter.py (or alongside other modules)
+
+PURPOSE:
+- Provide simple API for all scripts to emit events
+- Handle file locking for concurrent access
+- Manage event retention (cleanup old events)
+
+KEY FUNCTIONS:
+
+emit_activity(
+    episode_key: str,          # "2025_R01_E05"
+    episode_name: str,         # "Moto3 Free Practice 1"
+    stage: ActivityStage,      # Enum value
+    details: str = None,       # Human-readable status
+    round_info: dict = None,   # Round metadata
+    progress: int = None,      # 0-100 for downloads
+    error_message: str = None  # Error details if failed
+) -> None
+
+clear_episode(episode_key: str) -> None
+    # Remove episode from active events (on completion)
+
+mark_complete(episode_key: str) -> None
+    # Move from active to completed_history
+
+get_active_events() -> dict
+    # Return all active events for WebUI
+
+get_recent_history(count: int = 10) -> list
+    # Return last N completed events
+
+THREAD SAFETY:
+- Use fcntl.flock() for file locking
+- Atomic write with temp file + rename
+- Handle concurrent access from multiple scripts
+
+--------------------------------------------------------------------------------
+3.2 INTEGRATION POINTS BY SCRIPT
+--------------------------------------------------------------------------------
+
+MOTOGP_GRABBER.PY:
+┌─────────────────────────────┬─────────────────────────────────────────────┐
+│ Location                    │ Event to Emit                               │
+├─────────────────────────────┼─────────────────────────────────────────────┤
+│ search_for_session() start  │ SEARCHING - "Round X Venue"                 │
+│ After filter_releases()     │ CANDIDATES_FOUND - "X found, Y filtered"    │
+│ send_to_sabnzbd() success   │ DOWNLOADING - Release name                  │
+│ No candidates found         │ ERROR - "No matching releases found"        │
+└─────────────────────────────┴─────────────────────────────────────────────┘
+
+MOTOGP_WATCHER.PY:
+┌─────────────────────────────┬─────────────────────────────────────────────┐
+│ Location                    │ Event to Emit                               │
+├─────────────────────────────┼─────────────────────────────────────────────┤
+│ File detected in watch dir  │ DOWNLOAD_COMPLETE - Filename                │
+│ Starting file processing    │ PROCESSING - "Sorting and renaming"         │
+│ File moved to library       │ PROCESSING - "Moved to library"             │
+│ Processing error            │ ERROR - Error message                       │
+└─────────────────────────────┴─────────────────────────────────────────────┘
+
+MOTOGP_SORT.PY (if separate):
+┌─────────────────────────────┬─────────────────────────────────────────────┐
+│ Location                    │ Event to Emit                               │
+├─────────────────────────────┼─────────────────────────────────────────────┤
+│ File rename started         │ PROCESSING - "Renaming to standard format"  │
+│ File move started           │ PROCESSING - "Moving to Season/Round folder"│
+└─────────────────────────────┴─────────────────────────────────────────────┘
+
+MOTOGP_PLEX_TAGGER.PY:
+┌─────────────────────────────┬─────────────────────────────────────────────┐
+│ Location                    │ Event to Emit                               │
+├─────────────────────────────┼─────────────────────────────────────────────┤
+│ Creating metadata           │ METADATA - "Creating Plex metadata"         │
+│ Triggering library scan     │ METADATA - "Scanning Plex library"          │
+│ Metadata complete           │ COMPLETE - "Ready in Plex"                  │
+└─────────────────────────────┴─────────────────────────────────────────────┘
+
+--------------------------------------------------------------------------------
+3.3 WEBUI CHANGES
+--------------------------------------------------------------------------------
+
+ACTIVITY.HTML - COMPLETE REWRITE:
+
+Remove:
+- Log parsing logic (connectToLogs, processLogLine, etc.)
+- Separate SABnzbd queue window
+
+Add:
+- Poll /api/activity-events endpoint every 2 seconds
+- Render single-row-per-episode table/list
+- CSS for stage-based coloring and animations
+
+NEW ROUTE - /api/activity-events:
+Returns combined active events + recent history for display.
+
+DISPLAY FORMAT:
+┌──────┬─────────────────────────────┬─────────────────┬──────────┐
+│ Icon │ Episode Name                │ Status          │ Time     │
+├──────┼─────────────────────────────┼─────────────────┼──────────┤
+│ ⬇️   │ MotoGP Race - R3 Americas   │ Downloading 67% │ 09:32    │
+│ ⚙️   │ Moto2 FP1 - R3 Americas     │ Processing      │ 09:30    │
+│ ✅   │ Moto3 Qualifying - R2       │ Ready in Plex   │ 09:25    │
+│ ✅   │ MotoGP Sprint - R2          │ Ready in Plex   │ 09:20    │
+└──────┴─────────────────────────────┴─────────────────┴──────────┘
+
+SABNZBD INTEGRATION:
+- Remove separate SABnzbd queue window
+- DOWNLOADING stage includes SABnzbd progress
+- Poll SABnzbd API to update progress in events
+- WebUI updates download progress in real-time
+
+--------------------------------------------------------------------------------
+3.4 SABNZBD PROGRESS INTEGRATION
+--------------------------------------------------------------------------------
+
+CHALLENGE:
+The grabber sends to SABnzbd and moves on. We need to track download progress
+separately and update the activity event.
+
+SOLUTION:
+WebUI polls SABnzbd API and updates activity_events.json for matching jobs.
+
+IMPLEMENTATION:
+1. grabber.py emits DOWNLOADING with SABnzbd job ID (nzo_id)
+2. WebUI polls SABnzbd queue every 4 seconds (existing interval)
+3. WebUI matches jobs by category "motogp" and updates progress in events
+4. When SABnzbd job completes, WebUI updates to DOWNLOAD_COMPLETE
+
+ALTERNATIVE:
+Create a lightweight daemon that monitors SABnzbd and emits events.
+This keeps the logic server-side rather than in the browser.
+
+RECOMMENDED APPROACH:
+Add SABnzbd monitoring to motogp_watcher.py since it already monitors
+the watch folder. It can also poll SABnzbd to emit progress updates.
+
+================================================================================
+PART 4: IMPLEMENTATION PHASES
+================================================================================
+
+--------------------------------------------------------------------------------
+PHASE 1: CORE INFRASTRUCTURE
+--------------------------------------------------------------------------------
+□ Create activity_emitter.py module
+□ Define ActivityStage enum
+□ Implement emit_activity() with file locking
+□ Implement get_active_events() and get_recent_history()
+□ Add cleanup/retention logic (keep last 10 completed)
+□ Create /api/activity-events endpoint in webui
+
+--------------------------------------------------------------------------------
+PHASE 2: GRABBER INTEGRATION
+--------------------------------------------------------------------------------
+□ Import activity_emitter in motogp_grabber.py
+□ Add SEARCHING emit in search_for_session()
+□ Add CANDIDATES_FOUND emit after filter_releases()
+□ Add DOWNLOADING emit in send_to_sabnzbd()
+□ Add ERROR emit when no candidates found
+□ Test with dry-run backfill
+
+--------------------------------------------------------------------------------
+PHASE 3: WATCHER INTEGRATION
+--------------------------------------------------------------------------------
+□ Import activity_emitter in motogp_watcher.py
+□ Add DOWNLOAD_COMPLETE emit when file detected
+□ Add PROCESSING emit during file handling
+□ Add ERROR emit on processing failures
+□ Test with actual downloads
+
+--------------------------------------------------------------------------------
+PHASE 4: PLEX INTEGRATION
+--------------------------------------------------------------------------------
+□ Import activity_emitter in motogp_plex_tagger.py
+□ Add METADATA emit during metadata creation
+□ Add COMPLETE emit after library scan
+□ Test end-to-end flow
+
+--------------------------------------------------------------------------------
+PHASE 5: WEBUI REWRITE
+--------------------------------------------------------------------------------
+□ Create new activity.html template
+□ Remove log parsing code
+□ Remove separate SABnzbd queue window
+□ Implement polling of /api/activity-events
+□ Implement single-row-per-episode display
+□ Add CSS for stage colors and animations
+□ Add progress bar for downloads
+□ Test with multiple concurrent downloads
+
+--------------------------------------------------------------------------------
+PHASE 6: SABNZBD PROGRESS TRACKING
+--------------------------------------------------------------------------------
+□ Decide: WebUI polling vs watcher daemon
+□ Implement SABnzbd job matching
+□ Update DOWNLOADING events with progress %
+□ Auto-transition to DOWNLOAD_COMPLETE when done
+□ Test progress updates in UI
+
+--------------------------------------------------------------------------------
+PHASE 7: CLEANUP AND POLISH
+--------------------------------------------------------------------------------
+□ Remove old log-parsing code from activity.html
+□ Remove unused SSE endpoints if any
+□ Update documentation
+□ Test all scenarios:
+    - Single episode download
+    - Multi-episode batch download
+    - Download failures
+    - Processing errors
+    - Concurrent downloads
+□ Create AI contextual document for completed refactor
+
+================================================================================
+PART 5: ROLLBACK PLAN
+================================================================================
+
+If implementation fails or causes issues:
+
+1. Container image v1.9 is available on GHCR
+   docker pull ghcr.io/dougalbob/motogparr:v1.9
+
+2. Git tag v1.9 marks last known good state
+   git checkout v1.9
+
+3. activity_events.json can be deleted to clear state
+   rm /config/activity_events.json
+
+4. Old log-based activity feed can be restored from git history
+
+================================================================================
+PART 6: FUTURE ENHANCEMENTS (POST V2.0)
+================================================================================
+
+POTENTIAL IMPROVEMENTS:
+- WebSocket instead of polling for instant updates
+- Notification when episode is ready (browser notification API)
+- Episode thumbnail/poster in activity feed
+- Click-to-watch link when complete
+- Batch progress indicator (3/5 episodes complete)
+- Retry button for failed episodes
+- Cancel button for in-progress downloads
+
+================================================================================
+END OF DOCUMENT
+================================================================================

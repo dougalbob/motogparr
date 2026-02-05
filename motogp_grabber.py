@@ -46,6 +46,7 @@ from motogp_common import (
     SESSION_TO_CALENDAR_KEY, CALENDAR_KEY_TO_SESSION, CALENDAR_KEY_TO_DAY,
     get_config_dir, get_library_path,
 )
+from activity_emitter import emit_activity, ActivityStage, mark_error
 
 # Import config
 from utils.config_loader import (
@@ -513,6 +514,12 @@ def build_search_queries(round_info: dict, session_type: SessionType, season: in
     return unique_queries
 
 
+
+
+def _build_episode_key(season: int, round_num: int, session_type: SessionType) -> str:
+    """Build episode key for activity tracking."""
+    return f"{season}_R{round_num:02d}_E{int(session_type):02d}"
+
 def search_for_session(
     round_info: dict,
     session_type: SessionType,
@@ -922,6 +929,16 @@ def cmd_backfill(args):
         logger.info(f"🔍 Searching: Round {round_num} {venue} - {session_type.full_display_name}")
         print(f"\n  🔍 Round {round_num} {venue}: {session_type.full_display_name}")
         
+        # Emit SEARCHING activity
+        episode_key = _build_episode_key(season, round_num, session_type)
+        emit_activity(
+            episode_key=episode_key,
+            episode_name=session_type.full_display_name,
+            stage=ActivityStage.SEARCHING,
+            details=f"Round {round_num} {venue}",
+            round_info={"round": round_num, "venue": venue}
+        )
+        
         results = search_for_session(round_info, session_type, season, indexers, calendar)
         
         state.mark_searched(session_key)
@@ -930,6 +947,11 @@ def cmd_backfill(args):
             print("    ❌ No matching releases found")
             logger.info(f"❌ No candidates: Round {round_num} {venue} - {session_type.full_display_name}")
             state.mark_failed(session_key, "No results")
+            # Emit ERROR activity
+            mark_error(
+                episode_key=episode_key,
+                error_message="No matching releases found"
+            )
             continue
         
         available = [r for r in results if r.get('title', '').lower() not in grabbed_titles]
@@ -942,6 +964,15 @@ def cmd_backfill(args):
         logger.info(f"📋 Found {len(available)} candidates for Round {round_num} {venue} - {session_type.full_display_name}")
         print(f"    Found {len(available)} matching releases:")
         print_search_results(available, limit=5)  #changed from 3
+        
+        # Emit CANDIDATES_FOUND activity
+        emit_activity(
+            episode_key=episode_key,
+            episode_name=session_type.full_display_name,
+            stage=ActivityStage.CANDIDATES_FOUND,
+            details=f"Found {len(available)} candidates",
+            round_info={"round": round_num, "venue": venue}
+        )
         
         best = available[0]
         best_title = best.get('title', 'Unknown')
@@ -961,6 +992,16 @@ def cmd_backfill(args):
             logger.info(f"⬇️ Sending to SABnzbd: {best_title[:60]}")
             print(f"\n    ⬇️  Sending to SABnzbd...")
             
+            # Emit DOWNLOADING activity
+            emit_activity(
+                episode_key=episode_key,
+                episode_name=session_type.full_display_name,
+                stage=ActivityStage.DOWNLOADING,
+                details=f"Sending to SABnzbd",
+                round_info={"round": round_num, "venue": venue},
+                release_name=best_title[:80]
+            )
+            
             if grab_release(best, item, season):
                 print(f"    ✅ Grab successful!")
                 state.mark_grabbed(session_key, best_title)
@@ -976,6 +1017,11 @@ def cmd_backfill(args):
             else:
                 print(f"    ❌ Grab failed!")
                 state.mark_failed(session_key, "Grab failed")
+                # Emit ERROR for grab failure
+                mark_error(
+                    episode_key=episode_key,
+                    error_message="SABnzbd grab failed"
+                )
     
     state.save()
     

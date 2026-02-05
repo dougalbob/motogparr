@@ -1,0 +1,228 @@
+================================================================================
+MOTOGPARR V2.0 - ACTIVITY FEED IMPLEMENTATION PROGRESS
+================================================================================
+Created: 2025-02-05
+Last Updated: 2025-02-05
+
+This document tracks implementation progress. Append updates as work proceeds.
+Reference: V1.9_planned_refactoring_of_activity_feed_tab.txt for full spec.
+
+================================================================================
+IMPLEMENTATION LOG
+================================================================================
+
+[2025-02-05 SESSION START]
+- Created planning document: V1.9_planned_refactoring_of_activity_feed_tab.txt
+- Created this progress tracking document
+- Beginning Phase 1: Core Infrastructure
+
+--------------------------------------------------------------------------------
+PHASE 1: CORE INFRASTRUCTURE
+--------------------------------------------------------------------------------
+Status: IN PROGRESS
+
+□ Create activity_emitter.py module
+□ Define ActivityStage enum
+□ Implement emit_activity() with file locking
+□ Implement get_active_events() and get_recent_history()
+□ Add cleanup/retention logic (keep last 10 completed)
+□ Create /api/activity-events endpoint in webui
+□ Test basic event emission and retrieval
+
+--------------------------------------------------------------------------------
+PHASE 2: GRABBER INTEGRATION
+--------------------------------------------------------------------------------
+Status: NOT STARTED
+
+□ Import activity_emitter in motogp_grabber.py
+□ Add SEARCHING emit in search_for_session()
+□ Add CANDIDATES_FOUND emit after filter_releases()
+□ Add DOWNLOADING emit in send_to_sabnzbd()
+□ Add ERROR emit when no candidates found
+□ Test with dry-run backfill
+
+--------------------------------------------------------------------------------
+PHASE 3: WATCHER INTEGRATION
+--------------------------------------------------------------------------------
+Status: NOT STARTED
+
+□ Import activity_emitter in motogp_watcher.py
+□ Add DOWNLOAD_COMPLETE emit when file detected
+□ Add PROCESSING emit during file handling
+□ Add ERROR emit on processing failures
+□ Test with actual downloads
+
+--------------------------------------------------------------------------------
+PHASE 4: PLEX INTEGRATION
+--------------------------------------------------------------------------------
+Status: NOT STARTED
+
+□ Import activity_emitter in motogp_plex_tagger.py
+□ Add METADATA emit during metadata creation
+□ Add COMPLETE emit after library scan
+□ Test end-to-end flow
+
+--------------------------------------------------------------------------------
+PHASE 5: WEBUI REWRITE
+--------------------------------------------------------------------------------
+Status: NOT STARTED
+
+□ Create new activity.html template
+□ Remove log parsing code
+□ Remove separate SABnzbd queue window
+□ Implement polling of /api/activity-events
+□ Implement single-row-per-episode display
+□ Add CSS for stage colors and animations
+□ Test with multiple concurrent downloads
+
+--------------------------------------------------------------------------------
+PHASE 6: SABNZBD PROGRESS TRACKING
+--------------------------------------------------------------------------------
+Status: NOT STARTED
+
+□ Implement SABnzbd job matching in watcher or webui
+□ Update DOWNLOADING events with progress %
+□ Auto-transition to DOWNLOAD_COMPLETE when done
+
+--------------------------------------------------------------------------------
+NOTES & ISSUES ENCOUNTERED
+--------------------------------------------------------------------------------
+
+(Append notes here as implementation proceeds)
+
+
+================================================================================
+
+[2025-02-05 PHASE 1 PROGRESS]
+✅ Created activity_emitter.py module
+   - ActivityStage enum with 8 stages
+   - STAGE_CONFIG with icons, colors, labels
+   - emit_activity() function with file locking
+   - update_download_progress() for SABnzbd updates
+   - mark_complete() and mark_error() helpers
+   - get_all_activity() for WebUI consumption
+   - File: /app/activity_emitter.py
+
+✅ Added activity_emitter import to motogp_webui.py
+
+✅ Added /api/activity-events endpoint
+   - Returns {"active": [...], "history": [...]}
+   - GET endpoint for polling from WebUI
+
+✅ Added /api/activity-events/clear endpoint
+   - POST endpoint to clear all activity
+   - For testing/debugging purposes
+
+NEXT: Test module and endpoint, then proceed to Phase 2 (Grabber Integration)
+
+
+[2025-02-05 PHASE 1 COMPLETE]
+✅ Tested activity_emitter.py module - working
+✅ Added COPY activity_emitter.py to Dockerfile
+✅ Rebuilt container successfully
+✅ API endpoint /api/activity-events returning data correctly
+✅ Phase 1 COMPLETE
+
+Beginning Phase 2: Grabber Integration
+
+
+[2025-02-05 PHASE 2 PROGRESS]
+✅ Added activity_emitter import to motogp_grabber.py
+✅ Added _build_episode_key helper function
+✅ Added SEARCHING emit before search_for_session call
+✅ Added CANDIDATES_FOUND emit after finding releases
+✅ Added DOWNLOADING emit when sending to SABnzbd
+✅ Added ERROR emit for no results found
+✅ Added ERROR emit for grab failure
+
+Integration points in cmd_backfill():
+- Line ~920: SEARCHING emitted before search
+- Line ~928: ERROR emitted if no results
+- Line ~940: CANDIDATES_FOUND emitted with count
+- Line ~965: DOWNLOADING emitted when grabbing
+- Line ~980: ERROR emitted if grab fails
+
+NEXT: Rebuild container and test with actual download
+
+
+[2025-02-05 PHASE 2 TESTING]
+✅ Tested single episode download (Qatar Moto2 FP1)
+✅ SEARCHING event emitted correctly
+✅ DOWNLOADING event emitted correctly with release_name
+✅ Events updating correctly via API endpoint
+
+Notes:
+- CANDIDATES_FOUND may be overwritten quickly by DOWNLOADING (same episode_key)
+- Old test event from Thailand still in active (can clear or ignore)
+- Ready to proceed to Phase 3 (Watcher Integration)
+
+PHASE 2 COMPLETE ✅
+
+Beginning Phase 3: Watcher Integration
+
+
+[2025-02-05 PHASE 3 TESTING]
+✅ Tested single episode download (Argentina MotoGP FP1)
+✅ SEARCHING - working correctly
+⚡ CANDIDATES_FOUND - transitions too quickly (acceptable)
+✅ DOWNLOADING - working with release_name
+⚡ DOWNLOAD_COMPLETE - transitions too quickly (acceptable)
+✅ PROCESSING (sorting) - working correctly
+✅ PROCESSING (moved to library) - working correctly
+
+Notes:
+- CANDIDATES_FOUND and DOWNLOAD_COMPLETE transition too fast to observe
+- This is acceptable UX - users see meaningful state transitions
+- Pipeline working end-to-end from grabber through watcher
+
+PHASE 3 COMPLETE ✅
+
+Beginning Phase 4: Plex Integration (METADATA and COMPLETE stages)
+
+
+[2025-02-05 PHASE 4 PROGRESS]
+✅ Added activity_emitter import to motogp_plex_tagger.py
+✅ Added _build_episode_key_from_parsed helper function
+✅ Added METADATA emit when triggering Plex library scan
+✅ Added COMPLETE emit after successful tagging
+
+⚠️ Issue encountered: Import was inserted incorrectly into middle of another import statement
+✅ Fixed: Moved import to correct location after all other imports
+
+[2025-02-05 PHASE 4 TESTING]
+✅ Tested single episode download (Argentina Moto2 FP1)
+✅ METADATA stage - "Scanning Plex library" - working correctly
+✅ COMPLETE stage - "Ready in Plex" - working correctly
+✅ Episode moved to history after completion
+
+PHASE 4 COMPLETE ✅
+
+================================================================================
+FULL PIPELINE TEST RESULTS
+================================================================================
+
+All stages now working end-to-end:
+
+| Stage             | Source File          | Status  | Notes                        |
+|-------------------|----------------------|---------|------------------------------|
+| SEARCHING         | motogp_grabber.py    | ✅ PASS | Round X Venue                |
+| CANDIDATES_FOUND  | motogp_grabber.py    | ⚡ Fast | Transitions quickly          |
+| DOWNLOADING       | motogp_grabber.py    | ✅ PASS | With release_name            |
+| DOWNLOAD_COMPLETE | motogp_watcher.py    | ⚡ Fast | Transitions quickly          |
+| PROCESSING        | motogp_watcher.py    | ✅ PASS | Sorting and renaming         |
+| PROCESSING        | motogp_watcher.py    | ✅ PASS | Moved to library             |
+| METADATA          | motogp_plex_tagger.py| ✅ PASS | Scanning Plex library        |
+| COMPLETE          | motogp_plex_tagger.py| ✅ PASS | Ready in Plex                |
+
+Files modified for activity integration:
+- activity_emitter.py (new file)
+- motogp_webui.py (API endpoints)
+- motogp_grabber.py (SEARCHING, CANDIDATES_FOUND, DOWNLOADING, ERROR)
+- motogp_watcher.py (DOWNLOAD_COMPLETE, PROCESSING, ERROR)
+- motogp_plex_tagger.py (METADATA, COMPLETE)
+- dockerfile (COPY activity_emitter.py)
+
+REMAINING WORK:
+- Phase 5: WebUI activity.html rewrite (replace log parsing with event-based display)
+- Phase 6: SABnzbd progress tracking (optional enhancement)
+

@@ -39,6 +39,24 @@ from motogp_common import (
     parse_prefix, load_calendar, get_round_by_number,
     get_config_dir, SessionType
 )
+from activity_emitter import emit_activity, ActivityStage, mark_complete, mark_error
+
+def _folder_to_episode_key(folder_name: str) -> tuple:
+    """
+    Convert folder name to episode key and metadata.
+    Returns (episode_key, episode_name, round_num, session_type) or (None, None, None, None) if parsing fails.
+    """
+    parsed = parse_prefix(folder_name)
+    if not parsed:
+        return (None, None, None, None)
+    
+    year, round_num, session_type = parsed
+    episode_key = f"{year}_R{round_num:02d}_E{int(session_type):02d}"
+    episode_name = session_type.full_display_name
+    return (episode_key, episode_name, round_num, session_type)
+
+
+
 
 from utils.config_loader import get_motogp_library_path
 
@@ -528,6 +546,18 @@ class DownloadWatcher:
         
         logger.info(f"📂 [{correlation_id}] Processing: {folder_name}")
         
+        # Emit PROCESSING activity
+        episode_key, episode_name, round_num, _ = _folder_to_episode_key(folder_name)
+        if episode_key:
+            emit_activity(
+                episode_key=episode_key,
+                episode_name=episode_name,
+                stage=ActivityStage.PROCESSING,
+                details="Sorting and renaming",
+                round_info={"round": round_num, "venue": None},
+                release_name=folder_name
+            )
+        
         try:
             success = self.processor(folder_str)
             
@@ -536,11 +566,32 @@ class DownloadWatcher:
                 self.state_manager.mark_processed(folder_name)
                 # Invalidate library cache so new item is recognized
                 self.library_checker.invalidate_cache()
+                
+                # Emit PROCESSING update - file moved to library
+                # (Will be upgraded to COMPLETE after Plex metadata integration)
+                if episode_key:
+                    emit_activity(
+                        episode_key=episode_key,
+                        episode_name=episode_name,
+                        stage=ActivityStage.PROCESSING,
+                        details="Moved to library, awaiting Plex scan",
+                        round_info={"round": round_num, "venue": None}
+                    )
+                
                 return True
             else:
                 error_msg = "Processor returned False"
                 logger.warning(f"⚠️ [{correlation_id}] Processing failed: {folder_name} - {error_msg}")
                 self.state_manager.mark_failed(folder_name, error_msg)
+                
+                # Emit ERROR activity
+                if episode_key:
+                    mark_error(
+                        episode_key=episode_key,
+                        error_message=f"Processing failed: {error_msg}",
+                        episode_name=episode_name
+                    )
+                
                 return False
         
         except Exception as e:
@@ -643,6 +694,19 @@ class DownloadWatcher:
                 
                 # Ready to process
                 logger.info(f"📂 New download ready: {folder_name}")
+                
+                # Emit DOWNLOAD_COMPLETE activity
+                episode_key, episode_name, round_num, _ = _folder_to_episode_key(folder_name)
+                if episode_key:
+                    emit_activity(
+                        episode_key=episode_key,
+                        episode_name=episode_name,
+                        stage=ActivityStage.DOWNLOAD_COMPLETE,
+                        details="Download complete, ready to process",
+                        round_info={"round": round_num, "venue": None},
+                        release_name=folder_name
+                    )
+                
                 self._process_folder(folder_path)
         
         except Exception as e:

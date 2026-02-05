@@ -85,6 +85,7 @@ for session_type in SessionType:
     }
 
 from grab_stats import get_stats_summary
+from activity_emitter import get_all_activity, clear_all_activity
 
 app = Flask(__name__)
 @app.after_request
@@ -589,6 +590,27 @@ def settings_route():
 @app.route("/status")
 def status():
     return jsonify(command_output)
+
+@app.route("/api/activity-events")
+def api_activity_events():
+    """Get all activity events for the activity feed."""
+    try:
+        activity = get_all_activity()
+        return jsonify(activity)
+    except Exception as e:
+        return jsonify({"error": str(e), "active": [], "history": []}), 500
+
+
+@app.route("/api/activity-events/clear", methods=["POST"])
+def api_clear_activity():
+    """Clear all activity events."""
+    try:
+        clear_all_activity()
+        return jsonify({"status": "cleared"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route("/library-status")
