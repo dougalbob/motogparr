@@ -23,7 +23,7 @@ REPLACED COLORS (Orange MotoGP branding → Blue theme):
 ┌─────────────┬─────────────┬─────────────────────────────┐
 │ Find        │ Replace     │ Description                 │
 ├─────────────┼─────────────┼─────────────────────────────┤
-│ #ff6600     │ #52aad8     │ Primary brand color         │
+│ #ff6600      │ #52aad8     │ Primary brand color         │
 │ #cc5200     │ #3d8ab8     │ Primary dark (hover/gradient)│
 │ #e65c00     │ #4a9bc9     │ Mid-tone accent             │
 │ #1a1a2e     │ #52aad8     │ Meta theme-color            │

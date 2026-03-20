@@ -126,7 +126,7 @@ b) Service Worker (/static/js/sw.js):
 c) Manifest updated (/manifest.json):
    - Both 192x192 and 512x512 icons
    - display: standalone
-   - theme_color: #ff6600
+   - theme_color: #52aad8 
 
 d) base.html additions:
    - <link rel="manifest">

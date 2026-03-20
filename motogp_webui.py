@@ -1214,7 +1214,7 @@ def manifest():
         "scope": "/",
         "display": "standalone",
         "background_color": "#000000",
-        "theme_color": "#ff6600",
+        "theme_color": "#52aad8 ",
         "orientation": "any",
         "icons": [
             {
