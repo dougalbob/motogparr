@@ -602,7 +602,12 @@ def test_sabnzbd_connection() -> bool:
 
 
 def grab_release(release: dict, session_info: dict, season: int) -> Optional[str]:
-    """Send release to SABnzbd with enriched name. Returns nzo_id on success, None on failure."""
+    """Send release to SABnzbd with enriched name.
+
+    Returns the nzo_id string on success (empty string if SABnzbd did not
+    provide one), or None on failure.  Callers should check ``result is not
+    None`` to determine success.
+    """
     sabnzbd_url = get_sabnzbd_url()
     sabnzbd_api_key = get_sabnzbd_api_key()
 
@@ -728,7 +733,7 @@ def get_sabnzbd_job_status(nzo_id: str) -> str:
                         return "completed"
                     if status in ("failed", "bad"):
                         return "failed"
-                    return "completed"
+                    return "unknown"
     except Exception as e:
         logger.debug(f"SABnzbd history check error for {nzo_id}: {e}")
 
