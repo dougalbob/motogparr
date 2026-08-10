@@ -119,7 +119,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_thailand.jpg",
@@ -247,7 +247,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_brazil.jpg",
@@ -261,7 +261,8 @@
           "fanart": "fanart_brazil.jpg",
           "poster": "poster_brazil.jpg"
         }
-      }
+      },
+      "flag": "br.svg"
     },
     {
       "round": 3,
@@ -374,7 +375,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_americas.jpg",
@@ -501,7 +502,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_qatar.jpg",
@@ -628,7 +629,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_jerez.jpg",
@@ -756,7 +757,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_france.jpg",
@@ -883,7 +884,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_catalunya.jpg",
@@ -898,7 +899,7 @@
           "poster": "poster_catalunya.jpg"
         }
       },
-      "flag": "es.svg"
+      "flag": "es-ct.svg"
     },
     {
       "round": 8,
@@ -1009,7 +1010,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_mugello.jpg",
@@ -1136,7 +1137,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_hungary.jpg",
@@ -1263,7 +1264,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_brno.jpg",
@@ -1391,7 +1392,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_assen.jpg",
@@ -1517,7 +1518,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_sachsenring.jpg",
@@ -1647,7 +1648,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_silverstone.jpg",
@@ -1773,7 +1774,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_aragon.jpg",
@@ -1900,7 +1901,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_misano.jpg",
@@ -2028,7 +2029,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_austria.jpg",
@@ -2155,7 +2156,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_motegi.jpg",
@@ -2283,7 +2284,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_mandalika.jpg",
@@ -2418,7 +2419,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_phillip_island.jpg",
@@ -2544,7 +2545,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_sepang.jpg",
@@ -2671,7 +2672,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_portimao.jpg",
@@ -2799,7 +2800,7 @@
           }
         }
       },
-      "search_delay_hours": 4,
+      "search_delay_hours": 1,
       "assets": {
         "motogp": {
           "fanart": "fanart_valencia.jpg",

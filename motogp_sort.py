@@ -80,7 +80,7 @@ TAG_PATTERN = re.compile(
     r"(?:1080p|720p|2160p|WEB[-]?DL|WEB|webrip|bluray|h264|x264|x265|H265|hevc|"
     r"hdr|dv|dd5[._]1|aac|dts|atmos|remux|nf|amzn|verum|Repack|Proper|PlayTV|RBB|"
     r"Multi[-]?MWR|English[-]?scmcgill1969|English[-]?MWR|TNT|Sky|"
-    r"AHDTV|AHDTVDARKSPORT|DARKSPORT|HDTV|JFF|RiP|Round|"
+    r"AHDTV|AHDTVDARKSPORT|DARKSPORT|HDTV|JFF|RiP|Round|BILLIE|"
     r"Upscaled|Dorna|BT[-]?Sport|ServusTV)",
     re.IGNORECASE
 )

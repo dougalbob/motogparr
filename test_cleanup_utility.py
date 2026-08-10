@@ -16,7 +16,7 @@ import random
 import shutil
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetimemotogparr
 
 # Configuration
 CONFIG_DIR = Path("/mnt/user/appdata/motogparr")

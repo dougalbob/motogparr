@@ -857,32 +857,126 @@ def detect_race_class(text: str) -> RaceClass:
 
 
 def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
-    """Classify session type from text."""
+    """Classify session type from text with explicit handling for practice sessions."""
+    import logging
+    import re
+    logger = logging.getLogger("motogp.classify")
+    
     text_lower = text.lower()
     text_normalized = text_lower.replace(".", " ").replace("-", " ")
     
+    logger.debug(f"=" * 50)
+    logger.debug(f"CLASSIFY: '{text}'")
+    logger.debug(f"NORMALIZED: '{text_normalized}'")
+
     if race_class is None:
         race_class = detect_race_class(text)
-    
+    logger.debug(f"RACE CLASS: {race_class.display_name}")
+
+    # === EXPLICIT PRACTICE SESSION HANDLING ===
+    if "practice" in text_normalized:
+        logger.debug(f">>> PRACTICE BLOCK ENTERED")
+        
+        # Check for FP2 indicators using word boundaries
+        fp2_patterns = [
+            r'\bfp2\b',
+            r'\bfp\s*2\b',
+            r'\bfree\s+practice\s+2\b',
+            r'\bfree\s+practice\s+two\b',
+            r'\bpractice\s+two\b',
+            r'\bpractice\s+2\b(?!\d)',  # practice 2 but not practice 2160p
+        ]
+        for pattern in fp2_patterns:
+            if re.search(pattern, text_normalized):
+                logger.debug(f">>> FP2 MATCH: '{pattern}'")
+                if race_class == RaceClass.MOTO3:
+                    return SessionType.MOTO3_FP2
+                elif race_class == RaceClass.MOTO2:
+                    return SessionType.MOTO2_FP2
+                else:
+                    return SessionType.MOTOGP_FP2
+
+        # Check for FP1 indicators using word boundaries
+        fp1_patterns = [
+            r'\bfp1\b',
+            r'\bfp\s*1\b',
+            r'\bfree\s+practice\s+1\b',
+            r'\bfree\s+practice\s+one\b',
+            r'\bpractice\s+one\b',
+            r'\bpractice\s+1\b(?!\d)',  # practice 1 but not practice 1080p
+        ]
+        for pattern in fp1_patterns:
+            if re.search(pattern, text_normalized):
+                logger.debug(f">>> FP1 MATCH: '{pattern}'")
+                if race_class == RaceClass.MOTO3:
+                    return SessionType.MOTO3_FP1
+                elif race_class == RaceClass.MOTO2:
+                    return SessionType.MOTO2_FP1
+                else:
+                    return SessionType.MOTOGP_FP1
+
+        # Check for generic "Free Practice" (without number)
+        if re.search(r'\bfree\s+practice\b', text_normalized):
+            # Make sure it's not followed by a number
+            if not re.search(r'\bfree\s+practice\s+(1|2|one|two)\b', text_normalized):
+                logger.debug(f">>> FREE PRACTICE (generic) MATCH")
+                if race_class == RaceClass.MOTO3:
+                    return SessionType.MOTO3_FP1
+                elif race_class == RaceClass.MOTO2:
+                    return SessionType.MOTO2_FP1
+                else:
+                    return SessionType.MOTOGP_FP1
+
+        # Standalone Practice - the actual Practice session
+        logger.debug(f">>> STANDALONE PRACTICE - returning Practice session")
+        if race_class == RaceClass.MOTO3:
+            return SessionType.MOTO3_PRACTICE
+        elif race_class == RaceClass.MOTO2:
+            return SessionType.MOTO2_PRACTICE
+        else:
+            return SessionType.MOTOGP_PRACTICE
+
+    # === REGULAR SESSION PATTERN MATCHING ===
+    logger.debug(f">>> PATTERN MATCHING BLOCK")
     sorted_patterns = sorted(SESSION_PATTERNS, key=lambda p: p.priority, reverse=True)
-    
+
     for pattern in sorted_patterns:
         has_required = any(term in text_normalized for term in pattern.must_have)
-        
         if not has_required:
             continue
-        
+
         has_excluded = any(term in text_normalized for term in pattern.must_not_have)
-        
         if has_excluded:
             continue
-        
+
+        logger.debug(f">>> PATTERN MATCH: {pattern.session_type.name}")
         return _remap_session_for_class(pattern.session_type, race_class)
+
+    # === FALLBACK ===
+    logger.debug(f">>> FALLBACK")
+    if "race" in text_normalized and "sprint" not in text_normalized:
+        if race_class == RaceClass.MOTO3:
+            return SessionType.MOTO3_RACE
+        elif race_class == RaceClass.MOTO2:
+            return SessionType.MOTO2_RACE
+        else:
+            return SessionType.MOTOGP_RACE
+
+    if any(q in text_normalized for q in ["qualifying", "qualifing", "q1", "q2"]):
+        if race_class == RaceClass.MOTO3:
+            return SessionType.MOTO3_Q2
+        elif race_class == RaceClass.MOTO2:
+            return SessionType.MOTO2_Q2
+        else:
+            return SessionType.MOTOGP_Q2
+
+    if race_class == RaceClass.MOTO3:
+        return SessionType.MOTO3_RACE
+    elif race_class == RaceClass.MOTO2:
+        return SessionType.MOTO2_RACE
+    else:
+        return SessionType.MOTOGP_RACE
     
-    # Fallback: assume Race
-    return _remap_session_for_class(SessionType.MOTOGP_RACE, race_class)
-
-
 def get_session_from_element(element_num: int) -> Optional[SessionType]:
     """Get SessionType from element number in prefix."""
     for session_type in SessionType:
@@ -1153,7 +1247,7 @@ def filter_releases(
 ) -> List[dict]:
     """Filter and score releases for a target session."""
     if allowed_groups is None:
-        allowed_groups = ["VERUM", "MWR"]
+        allowed_groups = ["VERUM", "MWR", "BILLIE"]
     
     venue = round_info.get("venue", "").lower()
     aliases = [a.lower() for a in round_info.get("aliases", [])]
@@ -1164,7 +1258,6 @@ def filter_releases(
     target_session_name = target_session.display_name
     
     scored = []
-    excluded_count = 0
     
     # Terms to exclude globally
     excluded_terms = [
@@ -1174,23 +1267,63 @@ def filter_releases(
         "all sessions", "all.sessions",
     ]
     
-    for release in releases:
+    # Get logger
+    logger = logging.getLogger("motogp.filter")
+    
+    logger.debug(f"=" * 60)
+    logger.debug(f"FILTER_RELEASES DEBUG")
+    logger.debug(f"=" * 60)
+    logger.debug(f"Target session: {target_session.full_display_name}")
+    logger.debug(f"Target class: {target_class.display_name if target_class else 'None'}")
+    logger.debug(f"Target session name: {target_session_name}")
+    logger.debug(f"Season: {season}")
+    logger.debug(f"Round: {round_num}")
+    logger.debug(f"Venue: {venue}")
+    logger.debug(f"All locations: {all_locations}")
+    logger.debug(f"Required quality: {required_quality}")
+    logger.debug(f"Allowed groups: {allowed_groups}")
+    logger.debug(f"Total candidates: {len(releases)}")
+    logger.debug(f"-" * 60)
+    
+    for idx, release in enumerate(releases):
         title = release.get('title', '')
         title_lower = title.lower()
         title_normalized = title_lower.replace('.', ' ').replace('-', ' ')
         
+        logger.debug(f"")
+        logger.debug(f"[{idx+1}/{len(releases)}] Evaluating: {title}")
+        
         # GLOBAL EXCLUSIONS
-        if any(term in title_normalized for term in excluded_terms):
-            excluded_count += 1
+        excluded_match = None
+        for term in excluded_terms:
+            if term in title_normalized:
+                excluded_match = term
+                break
+        
+        if excluded_match:
+            logger.debug(f"  ❌ REJECTED: Contains excluded term '{excluded_match}'")
             continue
         
         # Must match class
         detected_class = detect_race_class(title)
+        logger.debug(f"  Detected class: {detected_class.display_name}")
+        
         if detected_class != target_class:
+            logger.debug(f"  ❌ REJECTED: Class mismatch (want {target_class.display_name}, got {detected_class.display_name})")
             continue
         
+        logger.debug(f"  ✓ Class matches: {detected_class.display_name}")
+        
         # Must match location or round number
-        location_match = any(loc in title_lower for loc in all_locations)
+        location_match = False
+        matched_location = None
+        for loc in all_locations:
+            if loc in title_lower:
+                location_match = True
+                matched_location = loc
+                break
+        
+        round_match = False
         if not location_match:
             round_patterns = [
                 f"round{round_num:02d}",
@@ -1198,32 +1331,66 @@ def filter_releases(
                 f"round.{round_num:02d}",
                 f"round.{round_num}",
                 f"round {round_num}",
+                f"r{round_num:02d}",
+                f"r{round_num}",
             ]
-            if not any(p in title_lower or p in title_normalized for p in round_patterns):
-                continue
+            for p in round_patterns:
+                if p in title_lower or p in title_normalized:
+                    round_match = True
+                    logger.debug(f"  ✓ Round pattern matched: '{p}'")
+                    break
+        
+        if location_match:
+            logger.debug(f"  ✓ Location matched: '{matched_location}'")
+        elif round_match:
+            logger.debug(f"  ✓ Round number matched")
+        else:
+            logger.debug(f"  ❌ REJECTED: No location/round match")
+            logger.debug(f"     Title lower: {title_lower}")
+            logger.debug(f"     Looking for locations: {all_locations}")
+            logger.debug(f"     Looking for round patterns: round{round_num}, r{round_num}, etc.")
+            continue
         
         # Must have required quality
         quality_base = required_quality.lower().rstrip('pi')
         if quality_base not in title_lower:
+            logger.debug(f"  ❌ REJECTED: Missing quality '{quality_base}'")
             continue
         
+        logger.debug(f"  ✓ Quality matched: {quality_base}")
+        
         # Must be from allowed release group
-        group_match = any(g.lower() in title_lower for g in allowed_groups)
+        group_match = False
+        matched_group = None
+        for g in allowed_groups:
+            if g.lower() in title_lower:
+                group_match = True
+                matched_group = g
+                break
+        
         if not group_match:
+            logger.debug(f"  ❌ REJECTED: No allowed group found (looking for {allowed_groups})")
             continue
+        
+        logger.debug(f"  ✓ Group matched: {matched_group}")
         
         # Must match year
         if str(season) not in title:
+            logger.debug(f"  ❌ REJECTED: Year {season} not found in title")
             continue
+        
+        logger.debug(f"  ✓ Year matched: {season}")
         
         # SESSION MATCHING
         detected_session = classify_session(title, detected_class)
+        logger.debug(f"  Detected session: {detected_session.display_name} (full: {detected_session.full_display_name})")
         
         session_match = False
         is_combined_quali = False
         
         if detected_session == target_session:
             session_match = True
+            logger.debug(f"  ✓ Session exact match")
         elif target_session_name in ["Qualifying 1", "Qualifying 2"]:
             target_is_q1 = target_session_name == "Qualifying 1"
             target_is_q2 = target_session_name == "Qualifying 2"
@@ -1236,16 +1403,28 @@ def filter_releases(
             
             if target_is_q1 and has_q1:
                 session_match = True
+                logger.debug(f"  ✓ Q1 pattern matched")
             elif target_is_q2 and has_q2:
                 session_match = True
+                logger.debug(f"  ✓ Q2 pattern matched")
             elif not has_q1 and not has_q2:
                 if "qualifying" in title_normalized or "qualifing" in title_normalized:
                     session_match = True
                     is_combined_quali = True
                     release['_combined_quali'] = True
+                    logger.debug(f"  ✓ Combined qualifying matched")
+        else:
+            # For non-qualifying sessions, check if detected matches target
+            logger.debug(f"  Comparing: detected={detected_session.name} vs target={target_session.name}")
         
         if not session_match:
+            logger.debug(f"  ❌ REJECTED: Session mismatch")
+            logger.debug(f"     Want: {target_session.full_display_name} ({target_session.name})")
+            logger.debug(f"     Got:  {detected_session.full_display_name} ({detected_session.name})")
             continue
+        
+        # PASSED ALL FILTERS!
+        logger.debug(f"  ✅ ACCEPTED!")
         
         # Scoring
         score = 100
@@ -1268,6 +1447,9 @@ def filter_releases(
         elif "mwr" in title_lower:
             score += 40
             release['_group'] = 'MWR'
+        elif "billie" in title_lower:
+            score += 40
+            release['_group'] = 'BILLIE'
         
         if "1080p" in title_lower:
             score += 10
@@ -1277,9 +1459,13 @@ def filter_releases(
         release['_score'] = score
         release['_broadcaster_score'] = broadcaster_score
         scored.append(release)
+        
+        logger.debug(f"  Score: {score}")
     
-    if excluded_count > 0:
-        logging.debug(f"Excluded {excluded_count} full event/weekend releases")
+    logger.debug(f"")
+    logger.debug(f"=" * 60)
+    logger.debug(f"FILTER SUMMARY: {len(scored)}/{len(releases)} releases passed")
+    logger.debug(f"=" * 60)
     
     scored.sort(key=lambda x: x.get('_score', 0), reverse=True)
     

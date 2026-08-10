@@ -206,7 +206,7 @@ def get_allowed_groups() -> list:
     groups = get("grabber", "allowed_groups")
     if isinstance(groups, list):
         return groups
-    return ["VERUM", "MWR"]
+    return ["VERUM", "MWR", "BILLIE"]
 
 
 def get_required_quality() -> str:
@@ -221,7 +221,7 @@ def get_max_grabs_per_run() -> int:
 
 def get_search_delay_hours() -> int:
     """Get hours to wait after session before searching."""
-    return get_int("grabber", "search_delay_hours", 4)
+    return get_int("grabber", "search_delay_hours", 1)
 
 
 def get_current_season() -> int:
