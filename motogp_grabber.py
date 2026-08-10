@@ -138,12 +138,15 @@ class GrabberState:
         """Mark session as searched."""
         self.state["searched"][session_key] = datetime.now().isoformat()
     
-    def mark_grabbed(self, session_key: str, release_title: str):
+    def mark_grabbed(self, session_key: str, release_title: str, nzo_id: Optional[str] = None):
         """Mark session as grabbed."""
-        self.state["grabbed"][session_key] = {
+        entry = {
             "timestamp": datetime.now().isoformat(),
-            "release": release_title
+            "release": release_title,
         }
+        if nzo_id:
+            entry["nzo_id"] = nzo_id
+        self.state["grabbed"][session_key] = entry
     
     def mark_failed(self, session_key: str, reason: str):
         """Mark session search as failed."""
@@ -598,26 +601,26 @@ def test_sabnzbd_connection() -> bool:
         return False
 
 
-def grab_release(release: dict, session_info: dict, season: int) -> bool:
-    """Send release to SABnzbd with enriched name."""
+def grab_release(release: dict, session_info: dict, season: int) -> Optional[str]:
+    """Send release to SABnzbd with enriched name. Returns nzo_id on success, None on failure."""
     sabnzbd_url = get_sabnzbd_url()
     sabnzbd_api_key = get_sabnzbd_api_key()
-    
+
     download_url = release.get('downloadUrl') or release.get('link')
-    
+
     if not download_url:
         logger.error("No download URL available")
-        return False
-    
+        return None
+
     # Build enriched name with prefix
     round_num = session_info.get("round", 0)
     round_info = session_info.get("round_info", {})
     session_type = session_info.get("session_type")
     venue = round_info.get("venue", "Unknown")
-    
+
     prefix = build_prefix(season, round_num, session_type)
     enriched_name = f"{prefix} {venue} {session_type.full_display_name}"
-    
+
     try:
         params = {
             "mode": "addurl",
@@ -627,24 +630,143 @@ def grab_release(release: dict, session_info: dict, season: int) -> bool:
             "apikey": sabnzbd_api_key,
             "output": "json"
         }
-        
+
         response = requests.get(f"{sabnzbd_url}/api", params=params, timeout=30)
-        
+
         if response.status_code == 200:
-            result = response.json()
+            try:
+                result = response.json()
+            except Exception as parse_err:
+                logger.error(f"SABnzbd response parse error: {parse_err}")
+                return None
+
             if result.get('status', False):
+                # Extract nzo_id from response (SABnzbd returns a list)
+                nzo_ids = result.get('nzo_ids') or []
+                nzo_id = nzo_ids[0] if isinstance(nzo_ids, list) and nzo_ids else None
+
                 release_title = release.get('title', 'Unknown')
                 release_score = release.get('_score', 0)
                 logger.info(f"✅ Grabbed: {enriched_name}")
                 logger.info(f"   📦 Release: {release_title[:70]}")
                 logger.info(f"   📊 Score: {release_score}")
-                return True
+                if nzo_id:
+                    logger.info(f"   🆔 nzo_id: {nzo_id}")
+                return nzo_id if nzo_id else ""
             else:
                 logger.error(f"SABnzbd error: {result.get('error', 'Unknown')}")
-        return False
+        return None
     except Exception as e:
         logger.error(f"Grab error: {e}")
-        return False
+        return None
+
+
+def get_sabnzbd_job_status(nzo_id: str) -> str:
+    """Check the status of a SABnzbd job by nzo_id.
+
+    Returns one of: 'inprogress', 'completed', 'failed', 'unknown'.
+    Checks the queue first, then history.
+    """
+    sabnzbd_url = get_sabnzbd_url()
+    sabnzbd_api_key = get_sabnzbd_api_key()
+
+    if not sabnzbd_url or not sabnzbd_api_key or not nzo_id:
+        return "unknown"
+
+    # Check active queue
+    try:
+        params = {
+            "mode": "queue",
+            "nzo_ids": nzo_id,
+            "apikey": sabnzbd_api_key,
+            "output": "json",
+        }
+        response = requests.get(f"{sabnzbd_url}/api", params=params, timeout=10)
+        if response.status_code == 200:
+            try:
+                data = response.json()
+            except Exception:
+                data = {}
+            queue = data.get("queue") or {}
+            slots = queue.get("slots") or []
+            for slot in slots:
+                if not isinstance(slot, dict):
+                    continue
+                if slot.get("nzo_id") == nzo_id:
+                    status = (slot.get("status") or "").lower()
+                    if status in ("downloading", "queued", "grabbing", "verifying", "repairing",
+                                  "extracting", "moving", "running"):
+                        return "inprogress"
+                    if status == "failed":
+                        return "failed"
+                    return "inprogress"
+    except Exception as e:
+        logger.debug(f"SABnzbd queue check error for {nzo_id}: {e}")
+
+    # Check history
+    try:
+        params = {
+            "mode": "history",
+            "nzo_ids": nzo_id,
+            "apikey": sabnzbd_api_key,
+            "output": "json",
+        }
+        response = requests.get(f"{sabnzbd_url}/api", params=params, timeout=10)
+        if response.status_code == 200:
+            try:
+                data = response.json()
+            except Exception:
+                data = {}
+            history = data.get("history") or {}
+            slots = history.get("slots") or []
+            for slot in slots:
+                if not isinstance(slot, dict):
+                    continue
+                if slot.get("nzo_id") == nzo_id:
+                    status = (slot.get("status") or "").lower()
+                    if status == "completed":
+                        return "completed"
+                    if status in ("failed", "bad"):
+                        return "failed"
+                    return "completed"
+    except Exception as e:
+        logger.debug(f"SABnzbd history check error for {nzo_id}: {e}")
+
+    return "unknown"
+
+
+def reconcile_grabbed_jobs(state: "GrabberState") -> int:
+    """Check SABnzbd status for all grabbed jobs that have an nzo_id.
+
+    If SABnzbd reports a job as failed, move the session to failed state and
+    clear the grabbed entry so the session can be retried on the next run.
+
+    Returns the number of sessions that were reset to allow retry.
+    """
+    grabbed = state.state.get("grabbed", {})
+    retried = 0
+
+    for session_key, entry in list(grabbed.items()):
+        if not isinstance(entry, dict):
+            continue
+        nzo_id = entry.get("nzo_id")
+        if not nzo_id:
+            continue
+
+        job_status = get_sabnzbd_job_status(nzo_id)
+        logger.debug(f"SABnzbd job {nzo_id} ({session_key}): {job_status}")
+
+        if job_status == "failed":
+            release = entry.get("release", "Unknown")
+            logger.warning(f"SABnzbd job failed for {session_key} ({release}), clearing for retry")
+            state.state["failed"][session_key] = {
+                "timestamp": datetime.now().isoformat(),
+                "reason": f"SABnzbd reported failure (nzo_id={nzo_id})",
+            }
+            del state.state["grabbed"][session_key]
+            retried += 1
+
+    return retried
 
 
 # =============================================================================
@@ -806,14 +928,21 @@ def cmd_backfill(args):
     print(f"  Time:       {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     state = GrabberState()
-    
+
+    # Reconcile previously grabbed jobs against SABnzbd status
+    if not dry_run:
+        reset_count = reconcile_grabbed_jobs(state)
+        if reset_count > 0:
+            print(f"\n  ♻️  Reconciled {reset_count} failed SABnzbd job(s) — will retry")
+            state.save()
+
     calendar = load_calendar(season)
     if not calendar:
         print(f"\n❌ Could not load calendar for {season}")
         return 1
-    
+
     print(f"\n  Calendar:   {len(calendar.get('rounds', []))} rounds loaded")
-    
+
     # Connection tests
     print(f"\n{'─' * 40}")
     print("CONNECTION TESTS")
@@ -1002,9 +1131,10 @@ def cmd_backfill(args):
                 release_name=best_title[:80]
             )
             
-            if grab_release(best, item, season):
+            nzo_id = grab_release(best, item, season)
+            if nzo_id is not None:
                 print(f"    ✅ Grab successful!")
-                state.mark_grabbed(session_key, best_title)
+                state.mark_grabbed(session_key, best_title, nzo_id=nzo_id or None)
                 grabbed_titles.add(best_title.lower())
                 grabs_this_run += 1
                 
@@ -1049,17 +1179,24 @@ def cmd_scheduled(args):
     print(f"  Time (GMT):   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     state = GrabberState()
-    
+
+    # Reconcile previously grabbed jobs against SABnzbd status
+    if not dry_run:
+        reset_count = reconcile_grabbed_jobs(state)
+        if reset_count > 0:
+            print(f"\n  ♻️  Reconciled {reset_count} failed SABnzbd job(s) — will retry")
+            state.save()
+
     calendar = load_calendar(season)
     if not calendar:
         print(f"\n❌ Could not load calendar for {season}")
         return 1
-    
+
     if not has_session_times(calendar):
         print(f"\n❌ Calendar for {season} doesn't have session times")
         print("   Use 'backfill' mode for older seasons")
         return 1
-    
+
     # Find ready sessions
     ready = get_sessions_ready_for_search(calendar)
     
@@ -1134,8 +1271,9 @@ def cmd_scheduled(args):
             print(f"  [DRY-RUN] Would grab: {best.get('title', 'Unknown')[:50]}")
             grabs_this_run += 1
         else:
-            if grab_release(best, item, season):
-                state.mark_grabbed(session_key, best.get('title', 'Unknown'))
+            nzo_id = grab_release(best, item, season)
+            if nzo_id is not None:
+                state.mark_grabbed(session_key, best.get('title', 'Unknown'), nzo_id=nzo_id or None)
                 grabs_this_run += 1
             else:
                 state.mark_failed(session_key, "Grab failed")
