@@ -119,12 +119,18 @@ jobs:
           # Unraid-style ownership: the app runs as 99:100.
           sudo chown -R 99:100 "$cfg" "$media" "$downloads"
 
+          # The paths the app is told about must be the CONTAINER paths
+          # (/media, /downloads), not the host paths that were mounted. Passing
+          # the host path makes the startup check correctly refuse to start,
+          # because inside the container that directory does not exist - which
+          # is exactly what the check is for, and exactly how this test first
+          # failed.
           docker run -d --name "$CONTAINER" \
             -p 5679:5679 \
             -e PUID=99 -e PGID=100 \
             -e AUTH_MODE=none \
-            -e MOTOGP_LIBRARY_PATH="$media" \
-            -e MOTOGP_DOWNLOADS_PATH="$downloads" \
+            -e MOTOGP_LIBRARY_PATH=/media \
+            -e MOTOGP_DOWNLOADS_PATH=/downloads \
             -v "$cfg:/config" \
             -v "$media:/media" \
             -v "$downloads:/downloads" \
@@ -148,7 +154,9 @@ jobs:
           done
 
           echo "::error title=WebUI never answered::the container did not serve /healthz on 5679"
-          docker logs "$CONTAINER" || true
+          docker inspect -f 'running={{.State.Running}} exit={{.State.ExitCode}}' "$CONTAINER" || true
+          echo "--- last 60 log lines ---"
+          docker logs --tail 60 "$CONTAINER" 2>&1 || true
           exit 1
 
       - name: Docker's own healthcheck must agree
@@ -220,8 +228,8 @@ jobs:
                 -e AUTH_ISSUER=https://example.cloudflareaccess.com \
                 -e AUTH_AUDIENCE=AUDTAG \
                 -e AUTH_ALLOWED_EMAILS=me@example.com \
-                -e MOTOGP_LIBRARY_PATH="$media" \
-                -e MOTOGP_DOWNLOADS_PATH="$downloads" \
+                -e MOTOGP_LIBRARY_PATH=/media \
+                -e MOTOGP_DOWNLOADS_PATH=/downloads \
                 -v "$cfg:/config" -v "$media:/media" -v "$downloads:/downloads" \
                 "$IMAGE"; then
               break
