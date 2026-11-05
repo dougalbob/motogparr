@@ -89,11 +89,17 @@ for calendar in "${IMAGE_CALENDARS}"/motogp_*.json; do
     fi
 done
 
-# Create settings.yml template if it doesn't exist
+# Create settings.yml template if it doesn't exist. The WebUI can fill it in
+# afterwards, but having a real file on disk means the container validates and
+# starts cleanly on a fresh install instead of complaining about every setting.
 if [ ! -f "$SETTINGS_FILE" ]; then
     echo ""
-    echo "  No settings.yml found."
-    # (template content same as before)
+    echo "  No settings.yml found - creating a starter template."
+    if $PYTHON -c "from utils.config_loader import create_template; raise SystemExit(0 if create_template() else 1)"; then
+        echo "  Created ${SETTINGS_FILE} - fill in the blanks in the WebUI (port 5679)."
+    else
+        echo "  ⚠️  Could not create ${SETTINGS_FILE}; check that ${CONFIG_DIR} is writable."
+    fi
 fi
 
 # Validate configuration

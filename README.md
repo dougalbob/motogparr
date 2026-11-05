@@ -23,6 +23,42 @@ Images are built and published by GitHub Actions (`.github/workflows/docker-publ
 `:latest` only moves when a version tag is published, so a half-finished commit
 on `main` never reaches a container that is force-updated.
 
+## Installing on Unraid
+
+There is a container template at [`unraid/motogparr.xml`](unraid/motogparr.xml).
+It is not in Community Applications, so add it by URL:
+
+**Docker → Add Container**, then paste this into the **Template** field:
+
+```
+https://raw.githubusercontent.com/dougalbob/motogparr/main/unraid/motogparr.xml
+```
+
+Everything else can be left at its default until you know your own paths. The
+template asks for four things that matter:
+
+| Setting | What it is |
+|---|---|
+| `WebUI Port` | 5679. Open `http://<server>:5679` to finish setup. |
+| `/config` | Appdata folder. Holds `settings.yml` and your calendars - keep it. |
+| `/media` | Your media share, so the library can be read and written. |
+| `/downloads` | Your downloads share, so completed downloads can be picked up. |
+
+Prowlarr, SABnzbd and Plex details can be typed into the WebUI instead of the
+template, which is why the template marks them optional - but if you do set them
+there, they take priority over `settings.yml` (that is how the app is designed,
+and it is easy to blame the wrong one when a setting "will not save").
+
+The two path variables are the easy ones to get wrong, because they are paths
+*inside the container*:
+
+- `MOTOGP_LIBRARY_PATH` should match what Plex sees for the same library
+- `MOTOGP_DOWNLOADS_PATH` should match the completed-downloads folder you gave
+  SABnzbd
+
+On first start the container creates `/config/settings.yml` from a commented
+template and prints which settings are still missing.
+
 In Unraid: **Docker → your container → Force Update** after a new release.
 
 ```bash
