@@ -112,3 +112,28 @@ jobs:
             MOTOGPARR_VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # A push can fail with "denied: permission_denied: read_package" even
+      # though the token has packages:write. That happens when the GHCR package
+      # already exists, is private, and is not linked to this repository: the
+      # workflow token then cannot even read it, so it cannot push either.
+      # Nothing in the workflow can fix that - it is a one-time setting on the
+      # package - so spell out exactly what to change.
+      - name: Explain GHCR permission failure
+        if: failure()
+        run: |
+          cat <<'MSG'
+          ::error title=GHCR push denied::The workflow token cannot read the package.
+
+          If the error above is "denied: permission_denied: read_package", the
+          package ghcr.io/${{ github.repository_owner }}/motogparr already exists,
+          is PRIVATE, and is not linked to this repository. Fix it once:
+
+            1. Open https://github.com/users/${{ github.repository_owner }}/packages/container/motogparr/settings
+            2. "Danger Zone" -> Change visibility -> Public
+            3. (recommended) "Manage Actions access" -> add this repository
+               with the Write role, so the workflow owns what it publishes
+
+          After that, re-run this job. Making the *repository* public does not
+          change the visibility of an existing package - they are separate.
+          MSG
