@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!--
+  Deliberately standalone: it does NOT extend base.html.
+
+  This is rendered from a before_request hook, before any view has run, so none
+  of the per-route template context (next_race, active_tab, status) exists yet.
+  Extending the base layout made the refusal raise UndefinedError and return 500
+  instead of 401 - a broken error page in the one path that must always work.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Not authorised — MotoGParr</title>
+    <link rel="icon" href="/assets/favicon.ico">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        body { display: block; padding: 24px; }
+        .auth-wrap { max-width: 640px; margin: 0 auto; }
+        .auth-card {
+            background: #fff; border-radius: 8px; padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.12);
+        }
+        .auth-detail {
+            background: #fdecea; border-left: 4px solid #e74c3c;
+            padding: 12px 16px; border-radius: 4px; margin: 16px 0;
+            font-family: monospace; font-size: .9em; word-break: break-word;
+        }
+        .auth-card h1 { font-size: 1.4em; margin-top: 0; }
+        .auth-card li { margin-bottom: 8px; }
+        code { background: #f0f2f4; padding: 1px 4px; border-radius: 3px; }
+        .auth-foot { margin-top: 20px; font-size: .85em; opacity: .7; }
+    </style>
+</head>
+<body>
+<div class="auth-wrap">
+    <div class="auth-card">
+        <h1>🔐 Not authorised</h1>
+
+        <p>
+            This installation is reachable only through Cloudflare Access, and
+            this request did not carry a valid Cloudflare identity token.
+        </p>
+
+        <div class="auth-detail">{{ detail }}</div>
+
+        <h3>What to try</h3>
+        <ol>
+            {% if login_url %}
+            <li>
+                <a href="{{ login_url }}">Sign in through Cloudflare Access</a>,
+                then reload this page. A bookmarked direct address, or a LAN
+                hostname that bypasses Cloudflare, will always look like this.
+            </li>
+            {% endif %}
+            <li>If you are signed in already, your session may have expired — reload.</li>
+            <li>
+                If you reached this container <em>without</em> going through
+                Cloudflare (for example from another container on the same Docker
+                network), that is intended: the app verifies the token itself
+                rather than assuming Cloudflare was in the path.
+            </li>
+            <li>
+                To allow a different account, add the address to
+                <code>AUTH_ALLOWED_EMAILS</code> and restart the container. There
+                is no sign-up: that list is the whole permission model.
+            </li>
+        </ol>
+
+        <div class="auth-foot">
+            MotoGParr · access is verified server-side, not by this page
+        </div>
+    </div>
+</div>
+</body>
+</html>

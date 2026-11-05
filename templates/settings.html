@@ -278,16 +278,12 @@
     }
     
     function showAdminTab() {
-        if (isAdminAuthed()) {
-            showSubTab('admin');
-        } else {
-            showAdminModal(function() {
-                showSubTab('admin');
-                // Update button to show active
-                document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.sub-tab')[1].classList.add('active');
-            });
-        }
+        // Configuration is protected server-side by the Cloudflare Access guard.
+        // There is no client-side password check any more: the old one gated a
+        // tab whose backing API was wide open, which was theatre.
+        showSubTab('admin');
+        document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.sub-tab')[1].classList.add('active');
     }
     
     function toggleSessionGroup(header) {

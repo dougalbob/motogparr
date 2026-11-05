@@ -158,7 +158,7 @@ catch and default; new code must do the same.
 
 ## 5. WebUI surface
 
-27 routes. Nav tabs: Home, Download, Settings, Stats, Calendar, Activity; a
+28 routes. Nav tabs: Home, Download, Settings, Stats, Calendar, Activity; a
 bottom nav for mobile; `/logs` is reachable but not in the top nav.
 
 | Route | Method | What it does | Risk |
@@ -184,38 +184,57 @@ bottom nav for mobile; `/logs` is reachable but not in the top nav.
 | `/calendar`, `/calendar-data` | GET | Calendar views | low |
 | `/api/sabnzbd/queue` | GET | Proxies SABnzbd queue with the API key | medium |
 | `/flags/<path>`, `/assets/<path>` | GET | Static files | low (path must be checked) |
-| `/manifest.json`, `/sw.js` | GET | PWA | must stay public if auth is added |
-| `/verify-admin` | POST | Plaintext password compare against `uiadminpassword` | **weak by design** |
+| `/manifest.json`, `/sw.js` | GET | PWA — public | — |
+| `/healthz` | GET | Liveness for the Docker HEALTHCHECK — public | — |
 
-`app.after_request` sets `Access-Control-Allow-Origin: *` on every response.
+Every route in the table requires a verified Cloudflare identity except the two
+marked *public*. `app.after_request` adds `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: SAMEORIGIN` and `Referrer-Policy: no-referrer`; it does **not**
+set `Access-Control-Allow-Origin` (that wildcard was removed in v2.5.0 — the UI
+is same-origin and the header let any LAN page read `/app-config`).
 
 ---
 
 ## 6. Authentication model
 
-**Current state: none.** Anything that can reach 5679 gets full access, including
-read access to the Plex token and both API keys, and the ability to trigger
-downloads.
+Since **v2.5.0**. Before that, anything that reached 5679 got full access.
 
-External access is via Cloudflare Zero Trust with an email policy. Cloudflare is
-therefore the only gate today, and the app neither verifies nor even looks at the
-`Cf-Access-Jwt-Assertion` header it is given.
+```
+utils/auth.py       AccessVerifier — signature (RS256 against CF JWKS),
+                    issuer, audience, expiry, email claim, allowlist.
+                    No Flask import; no network in tests.
+utils/web_auth.py   AuthGate (mode resolution) + install() -> before_request
+                    hook + denial page/JSON. Owns PUBLIC_ENDPOINTS.
+```
 
-Target: verify that JWT in-app (issuer, audience, signature, expiry) and require
-the email in `AUTH_ALLOWED_EMAILS`, denying anything that reaches the container
-without a valid assertion. Single user — no accounts, no roster, no sign-up. The
-plan and tests are in `AGENTS.md` §7 PR 2.
+Modes: `cloudflare` (default when `AUTH_ISSUER` is set), `none` (explicit,
+warns loudly, banner in UI). A partial `AUTH_*` config **fails closed** — gate
+enabled, every request 401, reason printed at startup.
 
-`uiadminpassword` is not authentication: it is unknown to `config_loader`, is
-compared with `==`, is client-side only, and gates a tab whose backing API
-(`/app-config`) is wide open. It is also silently deleted by the next
-`POST /app-config`.
+`PUBLIC_ENDPOINTS` is the whole exception list: `static`, `static_files`,
+`flag_files`, `manifest`, `service_worker`, `health`. Everything else is
+guarded. The guard is a `before_request` hook precisely so a new route cannot be
+added unauthenticated by omission; `tests/test_webui_auth.py` enumerates
+`url_map` to enforce it.
+
+Denial is 401 with an HTML page for browsers (it must not extend `base.html` —
+at `before_request` time there is no view context and rendering raises) and JSON
+for `/api/*`.
+
+The session cookie carries only the verified email, for display. It is not the
+auth mechanism; `SESSION_COOKIE_SECURE` is off by default because the container
+is reached over plain HTTP inside the LAN and TLS terminates at Cloudflare.
+
+`uiadminpassword` and `/verify-admin` were **removed**. The old check compared a
+plaintext value with `==`, was unknown to `config_loader`, gated only the
+client-side tab while `/app-config` stayed open, and was silently deleted by the
+next save from the UI.
 
 ---
 
 ## 7. Tests and CI
 
-- **135 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
+- **151 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
   Docker required.
 - `tests/test_webui_security.py` is a set of **characterisation tests that assert
   the current insecure behaviour** (secrets returned by `/app-config`, config

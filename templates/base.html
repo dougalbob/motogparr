@@ -114,26 +114,22 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <!-- Admin Password Modal -->
-    <div class="modal-overlay" id="admin-modal" onclick="closeAdminModal(event)">
-        <div class="modal-content modal-small" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <h3>🔐 Admin Access</h3>
-                <button class="modal-close" onclick="closeAdminModal()">✕</button>
-            </div>
-            <div class="modal-body">
-                <p>Enter admin password to access configuration:</p>
-                <div class="form-group">
-                    <input type="password" id="admin-password" placeholder="Password" onkeypress="if(event.key==='Enter')checkAdminPassword()">
-                </div>
-                <p class="admin-error" id="admin-error" style="display:none;">Incorrect password</p>
-            </div>
-            <div class="modal-footer">
-                <button onclick="closeAdminModal()" class="secondary">Cancel</button>
-                <button onclick="checkAdminPassword()" class="success">Submit</button>
-            </div>
-        </div>
+    {% if identity_email %}
+    <!-- Who is signed in. Identity is established by Cloudflare Access and
+         verified server-side; this is only a courtesy display, not a guard. -->
+    <div class="identity-chip" title="Verified by Cloudflare Access">
+        🔐 {{ identity_email }}
     </div>
+    {% endif %}
+
+    {% if auth_disabled %}
+    <!-- AUTH_MODE=none: say so in the UI, not just the log. Someone opening this
+         from a phone will not read docker logs. -->
+    <div class="sticky-banner" role="status">
+        ⚠️ Authentication is disabled (AUTH_MODE=none). Anyone who can reach this
+        port has full access.
+    </div>
+    {% endif %}
 
     <script>
         // ===== STICKY BANNER TOGGLE =====
@@ -233,48 +229,6 @@
             }
         });
         
-        // Admin modal functions
-        let adminCallback = null;
-        
-        function showAdminModal(callback) {
-            adminCallback = callback;
-            document.getElementById('admin-password').value = '';
-            document.getElementById('admin-error').style.display = 'none';
-            document.getElementById('admin-modal').classList.add('active');
-            document.getElementById('admin-password').focus();
-        }
-        
-        function closeAdminModal(event) {
-            if (!event || event.target.classList.contains('modal-overlay')) {
-                document.getElementById('admin-modal').classList.remove('active');
-                adminCallback = null;
-            }
-        }
-        
-        function checkAdminPassword() {
-            const password = document.getElementById('admin-password').value;
-            
-            fetch('/verify-admin', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({password: password})
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.valid) {
-                    closeAdminModal();
-                    sessionStorage.setItem('adminAuth', 'true');
-                    if (adminCallback) adminCallback();
-                } else {
-                    document.getElementById('admin-error').style.display = 'block';
-                    document.getElementById('admin-password').value = '';
-                }
-            });
-        }
-        
-        function isAdminAuthed() {
-            return sessionStorage.getItem('adminAuth') === 'true';
-        }
     </script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% block scripts %}{% endblock %}

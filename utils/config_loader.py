@@ -123,6 +123,32 @@ ENV_SPEC: Dict[str, Dict[str, Any]] = {
         "section": "timezone", "key": None, "cast": str,
         "description": "Timezone, e.g. Europe/London",
     },
+
+    # --- authentication -----------------------------------------------------
+    # Cloudflare Access verification. These live in ENV_SPEC because that table
+    # is the single source of truth for "what does the app read", and the Unraid
+    # template is checked against it. settings.yml is deliberately NOT an option:
+    # an allowlist in a file the UI can rewrite is not a security control.
+    "AUTH_ISSUER": {
+        "section": "auth", "key": "issuer", "cast": str,
+        "description": "Cloudflare Access issuer, e.g. https://<team>.cloudflareaccess.com",
+    },
+    "AUTH_AUDIENCE": {
+        "section": "auth", "key": "audience", "cast": str,
+        "description": "Access application AUD tag the JWT must be issued for",
+    },
+    "AUTH_ALLOWED_EMAILS": {
+        "section": "auth", "key": "allowed_emails", "cast": str, "secret": True,
+        "description": "Comma-separated emails allowed in (mirrors the CF policy)",
+    },
+    "AUTH_CERTS_URL": {
+        "section": "auth", "key": "certs_url", "cast": str,
+        "description": "Optional override for the JWKS URL (defaults to $AUTH_ISSUER/cdn-cgi/access/certs)",
+    },
+    "AUTH_MODE": {
+        "section": "auth", "key": "mode", "cast": str,
+        "description": "cloudflare (default when AUTH_ISSUER is set) or none",
+    },
 }
 
 
@@ -364,6 +390,29 @@ def get_allowed_groups() -> list:
 
 def get_required_quality() -> str:
     """Get required video quality."""
+    return get("grabber", "required_quality", "1080p")
+
+
+def get_allowed_groups() -> list:
+    """
+    Release groups the grabber will accept.
+
+    Read from config but never written by the UI before v2.4.2, so it was
+    effectively a hidden setting: present in settings.yml, invisible everywhere
+    else. Accepts a comma-separated string so ALLOWED_GROUPS-style env config
+    works too.
+    """
+    value = get("grabber", "allowed_groups")
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
+
+
+def get_required_quality() -> str:
     return get("grabber", "required_quality", "1080p")
 
 
@@ -615,10 +664,68 @@ timezone: "Europe/London"
         return False
 
 
-def save_settings(settings: Dict) -> bool:
-    """Save settings to YAML file."""
+def update_settings(updates: Dict) -> bool:
+    """
+    Merge ``updates`` into settings.yml instead of replacing the file.
+
+    This exists because replacing the file was silently destructive: the WebUI
+    used to rebuild the whole document from the four sections it knew about, so
+    every save from the UI deleted anything else in the file - the admin
+    password, the entire grabber section, and any key added since. Nobody
+    noticed because nothing failed; the settings just quietly reverted.
+
+    Rules:
+      * nested dicts are merged key by key, so a partial ``plex`` payload does
+        not drop ``plex.library_name``;
+      * a key explicitly set to ``None`` is deleted (that is how the caller says
+        "remove this"), an omitted key is left alone;
+      * an empty string is kept, because "clear this field" is a real intent and
+        the env-var layer already treats empty as unset.
+    """
     global _settings_cache
-    
+
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        current = dict(_load_yaml() or {})
+        merged = _deep_merge(current, updates)
+
+        # Write via a temporary file so a crash mid-write cannot leave a
+        # truncated settings.yml behind - the file is small, the cost is nil.
+        tmp_path = SETTINGS_FILE.with_suffix(".yml.tmp")
+        with open(tmp_path, "w") as f:
+            yaml.dump(merged, f, default_flow_style=False, sort_keys=False)
+        tmp_path.replace(SETTINGS_FILE)
+
+        _settings_cache = merged
+        return True
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+        return False
+
+
+def _deep_merge(base: Dict, updates: Dict) -> Dict:
+    """Recursively merge updates into a copy of base. See update_settings."""
+    result = dict(base)
+    for key, value in updates.items():
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def save_settings(settings: Dict) -> bool:
+    """
+    Replace settings.yml wholesale.
+
+    Kept for callers that genuinely own the whole document (the template
+    creator). Prefer :func:`update_settings`, which cannot lose keys it was not
+    told about.
+    """
+    global _settings_cache
+
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(SETTINGS_FILE, 'w') as f:

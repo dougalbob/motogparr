@@ -125,6 +125,7 @@ stays authoritative and there is one place to change a path.
 | `PLEX_URL`, `PLEX_TOKEN` | `plex.*` |
 | `DISCORD_WEBHOOK_URL` | `discord.webhook_url` |
 | `TZ` | `timezone` |
+| `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_ALLOWED_EMAILS`, `AUTH_CERTS_URL`, `AUTH_MODE` | not in `settings.yml` — see [Access and authentication](#access-and-authentication) |
 
 A few variables are read by `entrypoint.sh` rather than by the Python code —
 `MOTOGPARR_CALENDAR_UPDATE` and `MOTOGPARR_SKIP_PATH_CHECK`. They are listed
@@ -201,6 +202,91 @@ whose UI has gone reports **unhealthy** instead of "Up". Check it with:
 ```bash
 docker inspect MotoGParr --format '{{.State.Health.Status}}'
 ```
+
+## Access and authentication
+
+The WebUI has no login of its own. Identity comes from **Cloudflare Zero Trust
+(Access)**, and the container verifies it rather than trusting it.
+
+```
+browser ──▶ Cloudflare Access (email policy)
+              │  adds Cf-Access-Jwt-Assertion
+              ▼
+        MotoGParr WebUI ──▶ verifies signature, issuer, audience, expiry
+                             └─▶ requires the email in AUTH_ALLOWED_EMAILS
+```
+
+**Why the app checks the token itself.** Anything on your LAN, or another
+container on the same Docker network, can reach port 5679 without going anywhere
+near Cloudflare. A tampered header is trivial to send. So the assertion is
+verified against Cloudflare's published keys: a request that did not genuinely
+pass through Access is refused.
+
+There is deliberately **no user management**. One household, one account: the
+allowlist *is* the permission model, and a verified address that is not on it is
+denied. No sign-up, no roster, no roles.
+
+### Configuration
+
+Three variables, all required together:
+
+| Variable | Value |
+|---|---|
+| `AUTH_ISSUER` | `https://<your-team>.cloudflareaccess.com` (Zero Trust → Settings → Custom Pages, or the Access application) |
+| `AUTH_AUDIENCE` | The Access application's **AUD tag** (Access → Applications → your app → Overview) |
+| `AUTH_ALLOWED_EMAILS` | `you@example.com` (comma-separated) |
+
+Optional:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AUTH_CERTS_URL` | `$AUTH_ISSUER/cdn-cgi/access/certs` | Override where the signing keys are fetched from |
+| `AUTH_MODE` | `cloudflare` when `AUTH_ISSUER` is set | `cloudflare` forces a token even if the rest is misconfigured (fails closed); `none` disables auth, logs a warning and shows a banner in the UI |
+
+Set **all three or none**. Two out of three is a configuration error, and the
+container fails *closed*: it starts, refuses every request, and prints why. It
+never falls back to open, because a forgotten variable would then silently expose
+your Plex token.
+
+Nothing is stored in `settings.yml`. An allowlist in a file the UI can rewrite is
+not a security control.
+
+### Running without Cloudflare
+
+Leave `AUTH_ISSUER` blank and the WebUI is unauthenticated, as it was before
+v2.5.0. That is the right setting for a container reachable only from your LAN,
+and the startup log says so plainly:
+
+```
+  Authentication:
+    ⚠️  OFF - the WebUI has no authentication.
+       Anyone who can reach port 5679 can read your Plex token and
+       API keys and trigger downloads.
+```
+
+The UI shows the same warning as a banner. Do not port-forward a container in
+this mode.
+
+### What stays public
+
+`/healthz` (the Docker `HEALTHCHECK`), `/static/*`, `/assets/*`, `/flags/*`,
+`/manifest.json` and `/sw.js`. A probe that needed credentials would make every
+container report unhealthy, which is the failure the probe exists to catch.
+Everything else — including every API route that can reveal a secret or start a
+download — requires a verified identity, and a test enumerates the route table so
+a new route cannot be born unauthenticated by accident.
+
+### If you see "Not authorised"
+
+The page names the reason. The usual ones:
+
+| Message | Meaning |
+|---|---|
+| `No Cf-Access-Jwt-Assertion header` | The request did not come through Cloudflare — a LAN address, a bookmark to the IP, or another container |
+| `Token audience does not match` | `AUTH_AUDIENCE` is from a different Access application |
+| `Token issuer does not match` | `AUTH_ISSUER` is for a different Cloudflare team |
+| `Token has expired` | Reload; Access usually re-issues |
+| `not assigned to this installation` | Cloudflare let it through but the address is not in `AUTH_ALLOWED_EMAILS` |
 
 ## Calendars
 

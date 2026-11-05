@@ -4,6 +4,15 @@ __pycache__/
 .env
 *.log
 config/grabber_state.json
+
+# Runtime state written into the repo when the app is run from a checkout
+# (tests, local dev). None of it belongs in git.
+config/webui_settings.json
+config/watcher_state.json
+config/activity_events.json
+config/discord_rate_limit.json
+config/*.bak
+config/logs/
 .DS_Store
 
 # Test artefacts

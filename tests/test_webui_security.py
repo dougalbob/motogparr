@@ -1,18 +1,27 @@
 """
 Regression tests for the WebUI security issues found during the v2.4.1 review.
 
-These are deliberately written as *characterisation* tests: they pin the current,
-known-bad behaviour so the planned fix in AGENTS.md §7 PR 2 cannot land silently
-and so the threat is executable documentation rather than a paragraph.
+These started life as *characterisation* tests that asserted the then-current
+insecure behaviour, so that fixing it would be a deliberate, visible act rather
+than something that happened by accident. The auth work in v2.5.0 fixed them, so
+they now assert the safe behaviour and serve as regression tests.
 
-When the auth work is done, the assertions marked ``BUG`` invert - a passing
-``BUG`` test means the vulnerability is still present. Update or replace them in
-the same commit that fixes the issue.
+What each one guards:
+
+    finding A  POST /app-config used to rebuild settings.yml from a six-section
+               literal, silently deleting uiadminpassword, grabber.* and
+               anything added later
+    finding B  Access-Control-Allow-Origin: * on every response, including
+               /app-config, so any page in any browser on the LAN could read the
+               Plex token and API keys cross-origin
+    issue 1    no authentication on any route at all
+
+The route-enumeration test that used to live here has moved to
+tests/test_webui_auth.py, where it asserts the guard exists for every route
+rather than the absence of one.
 
 References:
-    AGENTS.md  §6 finding A  POST /app-config destroys unknown config keys
-    AGENTS.md  §6 finding B  Access-Control-Allow-Origin: * on every response
-    AGENTS.md  §5            no authentication on any route
+    AGENTS.md §6 findings A-D, docs/ARCHITECTURE.md §5-6
 """
 
 import os
@@ -28,6 +37,9 @@ import yaml
 # leaves nothing behind in the working tree.
 _CONFIG_DIR = tempfile.mkdtemp(prefix="motogp-webui-test-")
 os.environ["CONFIG_DIR"] = _CONFIG_DIR
+# These tests are about the config/HTTP surface, not identity, so run them with
+# the guard off; the guard itself is covered in tests/test_webui_auth.py.
+os.environ["AUTH_MODE"] = "none"
 
 import motogp_webui  # noqa: E402
 
@@ -37,7 +49,7 @@ SETTINGS = {
     "sabnzbd": {"url": "http://sab:8080", "api_key": "sab-key"},
     "plex": {"url": "http://plex:32400", "token": "plex-token", "library_id": "16"},
     "library": {"motogp_path": "/media/MotoGP", "downloads_path": "/downloads"},
-    "grabber": {"max_grabs_per_run": 22, "allowed_groups": ["motogp"]},
+    "grabber": {"max_grabs_per_run": 22, "allowed_groups": ["motogp", "MWR"]},
     "uiadminpassword": "hunter2",
     "timezone": "Europe/London",
 }
@@ -52,6 +64,11 @@ def client(tmp_path, monkeypatch):
     settings_file.write_text(yaml.safe_dump(SETTINGS), encoding="utf-8")
 
     monkeypatch.setattr(motogp_webui, "CONFIG_DIR", tmp_path)
+    # /settings also writes webui_settings.json next to CONFIG_DIR; keep that in
+    # tmp_path too, or a test run litters the checkout's config/ directory.
+    monkeypatch.setattr(
+        motogp_webui, "WEBUI_CONFIG_FILE", tmp_path / "webui_settings.json"
+    )
     monkeypatch.setattr(config_loader, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(config_loader, "SETTINGS_FILE", settings_file)
     monkeypatch.setattr(config_loader, "_settings_cache", None)
@@ -66,18 +83,17 @@ def client(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Finding A: POST /app-config rebuilds settings.yml from a fixed dict
+# Finding A: saving App Config must not destroy keys it was not told about
 # ---------------------------------------------------------------------------
 
-def test_app_config_post_drops_keys_it_does_not_know(client):
+def test_app_config_post_preserves_unknown_keys(client):
     """
-    BUG: saving App Config from the UI silently deletes every key that is not in
-    the route's six-section literal - including uiadminpassword and all of
-    grabber.*. Guarded here because it is invisible data loss, not an error.
+    The regression: saving the six sections the form knows about used to delete
+    everything else. Nothing failed, so it went unnoticed - the settings simply
+    reverted, and the admin password vanished.
     """
     test_client, settings_file = client
 
-    # Exactly what templates/settings.html sends: the six sections, nothing else.
     posted = {
         "prowlarr": SETTINGS["prowlarr"],
         "sabnzbd": SETTINGS["sabnzbd"],
@@ -86,119 +102,151 @@ def test_app_config_post_drops_keys_it_does_not_know(client):
         "discord": {},
         "timezone": "Europe/London",
     }
-    response = test_client.post("/app-config", json=posted)
+    assert test_client.post("/app-config", json=posted).status_code == 200
+
+    saved = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+
+    assert saved["uiadminpassword"] == "hunter2", "saving config wiped a key it did not send"
+    assert saved["grabber"]["allowed_groups"] == ["motogp", "MWR"]
+    assert saved["grabber"]["max_grabs_per_run"] == 22
+
+
+def test_app_config_post_updates_only_what_it_is_given(client):
+    test_client, settings_file = client
+
+    response = test_client.post(
+        "/app-config", json={"plex": {"url": "http://new-plex:32400"}}
+    )
     assert response.status_code == 200
 
     saved = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
 
-    # The dangerous part: keys the client never mentioned are gone.
-    assert "uiadminpassword" not in saved, (
-        "uiadminpassword survived - finding A may have been fixed; invert this test"
-    )
-    assert "grabber" not in saved, (
-        "grabber section survived - finding A may have been fixed; invert this test"
-    )
+    assert saved["plex"]["url"] == "http://new-plex:32400"
+    # A partial plex payload must not drop its siblings.
+    assert saved["plex"]["token"] == "plex-token"
+    assert saved["plex"]["library_id"] == "16"
 
 
-def test_app_config_get_exposes_api_keys(client):
+def test_app_config_post_cannot_write_arbitrary_keys(client):
     """
-    BUG: GET /app-config returns the Plex token and both API keys verbatim, to
-    any caller. This is the concrete reason the missing auth matters.
+    The allowlist matters in both directions: a browser form is not a trusted
+    editor, so a payload key that is not a known setting is ignored rather than
+    written into settings.yml.
     """
+    test_client, settings_file = client
+
+    test_client.post("/app-config", json={
+        "prowlarr": {"url": "http://x", "evil_key": "value"},
+        "not_a_section": {"nonsense": True},
+    })
+
+    saved = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+    assert "evil_key" not in saved["prowlarr"]
+    assert "not_a_section" not in saved
+
+
+def test_app_config_post_rejects_a_non_object_body(client):
+    test_client, _ = client
+    response = test_client.post("/app-config", json=["not", "an", "object"])
+    assert response.status_code == 400
+
+
+def test_app_config_get_still_returns_the_settings_the_ui_edits(client):
+    """The secret exposure is a transport problem, not a 'stop showing it' one:
+    the UI is a configuration editor, so it must receive what it edits."""
     test_client, _ = client
     payload = test_client.get("/app-config").get_json()
 
     assert payload["plex"]["token"] == "plex-token"
     assert payload["prowlarr"]["api_key"] == "prowlarr-key"
-    assert payload["sabnzbd"]["api_key"] == "sab-key"
 
 
-# ---------------------------------------------------------------------------
-# Finding B: CORS wildcard
-# ---------------------------------------------------------------------------
+def test_app_config_get_never_echoes_the_legacy_admin_password(client):
+    """uiadminpassword was compared in plaintext on a public route and is gone.
+    It must not be shipped to the browser either."""
+    test_client, _ = client
+    payload = test_client.get("/app-config").get_json()
+    assert "uiadminpassword" not in payload
 
-def test_every_response_has_wildcard_cors(client):
+
+def test_settings_post_preserves_the_rest_of_settings_yml(client):
     """
-    BUG: Access-Control-Allow-Origin: * is set on all responses, so any page in
-    a browser that can reach this host can read the secrets above cross-origin.
+    POST /settings writes one grabber key. It used to load the whole file, mutate
+    it and write it all back - and when that write raised, the exception was
+    caught and the route still answered "saved". Both halves are pinned here.
+    """
+    test_client, settings_file = client
+
+    response = test_client.post("/settings", json={
+        "max_grabs_per_run": 30,
+        "sessions": {"MOTOGP_RACE": True},
+    })
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "saved"
+
+    saved = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+    assert saved["grabber"]["max_grabs_per_run"] == 30
+    # Everything else survives, including the sibling grabber keys.
+    assert saved["grabber"]["allowed_groups"] == ["motogp", "MWR"]
+    assert saved["plex"]["token"] == "plex-token"
+    assert saved["uiadminpassword"] == "hunter2"
+
+
+def test_settings_post_reports_failure_instead_of_claiming_success(client, monkeypatch):
+    """
+    The app's recurring failure mode is claiming success while doing nothing.
+    A read-only settings.yml must produce an error, not "saved".
+    """
+    import utils.config_loader as config_loader
+
+    test_client, _ = client
+
+    def explode(_updates):
+        return False
+
+    monkeypatch.setattr(motogp_webui, "update_settings", explode)
+    response = test_client.post("/settings", json={"max_grabs_per_run": 5})
+
+    assert response.status_code == 500
+    assert response.get_json()["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Finding B: no CORS wildcard
+# ---------------------------------------------------------------------------
+
+def test_no_wildcard_cors_header(client):
+    """
+    The UI is same-origin, so the wildcard bought nothing and meant any page in
+    any browser on the LAN could read /app-config cross-origin.
     """
     test_client, _ = client
 
     for path in ("/app-config", "/manifest.json", "/flags/gb.svg"):
         response = test_client.get(path)
-        assert response.headers.get("Access-Control-Allow-Origin") == "*", (
-            f"CORS wildcard missing on {path} - finding B may have been fixed"
+        assert response.headers.get("Access-Control-Allow-Origin") is None, (
+            f"{path} still advertises a cross-origin wildcard"
         )
 
 
+def test_security_headers_are_present(client):
+    test_client, _ = client
+    headers = test_client.get("/manifest.json").headers
+
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+    assert headers.get("X-Frame-Options") == "SAMEORIGIN"
+
+
 # ---------------------------------------------------------------------------
-# Finding: no route requires authentication (the headline issue)
+# The legacy admin password route is gone
 # ---------------------------------------------------------------------------
 
-# Routes that are static assets or PWA plumbing and can reasonably stay public
-# once auth lands. Kept explicit so the guard test below cannot be satisfied by
-# accident. Anything not listed here and not in this set must become protected.
-PUBLIC_ROUTES = {
-    "/assets/<path:filename>",
-    "/flags/<path:filename>",
-    "/manifest.json",
-    "/sw.js",
-    "/static/<path:filename>",
-}
-
-
-def _route_cases():
-    """(rule, method) for every non-static route, probed with its own method."""
-    cases = []
-    for rule in motogp_webui.app.url_map.iter_rules():
-        if rule.endpoint == "static":
-            continue
-        if rule.rule in PUBLIC_ROUTES:
-            continue
-        for method in sorted(rule.methods - {"HEAD", "OPTIONS"}):
-            cases.append((rule.rule, method))
-    return cases
-
-
-def _sample_path(rule):
-    """Concrete example URL for a rule containing a converter."""
-    return rule.replace("<path:filename>", "x").replace("<int:", "<").split("<")[0] or "/"
-
-
-@pytest.mark.parametrize("rule,method", sorted(_route_cases()))
-def test_route_is_reachable_without_credentials(client, rule, method):
+def test_verify_admin_route_no_longer_exists(client):
     """
-    BUG: every application route answers an anonymous request. Enumerated from
-    url_map rather than hard-coded, so a newly added route is covered
-    automatically - this is the test that should flip to "rejected" when auth
-    is implemented, and it will fail for any route added without a decision.
-
-    A 4xx coming from the *view* (400 for a missing JSON body, 404 for an
-    unreachable backend) still proves the request was served without
-    credentials, so those count as reachable. 401/403 would mean auth landed.
+    It compared a plaintext password with ==, was unknown to config_loader, and
+    gated only the client while /app-config stayed open. Identity is established
+    by Cloudflare Access now; leaving a second, weaker door would be worse than
+    having none.
     """
     test_client, _ = client
-    response = test_client.open(_sample_path(rule), method=method)
-
-    assert response.status_code not in (401, 403), (
-        f"{rule} [{method}] now rejects anonymous requests - auth has landed; "
-        "update this test to assert rejection instead"
-    )
-    assert response.status_code != 405, (
-        f"{rule} [{method}] returned 405, so the probe never reached the view"
-    )
-
-
-def test_healthcheck_endpoint_is_not_auth_gated():
-    """
-    Guard against a future auth implementation locking out the Docker
-    HEALTHCHECK, which would make every container report unhealthy. The probe
-    hits '/' but with no assertion, so the auth work must keep it reachable.
-    """
-    import utils.healthcheck as healthcheck
-
-    source = Path(healthcheck.__file__).read_text(encoding="utf-8")
-    assert "Cf-Access" not in source and "AUTH_" not in source, (
-        "healthcheck should stay dependency-free and unauthenticated; "
-        "give it a dedicated bypass instead"
-    )
+    assert test_client.post("/verify-admin", json={"password": "hunter2"}).status_code == 404

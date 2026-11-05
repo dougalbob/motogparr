@@ -115,6 +115,45 @@ else:
 "
 
 # ---------------------------------------------------------------------------
+# Authentication
+#
+# The WebUI verifies a Cloudflare Access JWT itself rather than trusting that
+# Cloudflare was in the request path, because anything on the LAN or on the
+# Docker network can reach port 5679 directly. Say which mode is in force here:
+# an unauthenticated WebUI serving your Plex token is not something to discover
+# later by accident.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  Authentication:"
+$PYTHON -c "
+import sys
+sys.path.insert(0, '/app')
+from utils.web_auth import AuthGate
+from utils.auth import AuthError
+
+try:
+    gate = AuthGate.from_environment()
+except AuthError as exc:
+    print(f'    ❌ {exc}')
+    sys.exit(3)
+
+if gate.mode == 'none':
+    print('    ⚠️  OFF - the WebUI has no authentication.')
+    print('       Anyone who can reach port 5679 can read your Plex token and')
+    print('       API keys and trigger downloads. Set AUTH_ISSUER, AUTH_AUDIENCE')
+    print('       and AUTH_ALLOWED_EMAILS to require Cloudflare Access.')
+elif gate.config_error:
+    print('    ❌ Misconfigured - every request will be refused:')
+    print(f'       {gate.config_error}')
+else:
+    cfg = gate.verifier.config
+    print(f'    ✅ Cloudflare Access, issuer {cfg.issuer}')
+    # Counts only: the addresses themselves are personal data and the log is
+    # readable from the UI.
+    print(f'       {len(cfg.allowed_emails)} allowlisted address(es), audience set')
+" || echo "    ⚠️  Could not determine the authentication mode"
+
+# ---------------------------------------------------------------------------
 # Resolved paths
 #
 # A wrong path here is indistinguishable from an unmounted share: the app

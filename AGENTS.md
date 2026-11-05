@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.4.1** · **Tests: 135 passing** · **Single user, self-hosted**
+**Current release: v2.4.1** · **Tests: 151 passing** · **Single user, self-hosted**
 
 ---
 
@@ -83,7 +83,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 135 passed
+.venv/bin/python -m pytest tests -q          # expect 151 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -100,31 +100,40 @@ root-level `test_*.py` scratch scripts and errors out. See `SANDBOX.md`.
 
 ## 5. Security model (the one paragraph that matters)
 
-The container listens on port 5679 with **no application-level authentication**.
-External access is deliberately via **Cloudflare Zero Trust (Access)** with an
-email policy, so Cloudflare is the outer gate — but the app currently trusts
-that gate blindly and validates nothing itself. Nothing in the codebase reads
-`Cf-Access-Jwt-Assertion`, there is no `AUTH_*` handling, and `CORS` is `*` on
-every response.
+External access is via **Cloudflare Zero Trust (Access)** with an email policy.
+Since v2.5.0 the app **independently verifies** the `Cf-Access-Jwt-Assertion`
+JWT — signature against Cloudflare's published keys, issuer, audience, expiry —
+and requires the email to be in `AUTH_ALLOWED_EMAILS`. A verified email that is
+not on the allowlist is denied. Cloudflare is the outer gate; the app is the
+inner one, because a LAN host or another container on the Docker network never
+goes through Cloudflare at all.
 
-Target model: Cloudflare remains the outer gate; the app **independently
-verifies** the `Cf-Access-Jwt-Assertion` JWT (issuer, audience, signature,
-expiry) and requires the email to be in `AUTH_ALLOWED_EMAILS`. A verified email
-that is not on the allowlist is denied. There is no self-sign-up and no user
-management — one allowlisted email, one user. Requests that bypass Cloudflare
-entirely (direct LAN hits, other containers on the same Docker network) must be
-denied, not trusted.
+**There is one user and there will only ever be one.** No accounts, no sign-up,
+no roster, no roles. The allowlist is the entire permission model.
 
-Consequences to remember:
+Mechanics you must not break:
 
-- `/app-config` returns the **Plex token, Prowlarr and SABnzbd API keys**.
-- `/run` spawns a subprocess from an arbitrary client-supplied string, and
-  `/download-selected` triggers downloads. Both are unauthenticated writes.
+- The guard is a **`before_request` hook** (`utils/web_auth.py`), not a
+  per-route decorator, so a new route cannot be born unauthenticated. Anything
+  that must stay public is named in `PUBLIC_ENDPOINTS`, and two tests enforce
+  that: one enumerates `url_map`, one forbids data routes in the allowlist.
+- `utils/auth.py` never imports Flask and never echoes the attempted email into
+  an exception or log line.
+- `AUTH_*` live in environment variables only, never `settings.yml`: an
+  allowlist in a file the UI can rewrite is not a security control.
+- `/healthz` must stay public or every container reports unhealthy.
+- A **partial** `AUTH_*` config fails *closed* (starts, refuses everything,
+  says why). It must never fall back to open.
+
+Still true, and still worth knowing:
+
+- `/app-config` returns the **Plex token and Prowlarr/SABnzbd API keys** — now
+  behind auth, so it matters that the auth cannot be bypassed.
+- `/run` spawns a subprocess from a client-supplied string and
+  `/download-selected` triggers downloads. Both are authenticated writes now,
+  but the argument handling is still string-splitting: treat as untrusted.
 - `test_cleanup_utility.py` **deletes library folders and rewrites grabber
-  state** and currently ships inside the image. It must not.
-- `uiadminpassword` is a plaintext value compared with `==` on one route, and is
-  not known to `config_loader`, so `validate()` and `get_all_settings()` cannot
-  see it. It gates a *tab*, not the API behind the tab.
+  state** and still ships in the image. Must not — item 4, still open.
 
 ---
 
@@ -135,7 +144,7 @@ v2.4.1 — update it as items land.
 
 | # | Issue | Status |
 |---|---|---|
-| 1 | No authentication on the WebUI; secrets exposed | **OPEN — highest risk** |
+| 1 | No authentication on the WebUI; secrets exposed | **DONE (v2.5.0)** — Cloudflare Access JWT verification |
 | 2 | No `.dockerignore`; 6 stale `.backup` files tracked in git | OPEN |
 | 3 | Container runs as root (no `USER` directive) | OPEN (needs decision, §7) |
 | 4 | `test_cleanup_utility.py` deletes files and ships in the image | OPEN |
@@ -143,7 +152,7 @@ v2.4.1 — update it as items land.
 | 6 | Plex library root is never checked | OPEN |
 | 7 | Release notes written by hand | OPEN |
 | 8 | No container integration test in CI | OPEN |
-| + | Cloudflare Access JWT verification (`AUTH_*`) | OPEN — part of item 1 |
+| + | Cloudflare Access JWT verification (`AUTH_*`) | **DONE (v2.5.0)** |
 
 ### Findings added during the documentation review
 
@@ -152,11 +161,11 @@ risk family as item 1.
 
 | # | Finding | Where |
 |---|---|---|
-| A | **`POST /app-config` silently destroys config.** It rebuilds `settings.yml` from a fixed dict of six sections, so any key not in that dict — `grabber.*`, `uiadminpassword`, anything added later — is dropped on every save from the UI. Saving App Config currently wipes the admin password and grabber tuning. | `motogp_webui.py` `app_config_route` |
-| B | `Access-Control-Allow-Origin: *` on every response, including `/app-config`. Any page in a browser on the LAN can read secrets cross-origin. | `motogp_webui.py` `add_cors_headers` |
-| C | `uiadminpassword` is invisible to `config_loader` (not in `ENV_SPEC`, not in `validate()`), compared in plaintext, and gates only the *client*. | `motogp_webui.py` `verify_admin` |
-| D | `/logs/stream` and `/logs/recent` expose log lines; URLs containing API keys have appeared in these logs before. | `motogp_webui.py` |
-| E | `grabber.allowed_groups`, `grabber.required_quality`, `grabber.search_delay_hours` are read from config but no UI writes them — YAML/env only, and undocumented in `settings.example.yaml`. Silent-default territory. | `utils/config_loader.py` |
+| A | **`POST /app-config` silently destroys config.** It rebuilt `settings.yml` from a fixed dict of six sections, so any key not in that dict — `grabber.*`, `uiadminpassword`, anything added later — was dropped on every save from the UI. **Fixed:** `update_settings()` deep-merges, and `_build_app_config_updates()` allowlists what the form may write. | `motogp_webui.py`, `utils/config_loader.py` |
+| B | `Access-Control-Allow-Origin: *` on every response, including `/app-config`. **Fixed:** wildcard removed (the UI is same-origin); `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` added. | `motogp_webui.py` |
+| C | `uiadminpassword` was plaintext, `==`-compared, invisible to `config_loader`, and gated only the client. **Fixed:** route and key removed; identity is server-side. | — |
+| D | `/logs/stream` and `/logs/recent` expose log lines; URLs containing API keys have appeared in these logs before. **Mitigated:** both now require a verified identity. Logs are still log lines — do not add secrets to them. | `motogp_webui.py` |
+| E | `grabber.allowed_groups`, `grabber.required_quality`, `grabber.search_delay_hours` were read from config but unreachable and undocumented. **Fixed:** documented in `settings.example.yaml`, with getters; still YAML/env only. | `utils/config_loader.py` |
 
 ---
 
@@ -175,7 +184,12 @@ lands, which is what stops the fix from being forgotten or half-done. No
 production behaviour change.
 
 ### PR 2 — Auth: Cloudflare Access verification  *(item 1 + `AUTH_*` + findings A–D)*
-This is the priority. Slices:
+**DONE (v2.5.0).** Shipped as designed: `utils/auth.py` (verification),
+`utils/web_auth.py` (guard + modes + error page), `AUTH_*` in `ENV_SPEC`, the
+`/app-config` merge fix, wildcard CORS removed, `uiadminpassword` deleted, plus
+`/healthz` moved out of the guarded set. 45 new tests.
+
+The remaining sub-items below are kept as the rationale, not as outstanding work.
 
 1. **Verification module** `utils/auth.py`:
    - Verify `Cf-Access-Jwt-Assertion` against `AUTH_ISSUER` JWKS
