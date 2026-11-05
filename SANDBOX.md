@@ -197,7 +197,56 @@ folder, print the `chown` command and exit.
 Two traps that cost time: the venv must be readable by the target uid
 (`chmod -R a+rX`), and `/tmp` paths must be writable by it.
 
-## 11. Long-running processes
+## 11. Reading a failed CI run when the logs are unreachable
+
+`gh run view --log` / `--log-failed` fail here with EOF
+(`results-receiver.actions.githubusercontent.com` is blocked). But **step
+annotations are reachable**, and they carry a message:
+
+```bash
+gh api repos/dougalbob/motogparr/commits/$SHA/check-runs \
+  --jq '.check_runs[] | "\(.id) \(.name) \(.conclusion)"'
+gh api repos/dougalbob/motogparr/check-runs/<id>/annotations
+```
+
+The annotation gives `path` + `start_line` for the failing line and whatever the
+`::error::` message contained. So **put the evidence in the `::error::` text** —
+uids, exit codes, the first lines of a log — instead of printing it to stdout. A
+bare `exit 1` is undiagnosable from here, and each CI round trip is ~3 minutes.
+
+Worked example of why this matters: three consecutive runs failed the same step
+with only "Process completed with exit code 1". The exit code itself was the clue
+that solved it — `2` meant a child process exiting 2, not a failing assertion.
+
+## 12. Traps that make a check pass or fail for the wrong reason
+
+All of these were hit for real while writing `container-smoke.yml`:
+
+- **GitHub runs every `run:` as `bash -e`.** Your `set -uo pipefail` only
+  *adds* flags; `-e` stays on. A helper that exits non-zero (even `exit $count`
+  where the count is legitimate) kills the step before its assertions print. Do
+  the work in the container, `exit 0` from there, and judge outside.
+- **`mktemp -d` is `0700`.** `sudo chown -R 99:100` on it locks the runner out of
+  its own directory: `ls: cannot open directory ...: Permission denied`, which
+  reads like a missing file. Add `chmod 0755` after the chown.
+- **`docker exec` is not the running process.** It starts a new one as the
+  image's configured user, so `docker exec id -u` reports root no matter how well
+  the privilege drop worked. `docker top` is worse: no `ps` in
+  `python:3.11-slim`, and it prints `root` (a name) for root but numbers for
+  everything else.
+- **A `/proc` scan matches the shell running it**, because that shell's own
+  cmdline contains the string being searched for. Filter on `argv[0]` being a
+  python interpreter. Same trap with `pkill -f motogp_webui.py` in a command you
+  are also typing into — it kills your own shell. Use the `motogp_web[u]i.py`
+  bracket trick.
+- **`entrypoint.sh` restarts the WebUI within ~10s.** Kill only the children and
+  they come back, so a "nothing is running" test can silently become a pass.
+- **Check that the negative case fails.** Twice a negative test passed for the
+  wrong reason: the root process had already exited ("Port 5679 is in use"), and
+  the killed WebUI had already been restarted. A test that cannot fail is worse
+  than no test.
+
+## 13. Long-running processes
 
 The WebUI is a Flask dev server on `0.0.0.0:5679`. It binds fine in the sandbox
 and is shown as a live preview, but it will fail at `PYTHON_PATH` for anything

@@ -273,11 +273,20 @@ PR that touches code. It asserts what a user would notice, and things a
 syntax check cannot:
 
 - no `*.backup`, no tests, and no media-deleting utility inside `/app`
-- `setpriv` is present and **the process is not uid 0**
+- `setpriv` is present, and **no python process in the container runs as root** —
+  not assumed from the Dockerfile, but read out of `/proc`, with the startup
+  log's `Running as: 99:100` line required as corroboration
 - `/healthz` answers and Docker reports `healthy`
-- calendars and `settings.yml` land in `/config`
+- calendars and a non-empty `settings.yml` land in `/config`
 - with `AUTH_*` set, every route returns 401 — including with a forged token —
   while `/healthz` stays public
+
+That non-root assertion took five attempts, and each failure was a test bug that
+would have hidden a real regression: `docker exec` starts a *new* process as the
+image's user and so reports root however well the drop worked; `docker top` needs
+`ps`, which `python:3.11-slim` does not have; a `/proc` scan matched the shell
+running it. It only earns its keep now that its failure paths have been shown to
+fail, which they have.
 
 ## Under the hood
 

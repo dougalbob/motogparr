@@ -153,7 +153,7 @@ v2.4.1 — update it as items land.
 | 5 | No schema validation for `settings.yml` | **DONE (v2.5.0)** — `utils/settings_schema.py`, reported at startup and in the UI |
 | 6 | Plex library root is never checked | **DONE (v2.5.0)** — `utils/plexcheck.py`, surfaced at startup and in `/diagnostics` |
 | 7 | Release notes written by hand | **DONE (v2.5.0)** — generated from merged PRs, categorised by label |
-| 8 | No container integration test in CI | **DONE (v2.5.0)** — `container-smoke.yml` builds and runs the image |
+| 8 | No container integration test in CI | **DONE (v2.5.0)** — `container-smoke.yml` builds, runs, and asserts non-root; green on PR #11 |
 | + | Cloudflare Access JWT verification (`AUTH_*`) | **DONE (v2.5.0)** |
 
 ### Findings added during the documentation review
@@ -303,13 +303,16 @@ is invisible; check for shadows before assuming a helper is what you wrote.
 - Tag format is enforced (`vX.Y.Z`) because `V.2.2.1` produced no `:2.2` tag.
 - `.github/workflows/container-smoke.yml` — builds the real image, runs it, and
   asserts: no dev files in `/app`, `setpriv` present, `/healthz` answers, Docker
-  reports healthy, **the process is not uid 0**, calendars and settings.yml land
-  in `/config`, the schema check runs, and with `AUTH_*` set every route except
-  `/healthz` returns 401 including with a forged token.
+  reports healthy, **no python process in the container runs as uid 0** (plus the
+  startup log's `Running as: 99:100` line), calendars and a non-empty
+  `settings.yml` land in `/config`, the schema check runs, and with `AUTH_*` set
+  every route except `/healthz` returns 401 including with a forged token.
 
 **This is the only place the image is exercised.** There is no Docker daemon in
-the agent sandbox, so no container change can be verified locally — write the
-test, push, and read the Actions log. Do not claim the image was run.
+the agent sandbox, so no container change can be verified locally. The runtime
+behaviour of `entrypoint.sh` *can* be verified here by running it as root with
+`sudo` (SANDBOX.md §10) — but the image itself cannot. Push, then read the
+annotations, because job logs are unreachable from here (SANDBOX.md §11).
 
 ### PR 6 — Non-root container *(item 3)* — **DONE (v2.5.0)**
 
@@ -327,31 +330,20 @@ Side effects worth knowing: `SCRIPT_DIR` is now derived from the script's own
 location, `PYTHON` is overridable via `MOTOGPARR_PYTHON`, and the WebUI uses
 `sys.executable` instead of a hard-coded `/opt/venv/bin/python3` — all three so
 the entrypoint and app can be run from a checkout, which is how the privilege
-drop was actually tested (as root, then asserting uid 999).
+drop was actually tested (as root, then asserting uid 99).
 
-- **Generated release notes**: `.github/workflows/release.yml` using
-  `gh release create --generate-notes` (categorised labels), triggered by a
-  `v*` tag. Write the notes into `RELEASE_NOTES_vX.Y.Z.md` as an artifact and
-  commit/link it, so the file the user asked for exists alongside the GitHub
-  release. Tags must stay `vX.Y.Z` semver for the existing `metadata-action`
-  patterns (the `V.2.2.1` tag did not produce `2.2` tags).
-- **Container smoke test** in CI: `docker build`, run with a temp `/config`,
-  assert exit code, `/` returns 200, `/healthz`-equivalent healthy, startup
-  banner prints the version, and that the image contains no `*.backup*`,
-  no `test_*.py`, and no `.git`. This is the only place item 3 and the
-  entrypoint can be validated — there is no Docker daemon in the agent sandbox.
+One bug this caught before release: a missing `/config/logs` was reported as NOT
+WRITABLE, which would have refused to start *every* new install. `/config` belongs
+to the app, so its own subfolders are created; the library and downloads paths
+never are, because creating them would hide a wrong volume mapping.
 
-### PR 6 — Non-root container *(item 3)* — **DONE (v2.5.0)**
-Not in the original order because it interacts with Unraid. On Unraid the
-media/appdata shares are owned by `nobody:users` (99:100), so a blind
-`USER nobody` produces permission errors on `/config` and `/media` writes. The
-safe shape is a build-arg/`PUID`+`PGID` pair defaulting to `99:100`, plus an
-optional `UMASK`, plus a startup check that says which path is unwritable rather
-than failing with `EACCES`. Decide: (a) `99:100` default with `PUID`/`PGID`
-overrides, or (b) keep root and document it. Recommend (a), shipped with the
-smoke test asserting the process is not UID 0.
-
----
+`.github/workflows/container-smoke.yml` asserts the drop in CI. Five attempts got
+it wrong before it worked; the traps are recorded in `SANDBOX.md` §12, and the
+one-line summary is: `docker exec` starts a *new* process as the image's user (so
+it reports root regardless), `docker top` has no `ps` to work with, and a `/proc`
+scan matches the shell running it. It works because the scan filters on `argv[0]`
+being a python interpreter and judges outside the container. It now passes, and
+each of its failure paths was verified to fail for the right reason.
 
 ## 7a. Incidents
 
