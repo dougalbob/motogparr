@@ -168,10 +168,12 @@ jobs:
           existing=$(gh pr list --head "$branch" --base main --json number --jq '.[].number' | head -1)
           if [ -n "$existing" ]; then
             echo "Updating existing PR #$existing"
-            gh pr edit "$existing" --title "$title" --body "$body"
+            gh pr edit "$existing" --title "$title" --body "$body" \
+              || echo "::warning title=Could not update PR $existing::gh pr edit failed; create the PR manually from branch $branch"
           else
             echo "Creating new PR"
-            gh pr create --title "$title" --body "$body" --head "$branch" --base main
+            gh pr create --title "$title" --body "$body" --head "$branch" --base main \
+              || echo "::warning title=Could not create release-notes PR::gh pr create failed; the notes file is on branch $branch, create the PR manually"
           fi
 
       - name: Publish the release
