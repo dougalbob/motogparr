@@ -17,11 +17,12 @@ specific. These tests pin the diagnosis and the entrypoint wiring.
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from utils.permissions import check_permissions
+from utils.permissions import check_permissions, parse_host_map
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENTRYPOINT = REPO_ROOT / "entrypoint.sh"
@@ -55,16 +56,131 @@ def test_unwritable_config_is_reported_with_the_reason(tmp_path):
         os.chmod(config, 0o700)
 
 
+def _unwritable_config_report(tmp_path):
+    """Build a failing report for an unwritable config dir, restoring
+    permissions immediately after (the report object is already captured)."""
+    config = tmp_path / "config"
+    config.mkdir()
+    os.chmod(config, 0o500)
+    try:
+        return check_permissions(config_dir=str(config), uid=99, gid=100)
+    finally:
+        os.chmod(config, 0o700)
+
+
 @pytest.mark.skipif(os.getuid() == 0, reason="root can write anywhere")
-def test_the_hint_names_the_chown_command(tmp_path):
+def test_hint_without_host_map_names_container_and_host_mount(tmp_path):
+    """No MOTOGPARR_HOST_MAP: the hint must not pretend a container path is
+    a host-runnable chown target. It names the container path and tells the
+    user to chown whatever they mounted there."""
     config = tmp_path / "config"
     config.mkdir()
     os.chmod(config, 0o500)
     try:
         report = check_permissions(config_dir=str(config), uid=99, gid=100)
+        assert not report.ok
         hint = report.hint()
-        assert "chown -R 99:100" in hint
         assert "PUID" in hint, "must offer the alternative of changing PUID/PGID"
+        assert "container" in hint.lower()
+        assert "host" in hint.lower()
+        # The old, wrong behaviour: `chown -R 99:100 '/config'` as if the
+        # container path existed on the host. The real container path must not
+        # appear as a quoted chown target.
+        assert f"chown -R 99:100 '{config}" not in hint, hint
+        # The fallback target is a placeholder, never a real path.
+        for line in hint.splitlines():
+            if line.strip().startswith("chown -R"):
+                assert line.strip().startswith("chown -R 99:100 <host"), line
+    finally:
+        os.chmod(config, 0o700)
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root can write anywhere")
+def test_hint_with_host_map_prints_the_host_path(tmp_path):
+    config = tmp_path / "config"
+    (config / "logs").mkdir(parents=True)
+    library = tmp_path / "library"
+    library.mkdir()
+    os.chmod(library, 0o500)
+    try:
+        report = check_permissions(
+            config_dir=str(config),
+            library_path=str(library),
+            uid=99, gid=100,
+        )
+        assert not report.ok
+        host_map = {str(library): "/mnt/user/data/media"}
+        hint = report.hint(host_map=host_map)
+
+        chown_lines = [line for line in hint.splitlines() if line.strip().startswith("chown -R")]
+        assert any("/mnt/user/data/media" in line for line in chown_lines), hint
+        # The container path must not be inside the chown command itself.
+        assert not any(str(library) in line for line in chown_lines), hint
+        assert "PUID" in hint
+    finally:
+        os.chmod(library, 0o700)
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root can write anywhere")
+def test_hint_with_uncovered_path_falls_back_to_honest_wording(tmp_path):
+    config = tmp_path / "config"
+    config.mkdir()
+    os.chmod(config, 0o500)
+    try:
+        report = check_permissions(config_dir=str(config), uid=99, gid=100)
+        assert not report.ok
+        # The map covers /media, which is not one of the failing paths.
+        hint = report.hint(host_map={"/media": "/mnt/user/data/media"})
+        # No invented host path anywhere.
+        assert "/mnt/user/data/media" not in hint, hint
+        # It names the container path and describes the host mount instead.
+        assert str(config) in hint
+        assert "mounted" in hint.lower() or "container" in hint.lower()
+        assert "PUID" in hint
+    finally:
+        os.chmod(config, 0o700)
+
+
+def test_parse_host_map():
+    assert parse_host_map("") == {}
+    assert parse_host_map(None) == {}
+    assert parse_host_map("/media=/mnt/user/data/media") == {
+        "/media": "/mnt/user/data/media"
+    }
+    assert parse_host_map("/media=/mnt/user/data/media,/downloads=/mnt/user/data/downloads") == {
+        "/media": "/mnt/user/data/media",
+        "/downloads": "/mnt/user/data/downloads",
+    }
+    # Trailing slash and spaces are tolerated.
+    assert parse_host_map("/media/ = /mnt/user/data/media ") == {
+        "/media": "/mnt/user/data/media"
+    }
+    # Malformed entries are skipped.
+    assert parse_host_map("/media, , =") == {}
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root can write anywhere")
+def test_cli_hint_matches_the_report_hint(tmp_path):
+    """python -m utils.permissions prints the same hint text as report.hint(),
+    so the CLI and the entrypoint (which calls report.hint() directly) stay
+    in sync."""
+    config = tmp_path / "config"
+    config.mkdir()
+    os.chmod(config, 0o500)
+    try:
+        report = check_permissions(config_dir=str(config))
+        assert not report.ok
+        env = dict(os.environ, CONFIG_DIR=str(config))
+        result = subprocess.run(
+            [sys.executable, "-m", "utils.permissions"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode == 1, result.stdout + result.stderr
+        for line in report.hint().splitlines():
+            assert line in result.stdout, f"CLI output missing hint line: {line!r}"
     finally:
         os.chmod(config, 0o700)
 

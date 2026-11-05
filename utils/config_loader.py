@@ -115,6 +115,12 @@ ENV_SPEC: Dict[str, Dict[str, Any]] = {
     },
 
     # --- misc ---------------------------------------------------------------
+    "MOTOGPARR_HOST_MAP": {
+        "section": "permissions",
+        "key": None,
+        "cast": str,
+        "description": "Optional map of container path to host path, e.g. /media=/mnt/user/data/media,/downloads=/mnt/user/data/downloads, so the startup permission hint can print a host-runnable chown command",
+    },
     "DISCORD_WEBHOOK_URL": {
         "section": "discord", "key": "webhook_url", "cast": str, "secret": True,
         "description": "Discord webhook URL for notifications (optional)",
