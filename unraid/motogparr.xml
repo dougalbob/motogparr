@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>MotoGParr</Name>
+  <Repository>ghcr.io/dougalbob/motogparr:latest</Repository>
+  <Registry>https://github.com/dougalbob/motogparr/pkgs/container/motogparr</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/dougalbob/motogparr/issues</Support>
+  <Project>https://github.com/dougalbob/motogparr</Project>
+  <Overview>MotoGParr watches the race calendar, searches Prowlarr, sends releases to SABnzbd, then sorts the finished download into a Plex-friendly MotoGP / Moto2 / Moto3 folder structure, applies artwork and tags, and exposes a small WebUI.&#13;&#10;&#13;&#10;Open the WebUI on port 5679 to configure Prowlarr, SABnzbd, Plex and paths. Settings are stored in /config/settings.yml, which persists across updates.&#13;&#10;&#13;&#10;Updating: this image is rebuilt by GitHub Actions on every release. Use Docker -&gt; Force Update to move to the latest release (the :latest tag only moves on a release, never on an in-progress commit).&#13;&#10;&#13;&#10;Calendars: season calendars are shipped inside the image and compared against the copy in /config at startup, so a rescheduled race (for example a postponed Qatar round) is reported or refreshed automatically. Set MOTOGPARR_CALENDAR_UPDATE=warn if you edit calendars by hand.</Overview>
+  <Category>Tools: MediaApp:Video</Category>
+  <WebUI>http://[IP]:[PORT:5679]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/dougalbob/motogparr/main/unraid/motogparr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/dougalbob/motogparr/main/assets/icon-512x512.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+
+  <Config Name="WebUI Port" Target="5679" Default="5679" Mode="tcp" Description="Port for the MotoGParr WebUI." Type="Port" Display="always" Required="true" Mask="false">5679</Config>
+
+  <Config Name="Config folder" Target="/config" Default="/mnt/user/appdata/motogparr" Mode="rw" Description="Holds settings.yml, your season calendars and the grabber state. Keep this across updates." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/motogparr</Config>
+
+  <Config Name="MotoGP library" Target="/media" Default="/mnt/user/data/media" Mode="rw" Description="Your media share, mounted so the container can read and write the MotoGP library. This is the path Plex also sees." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/media</Config>
+
+  <Config Name="Downloads" Target="/downloads" Default="/mnt/user/data/downloads" Mode="rw" Description="Your downloads share, mounted so completed downloads can be picked up and moved. Must match the completed-download folder you give SABnzbd." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/downloads</Config>
+
+  <Config Name="Library path" Target="MOTOGP_LIBRARY_PATH" Default="/media/MotoGP" Mode="" Description="Where the MotoGP library lives INSIDE the container, usually a folder under /media. Must match the path Plex uses for the same library, or Plex scans will not notice new files." Type="Variable" Display="always" Required="false" Mask="false">/media/MotoGP</Config>
+
+  <Config Name="Downloads path" Target="MOTOGP_DOWNLOADS_PATH" Default="/downloads/complete/motogp" Mode="" Description="Where completed downloads appear INSIDE the container, usually a folder under /downloads." Type="Variable" Display="always" Required="false" Mask="false">/downloads/complete/motogp</Config>
+
+  <Config Name="Timezone" Target="TZ" Default="Europe/London" Mode="" Description="Timezone used for scheduling and log timestamps. Use a TZ database name, e.g. Europe/London." Type="Variable" Display="always" Required="false" Mask="false">Europe/London</Config>
+
+  <Config Name="Calendar updates" Target="MOTOGPARR_CALENDAR_UPDATE" Default="auto" Mode="" Description="What to do when the calendar in /config differs from the one in the image. auto = refresh it and keep a .bak (only when it is provably the same season). warn = report it and never write. off = stay quiet. Use warn if you edit calendars by hand." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+
+  <Config Name="Prowlarr URL (optional)" Target="PROWLARR_URL" Default="" Mode="" Description="Optional. If left blank, set it in the WebUI instead. Values here override settings.yml. e.g. http://192.168.1.100:9696" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Prowlarr API key (optional)" Target="PROWLARR_API_KEY" Default="" Mode="" Description="Optional. If left blank, set it in the WebUI instead." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="SABnzbd URL (optional)" Target="SABNZBD_URL" Default="" Mode="" Description="Optional. If left blank, set it in the WebUI instead. e.g. http://192.168.1.100:8080" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="SABnzbd API key (optional)" Target="SABNZBD_API_KEY" Default="" Mode="" Description="Optional. If left blank, set it in the WebUI instead." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="Plex URL (optional)" Target="PLEX_URL" Default="" Mode="" Description="Optional. If left blank, set it in the WebUI instead. e.g. http://192.168.1.100:32400" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Plex token (optional)" Target="PLEX_TOKEN" Default="" Mode="" Description="Optional. If left blank, set it in the WebUI instead. See https://support.plex.tv/articles/204059436" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="Plex library section ID (optional)" Target="MOTOGP_PLEX_LIBRARY_ID" Default="" Mode="" Description="Optional. The number in the Plex URL when you open the MotoGP library: /library/sections/&lt;ID&gt;/" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Plex library name (optional)" Target="MOTOGP_PLEX_LIBRARY" Default="" Mode="" Description="Optional. Display name of the Plex library, used for logging only." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Discord webhook (optional)" Target="DISCORD_WEBHOOK_URL" Default="" Mode="" Description="Optional. Post a message to Discord when a session is grabbed or fails." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>
