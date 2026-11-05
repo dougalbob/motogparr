@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.5.0** · **Tests: 262 passing** · **Single user, self-hosted**
+**Current release: v2.5.0** · **Tests: 270 passing** · **Single user, self-hosted**
 
 ---
 
@@ -171,6 +171,7 @@ risk family as item 1.
 | J1 | **Two settings stores shadow each other for `max_grabs_per_run`.** The UI displayed the JSON copy while the grabber read `settings.yml`. **Fixed:** `settings.yml` owns `grabber.*`; `webui_settings.json` holds sessions only; `/settings` reads `max_grabs_per_run` from `config_loader` at presentation time; a legacy JSON value is migrated once into `settings.yml` (settings.yml wins on disagreement); a corrupt or missing JSON file logs a warning naming the path and falls back to defaults. | `motogp_webui.py`, `utils/config_loader.py`, `tests/test_settings_store.py` |
 | J2 | **The permission hint printed container paths as host-runnable chown commands.** **Fixed:** `utils/permissions.hint()` names the container path and tells the user to chown whatever they mounted on the host; `MOTOGPARR_HOST_MAP` prints the exact host command when known; CLI and entrypoint print identical text. | `utils/permissions.py`, `utils/config_loader.py`, `unraid/motogparr.xml`, `tests/test_permissions.py`, `README.md` |
 | J3 | **Unraid TemplateURL floated on `main`, so "Apply" could silently replace a user's edited template.** **Decision (b):** pinned `TemplateURL` to the release tag (`.../v2.5.0/unraid/motogparr.xml`) and added a rot test (`tests/test_unraid_template.py`) asserting the pinned tag equals the newest tag in the repo. Trade-off: old installs don't receive template updates until the user re-points it, so **"bump TemplateURL"** is a release-checklist item on every release. | `unraid/motogparr.xml`, `tests/test_unraid_template.py` |
+| J5 | **Release notes were generated as an artifact but never reached the repo.** **Fixed:** the release workflow now commits `RELEASE_NOTES_vX.Y.Z.md` to a `release-notes/vX.Y.Z` branch and opens (or updates) a pull request to `main`, so the notes reach the repository without pushing to a protected branch directly. Adds `pull-requests: write`; idempotent on re-runs. Verification requires a real tag push (maintainer's action) — stated in the PR rather than claimed. | `.github/workflows/release.yml`, `tests/test_workflows.py` |
 
 ---
 

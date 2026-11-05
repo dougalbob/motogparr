@@ -24,7 +24,8 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: write     # to commit the notes file to a branch
+  pull-requests: write  # to open/update the release-notes pull request
 
 concurrency:
   group: release-${{ github.ref }}
@@ -121,6 +122,58 @@ jobs:
           echo "file=$file" >> "$GITHUB_OUTPUT"
         id: writeup
 
+      # Commit the notes file to a release-notes branch and propose it to main
+      # through a pull request. main itself is never touched directly, and the
+      # branch/PR is updated in place on re-runs (no force-push).
+      - name: Commit release notes to a release-notes branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="release-notes/v${{ steps.version.outputs.version }}"
+          file="RELEASE_NOTES_v${{ steps.version.outputs.version }}.md"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+          git fetch origin main >/dev/null 2>&1 || true
+          if ! git rev-parse --verify "$branch" >/dev/null 2>&1; then
+            git checkout -b "$branch" origin/main
+          else
+            git checkout "$branch"
+            git merge --ff-only origin/main 2>/dev/null || true
+          fi
+
+          git add "$file"
+          git commit -m "Add $file" >/dev/null 2>&1 || true   # no-op when unchanged
+          git push origin "$branch"
+
+      - name: Open or update the release-notes pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="release-notes/v${{ steps.version.outputs.version }}"
+          version="${{ steps.version.outputs.version }}"
+          title="Add release notes RELEASE_NOTES_v${version}.md"
+          body="$(cat <<EOF
+          Proposes adding `RELEASE_NOTES_v${version}.md` to `main`.
+
+          The release notes were generated from merged pull requests and are
+          also attached to the release. The same file is committed to branch
+          `release-notes/v${version}` and proposed here; re-running this
+          workflow updates the branch and this PR in place (no force-push).
+
+          Verification: this workflow is exercised on a real tag push, which
+          is the maintainer's action - it cannot be exercised from a PR run.
+          EOF
+          )"
+          existing=$(gh pr list --head "$branch" --base main --json number --jq '.[].number' | head -1)
+          if [ -n "$existing" ]; then
+            echo "Updating existing PR #$existing"
+            gh pr edit "$existing" --title "$title" --body "$body"
+          else
+            echo "Creating new PR"
+            gh pr create --title "$title" --body "$body" --head "$branch" --base main
+          fi
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -143,9 +196,10 @@ jobs:
           path: RELEASE_NOTES_v*.md
           retention-days: 30
 
-      # Committing back to the tag's branch would fight with the PR that just
-      # merged, so the file is offered as an artifact and the job summary
-      # explains how to keep it. A future change could open a follow-up PR.
+      # The release body and the in-repo file are both the generated notes.
+      # No hand-written companion is concatenated: a second file would be a
+      # second source of truth and can drift. (The v2.5.0 manual merge of
+      # generated notes + hand-written guide was a one-time migration.)
       - name: Explain where the file went
         run: |
           {
@@ -154,7 +208,9 @@ jobs:
             echo "Notes generated from merged pull requests and attached to the release."
             echo
             echo "A copy named \`${{ steps.writeup.outputs.file }}\` is attached to this"
-            echo "workflow run as an artifact. To keep it in the repository, commit it"
-            echo "on \`main\` from a follow-up PR (this workflow deliberately does not"
-            echo "push to a protected branch)."
+            echo "The same file (\\`${{ steps.writeup.outputs.file }}\\`) is committed to"
+            echo "branch \\`release-notes/v${{ steps.version.outputs.version }}\\` and proposed"
+            echo "to \\`main\\` via a pull request, so the notes reach the repository"
+            echo "without pushing to a protected branch directly. It is also attached to"
+            echo "this workflow run as an artifact."
           } >> "$GITHUB_STEP_SUMMARY"
