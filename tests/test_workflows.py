@@ -139,6 +139,57 @@ def test_release_publishes_and_updates_existing_releases():
     assert "gh release edit" in text, "re-running must not fail on an existing release"
 
 
+def test_release_workflow_requests_pull_requests_write():
+    """Opening a release-notes PR needs pull-requests: write on the token."""
+    data = load(RELEASE)
+    perms = data.get("permissions") or {}
+    assert perms.get("pull-requests") == "write", perms
+    assert perms.get("contents") == "write", perms
+
+
+def test_release_commits_to_a_branch_never_main():
+    """The notes file is committed to a release-notes branch, never pushed
+    directly to main."""
+    text = RELEASE.read_text()
+    assert "release-notes/v" in text, "no release-notes branch target"
+    assert "${{ steps.version.outputs.version }}" in text, "branch name must derive from the tag"
+    # The commit/push targets the release-notes branch; main must not be the
+    # push target.
+    assert "git push origin main" not in text
+    assert "git push -u origin main" not in text
+
+
+def test_release_notes_filename_comes_from_the_tag():
+    """The committed file name matches RELEASE_NOTES_v<version>.md where the
+    version is taken from the tag, never hard-coded."""
+    text = RELEASE.read_text()
+    assert 'file="RELEASE_NOTES_v${{ steps.version.outputs.version }}.md"' in text
+    assert 'RELEASE_NOTES_v${{ steps.version.outputs.version }}.md' in text
+    # No literal version baked into the workflow.
+    assert "RELEASE_NOTES_v2.5.0" not in text
+
+
+def test_artifact_path_and_committed_path_are_the_same_file():
+    text = RELEASE.read_text()
+    committed = 'RELEASE_NOTES_v${{ steps.version.outputs.version }}.md'
+    assert committed in text
+    assert "path: RELEASE_NOTES_v*.md" in text
+    # The writeup output (the committed file) and the artifact glob refer to
+    # the same notes file.
+    assert "steps.writeup.outputs.file" in text
+
+
+def test_release_pr_is_idempotent_on_existing_branch_and_pr():
+    """Re-runs must update the existing branch/PR instead of failing."""
+    text = RELEASE.read_text()
+    # Guards on an existing branch.
+    assert "git rev-parse --verify" in text or "git checkout -b" in text
+    # Guards on an existing PR: list then edit, else create.
+    assert "gh pr list" in text
+    assert "gh pr edit" in text
+    assert "gh pr create" in text
+
+
 def test_docker_publish_tag_patterns_agree_with_the_release_tag_format():
     """
     The two workflows must agree on what a version tag looks like, or the release
