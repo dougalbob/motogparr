@@ -136,10 +136,14 @@ python3 utils/build_calendar_2026.py            # write config/motogp_2026.json
 1. **Decide the numbering first.** Prefer official championship numbering. If a
    race is postponed to later in the season, MotoGP renumbers, so the rounds in
    between shift by one.
-2. **Edit the JSON** (or the builder script) - set `round`, `folder`, `date`,
+2. **Decide how it reaches your container.** Calendars in `/config` are not
+   replaced by an image update. Either copy the new file in yourself, or rely on
+   the startup check (see §8) which refreshes it automatically when it
+   recognises the same season, keeping a `.bak`.
+3. **Edit the JSON** (or the builder script) - set `round`, `folder`, `date`,
    `weekend_start`, `weekend_end`, `sessions`, plus `status`, `status_note` and
    `round_aliases` where relevant.
-3. **Validate:**
+4. **Validate:**
 
    ```bash
    python3 utils/validate_calendar.py --season 2027
@@ -150,13 +154,13 @@ python3 utils/build_calendar_2026.py            # write config/motogp_2026.json
    against the calendar and catches a round whose number moved, which is what
    makes the library scan think a new round is already complete.
 
-4. **Clear stale state** for rounds that moved, so the grabber re-searches:
+5. **Clear stale state** for rounds that moved, so the grabber re-searches:
 
    ```bash
    python3 motogp_grabber.py clear --session 2026_R04_E21
    ```
 
-5. Run a dry run of the affected mode before the weekend:
+6. Run a dry run of the affected mode before the weekend:
 
    ```bash
    python3 motogp_grabber.py scheduled --dry-run --verbose
@@ -226,13 +230,49 @@ sessions block the right keys (`motogp_fp3`, `motogp_sprint_qualifying`, no
 
 ---
 
-## 8. Known limits
+## 8. How a calendar reaches your container
+
+Season calendars are baked into the image at `/app/config/`, but the running app
+reads them from `/config`, a persistent volume. The very first start copies them
+across; after that they are yours.
+
+That is the gap that made the 2026 Qatar fix easy to miss: the image contained
+the corrected calendar, but `/config/motogp_2026.json` still held the April one,
+and nothing said so.
+
+`entrypoint.sh` now reconciles them on every start using
+`utils/calendar_sync.py`:
+
+```
+  Calendars (auto):
+    = motogp_2025.json: up to date
+    ^ motogp_2026.json: updated from image
+        dates changed: Qatar 2026-04-12 -> 2026-11-08; 19 rounds renumbered
+        previous copy saved as motogp_2026.json.bak
+```
+
+Rounds are compared **by venue**, not by round number. When a championship is
+renumbered almost every round changes number, which would produce an unreadable
+diff; keying on venue turns the Qatar postponement into one clear line.
+
+What it will and will not do:
+
+| Situation | `auto` behaviour |
+|---|---|
+| Config equals the image | nothing |
+| Same venues, dates/numbers differ (postponement, renumbering) | refresh, keep `.bak` |
+| Venues differ (different championship under the same filename) | warn, do not touch |
+| You hand-edited a calendar | refresh and keep `.bak` - use `warn` to prevent this |
+
+Override with `MOTOGPARR_CALENDAR_UPDATE=warn` or `=off`.
+
+## 9. Known limits
 
 * **Mid-week schedule changes.** Session times are read from the JSON; if a
   session moves by an hour on the day, edit the JSON rather than relying on the
   search delay.
 * **Renumbering.** Folders on disk win: the library scan reads the round number
-  from the folder name, so stale folders must be removed (see §5 step 3).
+  from the folder name, so stale folders must be removed (see §5 step 4).
 * **`E<NN>` is permanent.** A session type's number can never be reused or
   renumbered without orphaning files.
 * **Season discovery is automatic.** `motogp_webui.py` lists any

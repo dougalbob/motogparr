@@ -12,7 +12,7 @@ It checks the things that silently break the grabber or the Plex library:
     * duplicate / missing round numbers
     * folder names that disagree with the round number
     * unparseable or out-of-order dates
-    * rounds with no session times (cannot be scheduled)
+    * rounds with no session times (2026+ calendars only)
     * session keys the code does not understand
     * asset files referenced but not present on disk
     * local/GMT times that do not agree with the round's utc_offset
@@ -36,6 +36,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from motogp_common import (  # noqa: E402
     CALENDAR_KEY_TO_SESSION,
+    has_session_times,
     CLASS_ASSET_DIRS,
     get_round_status,
     is_round_active,
@@ -59,8 +60,14 @@ def _offset_minutes(utc_offset: str) -> int:
     return sign * (oh * 60 + om)
 
 
-def check_round(entry: dict, season: int) -> list:
-    """Per-round checks that validate_calendar() does not cover."""
+def check_round(entry: dict, season: int, require_sessions: bool = True) -> list:
+    """
+    Per-round checks that validate_calendar() does not cover.
+
+    require_sessions is False for legacy calendars (pre-2026) that carry no
+    session times; those seasons are handled by backfill by date, so a missing
+    sessions block is expected rather than a problem.
+    """
     problems = []
     round_num = entry.get("round")
     venue = entry.get("venue", "?")
@@ -73,7 +80,8 @@ def check_round(entry: dict, season: int) -> list:
     # Sessions
     sessions = entry.get("sessions") or {}
     if not sessions:
-        problems.append(f"{label}: no session times, grabber cannot schedule it")
+        if require_sessions:
+            problems.append(f"{label}: no session times, grabber cannot schedule it")
     else:
         for day, day_sessions in sessions.items():
             if day not in {"friday", "saturday", "sunday"}:
@@ -187,8 +195,9 @@ def main() -> int:
         calendar = json.load(f)
 
     problems = validate_calendar(calendar)
+    requires_sessions = has_session_times(calendar)
     for entry in calendar.get("rounds", []):
-        problems.extend(check_round(entry, args.season))
+        problems.extend(check_round(entry, args.season, requires_sessions))
 
     if args.library:
         problems.extend(check_library_matches(calendar, Path(args.library)))
@@ -202,6 +211,8 @@ def main() -> int:
 
     print(f"\n📅 {args.season} calendar: {len(rounds)} rounds "
           f"({len(active)} active, {len(rounds) - len(active)} inactive)")
+    if not requires_sessions:
+        print("   Legacy format: no session times (backfill by date only)")
     print(f"   File: {path}")
 
     inactive = [r for r in rounds if not is_round_active(r)]

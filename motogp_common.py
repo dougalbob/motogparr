@@ -1432,10 +1432,28 @@ def validate_calendar(calendar: dict) -> List[str]:
             problems.append(f"{venue}: duplicate folder '{folder}'")
         seen_folders.add(folder)
 
-        if folder and not folder.startswith(f"Round {round_num:02d}"):
-            problems.append(
-                f"{venue}: folder '{folder}' does not match round {round_num}"
-            )
+        # The number in the folder must agree with the round. Padding is not
+        # enforced here: legacy calendars use "Round 5 Spain" and renaming a
+        # finished season's folders would churn the Plex library for nothing.
+        if folder:
+            match = re.match(r"Round\s*(\d+)\b", folder)
+            if not match:
+                problems.append(f"{venue}: folder '{folder}' is not 'Round <n> <venue>'")
+            elif int(match.group(1)) != round_num:
+                problems.append(
+                    f"{venue}: folder '{folder}' says round {int(match.group(1))} "
+                    f"but the entry is round {round_num}"
+                )
+            else:
+                # Number agrees, so the venue in the folder should too. This is
+                # what catches "Round 20 Malaysia" left behind after a round
+                # moved: the folder belongs to a different race.
+                rest = folder[match.end():].strip()
+                if rest and rest.lower() != venue.lower():
+                    problems.append(
+                        f"{venue}: folder '{folder}' names '{rest}' instead of "
+                        f"the venue '{venue}'"
+                    )
 
         date = entry.get("date")
         if not date:
@@ -1451,7 +1469,7 @@ def validate_calendar(calendar: dict) -> List[str]:
             except (ValueError, TypeError):
                 problems.append(f"{venue}: invalid 'date' {date!r}")
 
-        if not entry.get("sessions"):
+        if not entry.get("sessions") and has_session_times(calendar):
             problems.append(f"{venue}: no 'sessions' block (grabber cannot schedule)")
 
         if get_round_status(entry) in INACTIVE_ROUND_STATUSES:
