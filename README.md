@@ -16,12 +16,22 @@ Images are built and published by GitHub Actions (`.github/workflows/docker-publ
 
 | What you do | What you get |
 |---|---|
-| Publish a GitHub release tagged `v2.3.0` | `:2.3.0`, `:2.3`, `:latest` |
+| Publish a GitHub release tagged `v2.3.0` | `:2.3.0`, `:2.3`, `:latest` + generated release notes |
 | Merge a PR to `main` | `:edge` (unreleased, for testing) |
 | Run the workflow manually | tags for the ref you pick |
 
 `:latest` only moves when a version tag is published, so a half-finished commit
 on `main` never reaches a container that is force-updated.
+
+Release notes are generated from merged pull requests by
+`.github/workflows/release.yml`, categorised by label via `.github/release.yml`.
+They used to be written by hand, which took an hour a release and drifted from
+what the commits did. **Label your pull requests** — an unlabelled one still
+appears, under "Other changes", but not in the category it belongs to.
+
+Tags must be `vX.Y.Z`. `V.2.2.1` did not match the container workflow's semver
+patterns and shipped images without a `:2.2` tag; the release workflow now
+refuses any other format.
 
 ### One-time GHCR setup (only if a build fails with `permission_denied`)
 
@@ -125,6 +135,7 @@ stays authoritative and there is one place to change a path.
 | `PLEX_URL`, `PLEX_TOKEN` | `plex.*` |
 | `DISCORD_WEBHOOK_URL` | `discord.webhook_url` |
 | `TZ` | `timezone` |
+| `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_ALLOWED_EMAILS`, `AUTH_CERTS_URL`, `AUTH_MODE` | not in `settings.yml` — see [Access and authentication](#access-and-authentication) |
 
 A few variables are read by `entrypoint.sh` rather than by the Python code —
 `MOTOGPARR_CALENDAR_UPDATE` and `MOTOGPARR_SKIP_PATH_CHECK`. They are listed
@@ -202,6 +213,186 @@ whose UI has gone reports **unhealthy** instead of "Up". Check it with:
 docker inspect MotoGParr --format '{{.State.Health.Status}}'
 ```
 
+## Permissions (PUID / PGID)
+
+The container starts as root only long enough to drop privileges, then runs
+everything as **`PUID`:`PGID`** — default **99:100**, which is what Unraid calls
+`nobody:users`.
+
+| Variable | Default | |
+|---|---|---|
+| `PUID` | `99` | User id the app runs as |
+| `PGID` | `100` | Group id the app runs as |
+| `UMASK` | `0022` | Permission mask for new files (`0002` if a group must share writes) |
+
+These are runtime variables rather than a `USER` line in the image, because the
+right id is per-installation and an image with a fixed uid cannot be adjusted
+without a rebuild.
+
+At startup the container checks that it can actually write to `/config`, the
+library path and the downloads path, and refuses to start if it cannot — naming
+the folder and the command that fixes it:
+
+```
+  Permissions (uid=99 gid=100):
+    ✅ config (root) /config
+    ✅ library      /media/Motorsport/MotoGP
+    ❌ config (logs) /config/logs [NOT WRITABLE]
+
+     This is almost always ownership. The container runs as 99:100, so those
+     folders must be owned (or writable) by it:
+       chown -R 99:100 '/config/logs'
+     or set PUID/PGID on the container to the owner of those folders.
+```
+
+The point of failing here is that the alternative is invisible: an unwritable
+folder shows up as settings that revert, downloads that never sort, or a
+`PermissionError` in a subprocess hours later. `MOTOGPARR_SKIP_PATH_CHECK=1`
+starts anyway.
+
+## Access and authentication
+
+The WebUI has no login of its own. Identity comes from **Cloudflare Zero Trust
+(Access)**, and the container verifies it rather than trusting it.
+
+```
+browser ──▶ Cloudflare Access (email policy)
+              │  adds Cf-Access-Jwt-Assertion
+              ▼
+        MotoGParr WebUI ──▶ verifies signature, issuer, audience, expiry
+                             └─▶ requires the email in AUTH_ALLOWED_EMAILS
+```
+
+**Why the app checks the token itself.** Anything on your LAN, or another
+container on the same Docker network, can reach port 5679 without going anywhere
+near Cloudflare. A tampered header is trivial to send. So the assertion is
+verified against Cloudflare's published keys: a request that did not genuinely
+pass through Access is refused.
+
+There is deliberately **no user management**. One household, one account: the
+allowlist *is* the permission model, and a verified address that is not on it is
+denied. No sign-up, no roster, no roles.
+
+### Configuration
+
+Three variables, all required together:
+
+| Variable | Value |
+|---|---|
+| `AUTH_ISSUER` | `https://<your-team>.cloudflareaccess.com` (Zero Trust → Settings → Custom Pages, or the Access application) |
+| `AUTH_AUDIENCE` | The Access application's **AUD tag** (Access → Applications → your app → Overview) |
+| `AUTH_ALLOWED_EMAILS` | `you@example.com` (comma-separated) |
+
+Optional:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AUTH_CERTS_URL` | `$AUTH_ISSUER/cdn-cgi/access/certs` | Override where the signing keys are fetched from |
+| `AUTH_MODE` | `cloudflare` when `AUTH_ISSUER` is set | `cloudflare` forces a token even if the rest is misconfigured (fails closed); `none` disables auth, logs a warning and shows a banner in the UI |
+
+Set **all three or none**. Two out of three is a configuration error, and the
+container fails *closed*: it starts, refuses every request, and prints why. It
+never falls back to open, because a forgotten variable would then silently expose
+your Plex token.
+
+Nothing is stored in `settings.yml`. An allowlist in a file the UI can rewrite is
+not a security control.
+
+### Running without Cloudflare
+
+Leave `AUTH_ISSUER` blank and the WebUI is unauthenticated, as it was before
+v2.5.0. That is the right setting for a container reachable only from your LAN,
+and the startup log says so plainly:
+
+```
+  Authentication:
+    ⚠️  OFF - the WebUI has no authentication.
+       Anyone who can reach port 5679 can read your Plex token and
+       API keys and trigger downloads.
+```
+
+The UI shows the same warning as a banner. Do not port-forward a container in
+this mode.
+
+### What stays public
+
+`/healthz` (the Docker `HEALTHCHECK`), `/static/*`, `/assets/*`, `/flags/*`,
+`/manifest.json` and `/sw.js`. A probe that needed credentials would make every
+container report unhealthy, which is the failure the probe exists to catch.
+Everything else — including every API route that can reveal a secret or start a
+download — requires a verified identity, and a test enumerates the route table so
+a new route cannot be born unauthenticated by accident.
+
+### If you see "Not authorised"
+
+The page names the reason. The usual ones:
+
+| Message | Meaning |
+|---|---|
+| `No Cf-Access-Jwt-Assertion header` | The request did not come through Cloudflare — a LAN address, a bookmark to the IP, or another container |
+| `Token audience does not match` | `AUTH_AUDIENCE` is from a different Access application |
+| `Token issuer does not match` | `AUTH_ISSUER` is for a different Cloudflare team |
+| `Token has expired` | Reload; Access usually re-issues |
+| `not assigned to this installation` | Cloudflare let it through but the address is not in `AUTH_ALLOWED_EMAILS` |
+
+## Checking your configuration
+
+Two classes of problem are invisible in normal use, so both are reported
+explicitly rather than left to be discovered.
+
+### Unknown or misspelled settings
+
+A key the app does not recognise is **silently ignored** — the loader falls back
+to its default and behaves as if the line were never written. That is how a
+typo can cost an evening, so it is now reported at startup and in the WebUI:
+
+```
+  Settings file:
+    ⚠️  prowlarr.api_kye: unknown key; nothing reads it (did you mean prowlarr.api_key?)
+    ⚠️  librari: unknown section; nothing reads it (did you mean library?)
+    These keys are ignored by the app. Correct or remove them.
+```
+
+Check any time:
+
+```bash
+docker exec -it motogparr /opt/venv/bin/python3 -m utils.settings_schema /config/settings.yml
+```
+
+It also catches values that parse but cannot work — `required_quality: 1440p`,
+`max_grabs_per_run: "22"` — and it never refuses to start over one. A warning is
+not worth an outage.
+
+### "Is Plex actually scanning this folder?"
+
+The highest-value check in the app. If the Plex library does not include the
+folder this app writes to, everything succeeds — download, sort, file on disk —
+and the session **never appears in Plex**. Nothing in MotoGParr is wrong, so
+nothing in its logs looks wrong.
+
+`/diagnostics` (Settings → Admin → 🩺 Diagnostics) compares the configured
+library path with what the Plex library really lists, translating through
+`plex.path_mapping` first:
+
+```
+✅ Plex is scanning this folder (via /data/media/Motorsport/MotoGP).
+
+⚠️ Plex is NOT scanning this folder. Sessions will download, sort correctly,
+   and then never appear in Plex.
+   App path:        /media/Motorsport/MotoGP
+   As Plex sees it: /data/media/Motorsport/MotoGP
+   Plex folders:    /data/media/Unrelated
+```
+
+It diagnoses the common causes specifically — a mapping that is inverted, a
+`library_name` that matches no section — and says "unknown" rather than guessing
+when Plex is unreachable. It never triggers a scan.
+
+The same panel reports **where each credential came from** (`env` or
+`settings.yml`). That matters because an environment variable in the container
+template silently beats a key typed into the WebUI: the page says "saved", and
+the app carries on using the old value.
+
 ## Calendars
 
 Season calendars live in `config/motogp_<year>.json` and are baked into the
@@ -254,3 +445,28 @@ python -m pytest tests -q
 CI runs the same tests plus `utils/validate_calendar.py` on every season on each
 push and pull request; a pull request that edits a calendar gets a dedicated
 check that also rejects duplicate JSON keys.
+
+Run `python -m pytest tests` — not bare `pytest`, which also walks the repository
+root. Root-level scratch scripts are not permitted (see `tests/test_build_hygiene.py`).
+
+### Maintenance scripts
+
+`scripts/cleanup_utility.py` removes random grabbed episodes from the library so
+the download path can be exercised again. **It deletes media.** It is not a test,
+it is not in the container image, and it refuses to run without `--confirm`:
+
+```bash
+python scripts/cleanup_utility.py --count 5 --dry-run     # preview
+python scripts/cleanup_utility.py --count 5 --confirm     # delete
+```
+
+### For contributors and AI agents
+
+| Document | What it is |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | **Start here.** Current status, the security/design priority list and the implementation plan. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the app fits together: processes, data pipeline, config precedence, the WebUI route map and the auth model. |
+| [`SANDBOX.md`](SANDBOX.md) | Known agent-sandbox problems and their fixes (no Docker daemon, bare `pytest` breaks collection, …). |
+
+`aicontextual_notes/` is historical (up to v2.0) and kept for the design
+rationale only; surviving facts are folded into `docs/ARCHITECTURE.md`.

@@ -1,0 +1,384 @@
+name: Container smoke test
+
+# Builds the real image and runs it. Until now the container was only ever
+# validated by reading entrypoint.sh and by tests that extract shell blocks from
+# it - which cannot catch a missing apt package, a COPY that misses a file, a
+# port that is not exposed, or a privilege drop that does not work.
+#
+# This is the only place the image itself is exercised, so it is deliberately
+# end-to-end and dumb: start it, wait for the healthcheck, assert what a user
+# would notice.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'aicontextual_notes/**'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: motogparr-smoke:test
+  CONTAINER: motogparr-smoke
+
+jobs:
+  smoke:
+    name: Build and run the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            MOTOGPARR_VERSION=smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---------------------------------------------------------------------
+      # What the image contains
+      # ---------------------------------------------------------------------
+
+      - name: Image must not contain development files
+        run: |
+          set -euo pipefail
+          listing=$(docker run --rm --entrypoint sh "$IMAGE" -c 'find /app -maxdepth 2')
+
+          fail=0
+          for pattern in 'backup' 'test_' 'aicontextual' 'pytest'; do
+            if echo "$listing" | grep -qi "$pattern"; then
+              echo "::error title=Image is carrying $pattern::$(echo "$listing" | grep -i "$pattern")"
+              fail=1
+            fi
+          done
+
+          # The utility that deletes media must not be inside the image at all.
+          if docker run --rm --entrypoint sh "$IMAGE" -c \
+              'test -e /app/scripts/cleanup_utility.py'; then
+            echo "::error title=Destructive utility in image::/app/scripts/cleanup_utility.py exists"
+            fail=1
+          fi
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "Image contents look clean."
+
+      - name: Required runtime files are present
+        run: |
+          set -euo pipefail
+          for path in \
+              /app/entrypoint.sh \
+              /app/motogp_webui.py \
+              /app/motogp_scheduler.py \
+              /app/utils/healthcheck.py \
+              /app/utils/auth.py \
+              /app/utils/permissions.py \
+              /app/utils/settings_schema.py \
+              /app/utils/plexcheck.py \
+              /app/templates/base.html \
+              /app/templates/auth_error.html \
+              /app/static/css/style.css \
+              /app/config/motogp_2026.json ; do
+            docker run --rm --entrypoint sh "$IMAGE" -c "test -e $path" \
+              || { echo "::error title=Missing from image::$path"; exit 1; }
+          done
+          echo "All required files present."
+
+      - name: setpriv must exist, or the privilege drop cannot happen
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE" -c 'command -v setpriv' \
+            || { echo "::error title=setpriv missing::the container would run as root"; exit 1; }
+
+      # ---------------------------------------------------------------------
+      # Run it
+      # ---------------------------------------------------------------------
+
+      - name: Start the container
+        run: |
+          set -euo pipefail
+          cfg=$(mktemp -d)
+          media=$(mktemp -d)
+          downloads=$(mktemp -d)
+          # Unraid-style ownership: the app runs as 99:100.
+          #
+          # mktemp -d creates these 0700 owned by the runner, so chowning them to
+          # the app user locks the runner out of its own directory - `ls` then
+          # fails with "Permission denied", which looks like a missing calendar
+          # but is a permissions problem in the test harness. 0755 leaves the
+          # runner able to read while the app still owns and writes them.
+          sudo chown -R 99:100 "$cfg" "$media" "$downloads"
+          sudo chmod 0755 "$cfg" "$media" "$downloads"
+
+          # The paths the app is told about must be the CONTAINER paths
+          # (/media, /downloads), not the host paths that were mounted. Passing
+          # the host path makes the startup check correctly refuse to start,
+          # because inside the container that directory does not exist - which
+          # is exactly what the check is for, and exactly how this test first
+          # failed.
+          docker run -d --name "$CONTAINER" \
+            -p 5679:5679 \
+            -e PUID=99 -e PGID=100 \
+            -e AUTH_MODE=none \
+            -e MOTOGP_LIBRARY_PATH=/media \
+            -e MOTOGP_DOWNLOADS_PATH=/downloads \
+            -v "$cfg:/config" \
+            -v "$media:/media" \
+            -v "$downloads:/downloads" \
+            "$IMAGE"
+
+          echo "CONFIG_HOST=$cfg" >> "$GITHUB_ENV"
+
+      - name: Wait for the WebUI to answer
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:5679/healthz >/dev/null 2>&1; then
+              echo "Healthy after ${attempt}s"
+              curl -fsS http://127.0.0.1:5679/healthz
+              exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" != "true" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          echo "::error title=WebUI never answered::the container did not serve /healthz on 5679"
+          docker inspect -f 'running={{.State.Running}} exit={{.State.ExitCode}}' "$CONTAINER" || true
+          echo "--- last 60 log lines ---"
+          docker logs --tail 60 "$CONTAINER" 2>&1 || true
+          exit 1
+
+      - name: Docker's own healthcheck must agree
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER")
+            echo "health: $status"
+            case "$status" in
+              healthy) exit 0 ;;
+              unhealthy) echo "::error title=Container reported unhealthy::"; docker logs "$CONTAINER"; exit 1 ;;
+            esac
+            sleep 2
+          done
+          echo "::error title=Health status never settled::"
+          docker inspect -f '{{json .State.Health}}' "$CONTAINER" || true
+          exit 1
+
+      # The whole point of the privilege change, asserted rather than assumed.
+      #
+      # Four wrong ways to check this, all tried and all rejected:
+      #   * `docker top` - python:3.11-slim has no ps, so it fails outright; and
+      #     GitHub runs each step as `bash -e`, so the step died before it could
+      #     explain itself.
+      #   * `docker exec id -u` - exec starts a NEW process as the image's
+      #     configured user, which is root because there is deliberately no USER
+      #     line. It reports root however well the drop worked.
+      #   * grepping uids from `docker top -o uid` - that prints numbers for
+      #     non-root processes and the NAME for root, so '0' never matched.
+      #   * scanning /proc for "motogp_webui" - the scanning shell's own cmdline
+      #     contains that string, so it matched itself, and as root.
+      #
+      # So: filter on argv[0] being a python interpreter, and let the container
+      # side print evidence only. All judgement happens out here, because a
+      # non-zero exit from `docker exec` would kill the step under `bash -e`
+      # before anything was printed - that is what exit code 2 was.
+      # The whole point of the privilege change, asserted rather than assumed.
+      #
+      # Four wrong ways to check this, all tried and all rejected:
+      #   * `docker top` - python:3.11-slim has no ps, so it fails outright.
+      #   * `docker exec id -u` - exec starts a NEW process as the image's
+      #     configured user, which is root because there is deliberately no USER
+      #     line. It reports root however well the drop worked.
+      #   * grepping uids from `docker top -o uid` - that prints numbers for
+      #     non-root processes and the NAME for root, so '0' never matched.
+      #   * scanning /proc for "motogp_webui" - the scanning shell's own cmdline
+      #     contains that string, so it matched itself, and as root.
+      #
+      # A fifth trap: GitHub runs each step as `bash -e`, so anything exiting
+      # non-zero in here kills the step before it can say why. The container side
+      # therefore only ever prints, and always exits 0.
+      #
+      # Job logs are not always retrievable, but step annotations are, so every
+      # failure below puts its evidence in the ::error:: message itself.
+      - name: The application must not be running as root
+        run: |
+          set -uo pipefail
+
+          if ! docker exec "$CONTAINER" sh -c '
+            for p in /proc/[0-9]*; do
+              cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null) || continue
+              case "${cmd%% *}" in
+                *python*) ;;
+                *) continue ;;
+              esac
+              uid=$(awk "/^Uid:/{print \$2}" "$p/status" 2>/dev/null) || uid="?"
+              echo "PROC ${uid:-?} $cmd"
+            done
+            exit 0
+          ' > /tmp/procs.txt 2>&1; then
+            echo "::error title=/proc could not be scanned::docker exec failed"
+            docker logs "$CONTAINER" 2>&1 | head -20 || true
+            exit 1
+          fi
+
+          echo "--- python processes in the container ---"
+          cat /tmp/procs.txt
+
+          # Every python process must be unprivileged. This is the assertion that
+          # matters: one root-owned interpreter is the failure.
+          root=$(grep -E '^PROC 0 ' /tmp/procs.txt || true)
+          if [ -n "$root" ]; then
+            echo "::error title=Running as root::$root"
+            docker logs "$CONTAINER" 2>&1 | tail -30 || true
+            exit 1
+          fi
+
+          # And at least one app process must exist, or "no root processes" would
+          # be vacuously true of a container that started nothing at all.
+          apps=$(grep -cE 'motogp_(webui|scheduler)\.py' /tmp/procs.txt || true)
+          apps=${apps:-0}
+          echo "app processes: $apps"
+          if [ "$apps" -lt 1 ]; then
+            echo "::error title=Nothing is running::the app started no python processes. procs.txt: $(tr '\n' '|' < /tmp/procs.txt)"
+            docker logs "$CONTAINER" 2>&1 | tail -40 || true
+            exit 1
+          fi
+
+          # The supervisor itself, which is the process the drop acts on first.
+          sup=$(docker exec "$CONTAINER" sh -c 'awk "/^Uid:/{print \$2}" /proc/1/status' 2>&1 || true)
+          echo "pid 1 uid: ${sup:-unknown}"
+
+          logs=$(docker logs "$CONTAINER" 2>&1 || true)
+          if ! echo "$logs" | grep -qE 'Running as: +[0-9]+:[0-9]+'; then
+            echo "::error title=No privilege-drop line in the startup log::first lines: $(echo "$logs" | head -15 | tr '\n' '|')"
+            exit 1
+          fi
+          echo "Startup log reports: $(echo "$logs" | grep -oE 'Running as: +[0-9]+:[0-9]+' | head -1)"
+
+          echo "Unprivileged, and the startup log says so."
+
+      - name: Startup output must report version, paths, auth and permissions
+        run: |
+          set -euo pipefail
+          logs=$(docker logs "$CONTAINER" 2>&1)
+          echo "$logs"
+          for expected in "Version: smoke" "Running as:" "Permissions" "Authentication"; do
+            echo "$logs" | grep -q "$expected" \
+              || { echo "::error title=Missing startup output::'$expected'"; exit 1; }
+          done
+
+      - name: Calendars were copied into /config
+        run: |
+          set -uo pipefail
+          # Evidence first, and never fatal: a listing that fails must not be
+          # reported as a missing file.
+          echo "--- host view of /config ---"
+          ls -la "$CONFIG_HOST" || echo "(runner cannot list $CONFIG_HOST)"
+
+          # Authoritative check inside the container, where these paths are what
+          # the application really wrote.
+          docker exec "$CONTAINER" sh -c '
+            ls -la /config
+            for f in /config/motogp_2026.json /config/settings.yml; do
+              if [ -f "$f" ]; then
+                echo "PRESENT $f"
+              else
+                echo "MISSING $f"
+              fi
+            done
+          ' | tee /tmp/config.txt
+          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+            echo "::error title=Could not inspect /config in the container::"
+            exit 1
+          fi
+
+          missing=$(grep '^MISSING ' /tmp/config.txt || true)
+          if [ -n "$missing" ]; then
+            echo "::error title=Expected files are missing from /config::$missing"
+            docker logs "$CONTAINER" 2>&1 | tail -40 || true
+            exit 1
+          fi
+
+          # settings.yml must be usable, not merely present.
+          docker exec "$CONTAINER" sh -c 'test -s /config/settings.yml' \
+            || { echo "::error title=settings.yml is empty::"; exit 1; }
+          echo "/config holds the calendar and a non-empty settings.yml."
+
+      - name: Schema check runs against the generated settings.yml
+        run: |
+          docker exec "$CONTAINER" /opt/venv/bin/python3 -m utils.settings_schema /config/settings.yml
+
+      # Auth is the feature that would be silently absent if a dependency were
+      # missing from the image, so prove it is wired.
+      - name: With auth enabled, everything but /healthz must be refused
+        run: |
+          set -euo pipefail
+          docker rm -f "$CONTAINER" >/dev/null
+          cfg=$(mktemp -d); media=$(mktemp -d); downloads=$(mktemp -d)
+          sudo chown -R 99:100 "$cfg" "$media" "$downloads"
+
+          # The previous container may still be releasing 5679; retry rather
+          # than failing the job for a reason unrelated to the image.
+          for attempt in $(seq 1 10); do
+            if docker run -d --name "$CONTAINER" \
+                -p 5679:5679 \
+                -e PUID=99 -e PGID=100 \
+                -e AUTH_ISSUER=https://example.cloudflareaccess.com \
+                -e AUTH_AUDIENCE=AUDTAG \
+                -e AUTH_ALLOWED_EMAILS=me@example.com \
+                -e MOTOGP_LIBRARY_PATH=/media \
+                -e MOTOGP_DOWNLOADS_PATH=/downloads \
+                -v "$cfg:/config" -v "$media:/media" -v "$downloads:/downloads" \
+                "$IMAGE"; then
+              break
+            fi
+            echo "port not available yet (attempt ${attempt}); retrying"
+            sleep 2
+          done
+          docker inspect "$CONTAINER" >/dev/null 2>&1 \
+            || { echo "::error title=Second container did not start::"; exit 1; }
+
+          for attempt in $(seq 1 45); do
+            curl -fsS http://127.0.0.1:5679/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5679/)
+          echo "GET / -> $code"
+          [ "$code" = "401" ] || { echo "::error title=Unauthenticated access allowed::/ returned $code, expected 401"; docker logs "$CONTAINER"; exit 1; }
+
+          # A forged header must not be enough.
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H 'Cf-Access-Jwt-Assertion: not-a-real-token' http://127.0.0.1:5679/app-config)
+          echo "GET /app-config with a rubbish token -> $code"
+          [ "$code" = "401" ] || { echo "::error title=Forged token accepted::$code"; exit 1; }
+
+          curl -fsS http://127.0.0.1:5679/healthz >/dev/null \
+            || { echo "::error title=healthz must stay public::"; exit 1; }
+          echo "Auth behaves as designed."
+
+      - name: Container logs
+        if: always()
+        run: docker logs "$CONTAINER" 2>&1 || true
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f "$CONTAINER" || true

@@ -1,0 +1,78 @@
+# .dockerignore
+# =============================================================================
+# The Dockerfile copies an explicit file list, which is not the same thing as a
+# small build context. Without this file the daemon was sent everything in the
+# checkout: measured at 1.23 GB (assets 753 MB, .git 372 MB, the rest tests,
+# docs and local config). With it, 754 MB, almost all of it artwork the image
+# genuinely needs. On every build, in CI, from scratch whenever the cache missed.
+#
+# Keep this in sync with Dockerfile COPY lines: ignoring something the image
+# needs produces a confusing "not found" at build time rather than here.
+
+# --- version control ---------------------------------------------------------
+.git
+.gitignore
+.gitattributes
+.github
+
+# --- editor tracks and dead ends --------------------------------------------
+*.backup
+*.backup*
+*.bak
+*.orig
+*.rej
+*~
+.DS_Store
+Thumbs.db
+
+# --- historical notes --------------------------------------------------------
+# Kept in git for their design rationale; of no use inside the image.
+aicontextual_notes
+
+# --- documentation -----------------------------------------------------------
+*.md
+docs
+
+# --- tests and developer scratch scripts ------------------------------------
+# Nothing here belongs in a runtime image. scripts/ in particular contains a
+# utility that DELETES media; it must never be reachable from inside the
+# container.
+tests
+scripts
+test_*.py
+pytest.ini
+setup.cfg
+tox.ini
+conftest.py
+htmlcov
+.coverage
+.pytest_cache
+
+# --- python cruft ------------------------------------------------------------
+__pycache__
+*.py[cod]
+*.pyo
+*.egg-info
+.venv
+.venv*
+venv
+.python-version
+
+# --- local configuration, never baked in ------------------------------------
+# Real credentials live in /config at runtime or in the container template.
+.env
+.env.*
+config/settings.yml
+config/webui_settings.json
+config/grabber_state.json
+config/watcher_state.json
+config/activity_events.json
+config/discord_rate_limit.json
+config/logs
+config/*.bak
+*.log
+
+# --- CI / build metadata -----------------------------------------------------
+docker-compose*.yml
+Dockerfile
+.dockerignore

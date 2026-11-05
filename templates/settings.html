@@ -46,6 +46,7 @@
     <!-- Admin Sub-tab -->
     <div id="admin-subtab" class="sub-tab-content">
         <div class="validation-status" id="config-validation"></div>
+        <pre id="diagnostics-output" class="diagnostics-output" style="display:none;"></pre>
         
         <!-- Max Grabs Setting -->
         <div class="config-section">
@@ -254,6 +255,7 @@
         <div class="button-row" style="margin-top: 20px;">
             <button onclick="saveAppConfig()" class="success">💾 Save Configuration</button>
             <button onclick="testConnections()" class="secondary">🔌 Test Connections</button>
+            <button onclick="runDiagnostics()" class="secondary">🩺 Diagnostics</button>
             <button onclick="loadAppConfig()" class="secondary">🔄 Reload</button>
         </div>
     </div>
@@ -278,16 +280,12 @@
     }
     
     function showAdminTab() {
-        if (isAdminAuthed()) {
-            showSubTab('admin');
-        } else {
-            showAdminModal(function() {
-                showSubTab('admin');
-                // Update button to show active
-                document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.sub-tab')[1].classList.add('active');
-            });
-        }
+        // Configuration is protected server-side by the Cloudflare Access guard.
+        // There is no client-side password check any more: the old one gated a
+        // tab whose backing API was wide open, which was theatre.
+        showSubTab('admin');
+        document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.sub-tab')[1].classList.add('active');
     }
     
     function toggleSessionGroup(header) {
@@ -363,15 +361,71 @@
             el.style.display = 'none';
             return;
         }
-        
+
         el.style.display = 'block';
+        let html = '';
         if (validation.valid) {
+            html = '✅ All required settings configured';
             el.className = 'validation-status valid';
-            el.innerHTML = '✅ All required settings configured';
         } else {
+            html = '⚠️ Missing: ' + (validation.missing || []).join(', ');
             el.className = 'validation-status invalid';
-            el.innerHTML = '⚠️ Missing: ' + validation.missing.join(', ');
         }
+
+        // Unknown or malformed settings.yml keys. These are ignored by the app,
+        // which is exactly why they need saying out loud.
+        const schema = validation.schema;
+        if (schema && schema.ok === false) {
+            html += '<ul class="schema-issues">';
+            schema.messages.forEach(function (message) {
+                html += '<li>⚠️ ' + escapeHtml(message) + '</li>';
+            });
+            html += '</ul>';
+            html += '<div class="config-help">These keys are ignored by the app: '
+                  + 'check for a typo or a setting that no longer exists.</div>';
+        }
+
+        el.innerHTML = html;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function runDiagnostics() {
+        const el = document.getElementById('diagnostics-output');
+        el.style.display = 'block';
+        el.textContent = 'Checking…';
+
+        fetch('/diagnostics')
+            .then(r => r.json())
+            .then(data => {
+                const plex = data.plex_library || {};
+                const creds = data.credentials || {};
+                let lines = [];
+
+                if (plex.ok) {
+                    lines.push('✅ ' + plex.summary);
+                } else {
+                    lines.push('⚠️ Plex library: ' + plex.summary);
+                    (plex.detail || []).forEach(l => lines.push('    ' + l));
+                }
+
+                lines.push('');
+                lines.push('Credentials are read from:');
+                Object.keys(creds).forEach(function (name) {
+                    const source = creds[name];
+                    const note = source === 'env'
+                        ? '  (container environment wins over settings.yml)'
+                        : '';
+                    lines.push('    ' + name + ': ' + source + note);
+                });
+
+                el.textContent = lines.join('\n');
+            })
+            .catch(err => { el.textContent = 'Diagnostics failed: ' + err; });
     }
     
     function saveAppConfig() {

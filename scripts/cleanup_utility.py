@@ -1,19 +1,37 @@
 #!/usr/bin/env python3
 """
-Test Cleanup Utility for MotoGParr
-Randomly removes grabbed episodes from Plex library and grabber_state.json
-to enable continued testing of the download functionality.
+MotoGParr cleanup utility - DELETES media. Not a test.
+================================================================
+
+Randomly removes grabbed episodes from the Plex library and from
+grabber_state.json so the download path can be exercised again.
+
+This lives in scripts/, outside the test suite and outside the container image,
+for three reasons:
+
+  1. It destroys data. It was named test_cleanup_utility.py at the repository
+     root, which meant `pytest` could collect it, and a test run could delete
+     library folders. That is a foot-gun, not a test.
+  2. It was shipped in the image, so anyone who reached the WebUI's host could
+     have run it inside the container as root.
+  3. It does not assert anything. Its imports were broken for months and no CI
+     noticed, because nothing about it was a test.
+
+It deletes only leaf session folders whose names match the expected
+`<prefix> ...` pattern inside a `Round NN ...` folder, and it refuses to run
+without --confirm.
 
 Usage:
-    python test_cleanup_utility.py --count 5 --dry-run
-    python test_cleanup_utility.py --count 10
-    python test_cleanup_utility.py --count 5 --season 2025
+    python scripts/cleanup_utility.py --count 5 --dry-run
+    python scripts/cleanup_utility.py --count 10 --confirm
+    python scripts/cleanup_utility.py --count 5 --season 2025 --confirm
 """
 
 import argparse
 import json
 import os
 import random
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -21,8 +39,11 @@ from datetime import datetime
 
 # Configuration
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
+# Mirrors config_loader.get_motogp_library_path(). The old default
+# (/media/MotoGP) did not match the documented layout, so the utility found
+# nothing and looked "safe" when it was really just pointed at the wrong tree.
 PLEX_LIBRARY_BASE = Path(
-    os.environ.get("MOTOGP_LIBRARY_PATH", "/media/MotoGP")
+    os.environ.get("MOTOGP_LIBRARY_PATH", "/media/Motorsport/MotoGP")
 )
 GRABBER_STATE_FILE = CONFIG_DIR / "grabber_state.json"
 
@@ -150,6 +171,14 @@ def delete_episode(session_key, plex_folder, dry_run=False):
         print(f"  [DRY-RUN] Would delete: {plex_folder}")
         return True
     
+    # Belt and braces: only ever remove a session folder, never a round or a
+    # season. The caller matches the prefix, but a bad state file could name
+    # anything, and rmtree does not ask questions.
+    name = plex_folder.name
+    if not re.match(r"^\d{2}R\d{2}E\d{2}", name):
+        print(f"  ❌ Refusing to delete {plex_folder}: not a session folder name")
+        return False
+
     try:
         shutil.rmtree(plex_folder)
         print(f"  🗑️  Deleted: {plex_folder}")
@@ -186,12 +215,32 @@ Examples:
         action='store_true',
         help='Preview actions without making changes'
     )
-    
+    parser.add_argument(
+        '--confirm',
+        action='store_true',
+        help='Required to actually delete anything. Without it the utility '
+             'refuses to run, because it deletes media.'
+    )
+
     args = parser.parse_args()
+
+    if not args.dry_run and not args.confirm:
+        print("Refusing to delete anything without --confirm.")
+        print("This utility removes media from your library. Preview it first:")
+        print(f"    python {Path(__file__).name} --count {args.count} --dry-run")
+        print("Then re-run with --confirm if the list looks right.")
+        sys.exit(2)
     
     print("=" * 60)
-    print("  MotoGParr Test Cleanup Utility")
+    print("  MotoGParr cleanup utility - DELETES MEDIA")
     print("=" * 60)
+    print(f"  Library: {PLEX_LIBRARY_BASE}")
+
+    if not PLEX_LIBRARY_BASE.is_dir():
+        print(f"\n❌ Library path does not exist: {PLEX_LIBRARY_BASE}")
+        print("   Set MOTOGP_LIBRARY_PATH, or check the volume is mounted.")
+        print("   Nothing has been changed.")
+        sys.exit(1)
     
     if args.dry_run:
         print("🔍 DRY-RUN MODE - No changes will be made\n")

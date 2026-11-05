@@ -12,7 +12,7 @@ curl is not installed, and it must never be the reason a container looks
 unhealthy for its own sake.
 
 Exit codes:
-    0  the WebUI answered 200 on /
+    0  the WebUI answered 200 on /healthz
     1  it did not
 """
 
@@ -22,7 +22,10 @@ import urllib.request
 
 PORT = int(os.environ.get("MOTOGPARR_WEBUI_PORT", "5679"))
 TIMEOUT = float(os.environ.get("MOTOGPARR_HEALTHCHECK_TIMEOUT", "3"))
-URL = f"http://127.0.0.1:{PORT}/"
+# /healthz, not /: the WebUI requires a verified Cloudflare identity on every
+# other route, and a probe cannot hold one. A healthcheck that got a 401 would
+# report every container unhealthy and defeat the purpose of having one.
+URL = f"http://127.0.0.1:{PORT}/healthz"
 
 
 def check(url: str = URL, timeout: float = TIMEOUT) -> bool:

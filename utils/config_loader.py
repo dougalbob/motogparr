@@ -29,7 +29,7 @@ Usage:
 import os
 import yaml
 from pathlib import Path
-from typing import Any, Optional, Dict
+from typing import Any, Dict, List, Optional
 
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
 SETTINGS_FILE = CONFIG_DIR / "settings.yml"
@@ -123,6 +123,36 @@ ENV_SPEC: Dict[str, Dict[str, Any]] = {
         "section": "timezone", "key": None, "cast": str,
         "description": "Timezone, e.g. Europe/London",
     },
+
+    # --- authentication -----------------------------------------------------
+    # Cloudflare Access verification. These live in ENV_SPEC because that table
+    # is the single source of truth for "what does the app read", and the Unraid
+    # template is checked against it. settings.yml is deliberately NOT an option:
+    # an allowlist in a file the UI can rewrite is not a security control.
+    "AUTH_ISSUER": {
+        "section": "auth", "key": "issuer", "cast": str,
+        "description": "Cloudflare Access issuer, e.g. https://<team>.cloudflareaccess.com",
+    },
+    "AUTH_AUDIENCE": {
+        "section": "auth", "key": "audience", "cast": str,
+        "description": "Access application AUD tag the JWT must be issued for",
+    },
+    "AUTH_ALLOWED_EMAILS": {
+        "section": "auth", "key": "allowed_emails", "cast": str, "secret": True,
+        "description": "Comma-separated emails allowed in (mirrors the CF policy)",
+    },
+    "AUTH_CERTS_URL": {
+        "section": "auth", "key": "certs_url", "cast": str,
+        "description": "Optional override for the JWKS URL (defaults to $AUTH_ISSUER/cdn-cgi/access/certs)",
+    },
+    "AUTH_MODE": {
+        "section": "auth", "key": "mode", "cast": str,
+        "description": "cloudflare (default when AUTH_ISSUER is set) or none",
+    },
+    "MOTOGPARR_COOKIE_SECURE": {
+        "section": "auth", "key": "cookie_secure", "cast": str,
+        "description": "1 = mark the session cookie Secure (only when served over https)",
+    },
 }
 
 
@@ -132,7 +162,13 @@ ENTRYPOINT_ENV: Dict[str, str] = {
     "MOTOGPARR_CALENDAR_UPDATE":
         "auto | warn | off - what to do when the /config calendars differ",
     "MOTOGPARR_SKIP_PATH_CHECK":
-        "1 = start even when a configured path does not exist",
+        "1 = start even when a configured path does not exist or is unwritable",
+    "PUID":
+        "uid to run as (default 99 = nobody; Unraid shares are 99:100)",
+    "PGID":
+        "gid to run as (default 100 = users)",
+    "UMASK":
+        "file creation mask for new media (default 0022)",
 }
 
 #: Informational only: set by the Dockerfile / build workflow, never a setting.
@@ -354,12 +390,43 @@ def translate_path_for_plex(container_path: str) -> str:
 # GRABBER-SPECIFIC SETTINGS
 # =============================================================================
 
-def get_allowed_groups() -> list:
-    """Get list of allowed release groups."""
-    groups = get("grabber", "allowed_groups")
-    if isinstance(groups, list):
-        return groups
-    return ["VERUM", "MWR", "BILLIE"]
+#: Release groups the grabber accepts when nothing is configured.
+#:
+#: This default is load-bearing, not cosmetic: filter_releases() rejects any
+#: release whose group is not in the list, so an empty list means *nothing* is
+#: ever grabbed - silently, because an empty candidate list looks the same as
+#: "no releases published yet". Duplicated in motogp_common.filter_releases();
+#: a test asserts the two agree.
+DEFAULT_ALLOWED_GROUPS = ("VERUM", "MWR", "BILLIE")
+
+
+def get_allowed_groups() -> List[str]:
+    """
+    Release groups the grabber will accept.
+
+    Read from config but never written by the UI before v2.5.0, so it was
+    effectively a hidden setting: present in settings.yml, invisible everywhere
+    else. Accepts a list (settings.yml) or a comma-separated string (env), and
+    falls back to DEFAULT_ALLOWED_GROUPS when unset.
+
+    An explicitly configured empty list is honoured - that is a deliberate
+    choice rather than an accident, so it is left to the caller to be surprised.
+    """
+    value = get("grabber", "allowed_groups")
+
+    if value is None or value == "":
+        return list(DEFAULT_ALLOWED_GROUPS)
+    if isinstance(value, str):
+        groups = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, (list, tuple)):
+        groups = [str(part).strip() for part in value if str(part).strip()]
+    else:
+        return list(DEFAULT_ALLOWED_GROUPS)
+
+    # A configured-but-empty value is almost always a YAML mistake such as
+    # `allowed_groups:` with nothing after it. Falling back beats silently
+    # grabbing nothing for a whole season.
+    return groups or list(DEFAULT_ALLOWED_GROUPS)
 
 
 def get_required_quality() -> str:
@@ -425,12 +492,45 @@ def validate() -> Dict[str, Any]:
         if value:
             configured.append(name)
     
+    # Schema problems are reported but do not make the config invalid: the app
+    # has a default for everything, and refusing to start over a typo in an
+    # optional key would be worse than telling the user about it.
+    try:
+        from utils.settings_schema import validate_file
+        schema = validate_file(SETTINGS_FILE)
+    except Exception as exc:  # noqa: BLE001 - never let the checker break startup
+        schema = None
+        print(f"Warning: could not validate settings.yml: {exc}")
+
     return {
         "valid": len(missing) == 0,
         "missing": missing,
         "configured": configured,
         "settings_file": str(SETTINGS_FILE),
         "settings_file_exists": SETTINGS_FILE.exists(),
+        "schema": schema.as_dict() if schema else {"ok": True, "issues": [], "messages": []},
+    }
+
+
+def credential_sources() -> Dict[str, str]:
+    """
+    Where each credential came from: "env", "settings.yml" or "default".
+
+    Exists because of a specific, repeated confusion: a key typed into the WebUI
+    is saved to settings.yml and appears to take effect, while an environment
+    variable in the container template quietly wins. The app then fails
+    authentication against Prowlarr/Plex with a key the user has already
+    replaced, and blames the wrong thing.
+
+    Values are never returned - only the source.
+    """
+    return {
+        name: get_with_source(section, key)[1]
+        for name, (section, key) in {
+            "prowlarr_api_key": ("prowlarr", "api_key"),
+            "sabnzbd_api_key": ("sabnzbd", "api_key"),
+            "plex_token": ("plex", "token"),
+        }.items()
     }
 
 
@@ -615,10 +715,68 @@ timezone: "Europe/London"
         return False
 
 
-def save_settings(settings: Dict) -> bool:
-    """Save settings to YAML file."""
+def update_settings(updates: Dict) -> bool:
+    """
+    Merge ``updates`` into settings.yml instead of replacing the file.
+
+    This exists because replacing the file was silently destructive: the WebUI
+    used to rebuild the whole document from the four sections it knew about, so
+    every save from the UI deleted anything else in the file - the admin
+    password, the entire grabber section, and any key added since. Nobody
+    noticed because nothing failed; the settings just quietly reverted.
+
+    Rules:
+      * nested dicts are merged key by key, so a partial ``plex`` payload does
+        not drop ``plex.library_name``;
+      * a key explicitly set to ``None`` is deleted (that is how the caller says
+        "remove this"), an omitted key is left alone;
+      * an empty string is kept, because "clear this field" is a real intent and
+        the env-var layer already treats empty as unset.
+    """
     global _settings_cache
-    
+
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        current = dict(_load_yaml() or {})
+        merged = _deep_merge(current, updates)
+
+        # Write via a temporary file so a crash mid-write cannot leave a
+        # truncated settings.yml behind - the file is small, the cost is nil.
+        tmp_path = SETTINGS_FILE.with_suffix(".yml.tmp")
+        with open(tmp_path, "w") as f:
+            yaml.dump(merged, f, default_flow_style=False, sort_keys=False)
+        tmp_path.replace(SETTINGS_FILE)
+
+        _settings_cache = merged
+        return True
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+        return False
+
+
+def _deep_merge(base: Dict, updates: Dict) -> Dict:
+    """Recursively merge updates into a copy of base. See update_settings."""
+    result = dict(base)
+    for key, value in updates.items():
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def save_settings(settings: Dict) -> bool:
+    """
+    Replace settings.yml wholesale.
+
+    Kept for callers that genuinely own the whole document (the template
+    creator). Prefer :func:`update_settings`, which cannot lose keys it was not
+    told about.
+    """
+    global _settings_cache
+
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(SETTINGS_FILE, 'w') as f:

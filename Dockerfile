@@ -11,8 +11,13 @@ LABEL org.opencontainers.image.description="MotoGP automated retrieval and Plex 
 LABEL org.opencontainers.image.source="https://github.com/dougalbob/motogparr"
 LABEL org.opencontainers.image.version="${MOTOGPARR_VERSION}"
 
+# fonts-dejavu-core: text rendering for the artwork overlay.
+# util-linux: supplies setpriv, which entrypoint.sh uses to drop root to
+#             PUID:PGID at runtime. A Dockerfile USER would be simpler but would
+#             bake in one uid, and on Unraid the right uid is per-installation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

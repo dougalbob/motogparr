@@ -3,3 +3,7 @@ Pillow>=9.0.0
 PyYAML>=6.0
 Flask>=2.0.0
 plexapi>=4.15.0
+# Cloudflare Access JWT verification (WebUI authentication).
+# cryptography is required for RS256, so it is pulled in explicitly rather than
+# left to PyJWT's optional extra.
+PyJWT[crypto]>=2.6.0

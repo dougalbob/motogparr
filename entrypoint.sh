@@ -1,11 +1,18 @@
 #!/bin/bash
 # MotoGParr Entrypoint
 
-SCRIPT_DIR="/app"
-PYTHON="/opt/venv/bin/python3"
+# Derived from this script's own location rather than hard-coded, so the same
+# script works when it is run from a checkout (tests, local runs) as well as from
+# /app in the image.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Overridable so the entrypoint can be exercised from a checkout as well as from
+# /app. The default is where the image's venv lives.
+PYTHON="${MOTOGPARR_PYTHON:-/opt/venv/bin/python3}"
 CONFIG_DIR="${CONFIG_DIR:-/config}"
 SETTINGS_FILE="${CONFIG_DIR}/settings.yml"
-IMAGE_CALENDARS="/app/config"
+IMAGE_CALENDARS="${SCRIPT_DIR}/config"
+# Exported for the inline Python snippets below, so they do not hard-code /app.
+export MOTOGPARR_APP_DIR="${SCRIPT_DIR}"
 
 echo "=================================================="
 echo "  MotoGParr - MotoGP Automated Recording"
@@ -18,6 +25,51 @@ fi
 
 # Ensure config directory exists
 mkdir -p "${CONFIG_DIR}"
+
+# ---------------------------------------------------------------------------
+# Drop privileges
+#
+# Everything after this point runs as PUID:PGID, defaulting to 99:100 - nobody:
+# users, which is what Unraid uses for its shares. The app has no reason to run
+# as root: it writes to /config, /media and /downloads and talks to four HTTP
+# services.
+#
+# Dropping privileges at runtime rather than with a Dockerfile USER keeps one
+# property that matters on Unraid: PUID/PGID are per-installation, and an image
+# baked with a fixed uid cannot be adjusted without a rebuild.
+#
+# Getting this wrong produces permission errors deep inside a subprocess, so the
+# folders are checked immediately afterwards and the failure is spelled out.
+# ---------------------------------------------------------------------------
+PUID="${PUID:-99}"
+PGID="${PGID:-100}"
+UMASK="${UMASK:-0022}"
+
+if [ "$(id -u)" = "0" ]; then
+    if ! command -v setpriv >/dev/null 2>&1; then
+        echo "  ❌ setpriv is missing from the image - cannot drop privileges."
+        echo "     Refusing to run the whole application as root."
+        exit 1
+    fi
+
+    echo ""
+    echo "  Running as:     ${PUID}:${PGID} (umask ${UMASK})"
+
+    # Re-exec through bash rather than running the script file directly: that
+    # removes any dependency on the execute bit being reachable by PUID, which
+    # is not guaranteed for a bind-mounted /app. Only the read bit is needed.
+    exec setpriv --reuid "${PUID}" --regid "${PGID}" --clear-groups \
+        /usr/bin/env UMASK="${UMASK}" bash "${SCRIPT_DIR}/entrypoint.sh" "$@"
+fi
+
+# --- from here on we are the unprivileged user -----------------------------
+umask "${UMASK}" 2>/dev/null || true
+
+if [ "$(id -u)" = "0" ]; then
+    # Belt and braces: never continue as root even if setpriv was a no-op.
+    echo "  ❌ Still running as root after the privilege drop. Stopping."
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Calendars
@@ -95,7 +147,9 @@ done
 if [ ! -f "$SETTINGS_FILE" ]; then
     echo ""
     echo "  No settings.yml found - creating a starter template."
-    if $PYTHON -c "from utils.config_loader import create_template; raise SystemExit(0 if create_template() else 1)"; then
+    if $PYTHON -c "import sys, os; sys.path.insert(0, os.environ.get('MOTOGPARR_APP_DIR', '/app'))
+from utils.config_loader import create_template
+raise SystemExit(0 if create_template() else 1)"; then
         echo "  Created ${SETTINGS_FILE} - fill in the blanks in the WebUI (port 5679)."
     else
         echo "  ⚠️  Could not create ${SETTINGS_FILE}; check that ${CONFIG_DIR} is writable."
@@ -106,13 +160,172 @@ fi
 echo ""
 echo "  Checking configuration..."
 $PYTHON -c "
+import sys, os
+sys.path.insert(0, os.environ.get('MOTOGPARR_APP_DIR', '/app'))
 from utils.config_loader import validate
 v = validate()
 if v['valid']:
     print('  ✅ All required settings configured')
 else:
     print('  ⚠️  Missing settings:', ', '.join(v['missing']))
-"
+" || echo "  ⚠️  Could not validate configuration"
+
+# ---------------------------------------------------------------------------
+# Permissions
+#
+# The container drops to PUID:PGID before doing anything. When that id cannot
+# write to a folder, the symptom is never "permissions": it is settings that
+# revert, downloads that never get sorted, or a PermissionError in a subprocess
+# hours later. Check up front and name the folder.
+#
+# Read-only media shares are legitimate, so only folders the app must write to
+# are checked, and a missing downloads folder is left to the path check above.
+# ---------------------------------------------------------------------------
+PERM_STATUS=$($PYTHON -c "
+import sys, os
+sys.path.insert(0, os.environ.get('MOTOGPARR_APP_DIR', '/app'))
+from utils.config_loader import get_motogp_library_path, get_downloads_path
+from utils.permissions import check_permissions
+
+report = check_permissions(
+    library_path=get_motogp_library_path(),
+    downloads_path=get_downloads_path(),
+)
+for check in report.checks:
+    if check.ok:
+        print(f'ok|{check.label}|{check.path}')
+    else:
+        state = 'MISSING' if not check.exists else 'NOT WRITABLE'
+        print(f'bad|{check.label}|{check.path}|{state}')
+# One line per hint line, prefixed, so the shell can map them without losing
+# the chown command that makes the hint useful in the first place.
+for line in (report.hint().splitlines() if not report.ok else []):
+    print(f'hint|{line}')
+" 2>/dev/null)
+
+echo ""
+echo "  Permissions (uid=$(id -u) gid=$(id -g)):"
+if [ -z "$PERM_STATUS" ]; then
+    # Failing to check is not the same as passing. Say so rather than printing
+    # an empty list that reads as "all fine".
+    echo "    ⚠️  Could not check write permissions; see the error above."
+else
+    echo "$PERM_STATUS" | sed -n 's/^ok|\([^|]*\)|\(.*\)$/    ✅ \1 \2/p'
+    echo "$PERM_STATUS" | sed -n 's/^bad|\([^|]*\)|\([^|]*\)|\(.*\)$/    ❌ \1 \2 [\3]/p'
+fi
+
+if echo "$PERM_STATUS" | grep -q '^bad|'; then
+    echo ""
+    echo "$PERM_STATUS" | sed -n 's/^hint|/     /p'
+    echo ""
+    if [ "${MOTOGPARR_SKIP_PATH_CHECK:-0}" != "1" ]; then
+        echo "  Refusing to start: the app cannot write where it must, and every"
+        echo "  symptom of that appears hours later as something else entirely."
+        echo "  Set MOTOGPARR_SKIP_PATH_CHECK=1 to start anyway."
+        echo "=================================================="
+        exit 1
+    fi
+    echo "  (continuing because MOTOGPARR_SKIP_PATH_CHECK=1)"
+fi
+
+
+# ---------------------------------------------------------------------------
+# Settings schema
+#
+# A misspelled key in settings.yml is silently ignored by the loader, which
+# falls back to a default. The app then behaves as if the line were never
+# written - the same class of bug as an environment variable that is documented
+# but never read. Report it here; the WebUI shows the same list.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  Settings file:"
+$PYTHON -c "
+import sys
+sys.path.insert(0, __import__('os').environ.get('MOTOGPARR_APP_DIR', '/app'))
+from utils.config_loader import SETTINGS_FILE, validate
+
+report = validate().get('schema') or {}
+if report.get('ok'):
+    print(f'    ✅ {SETTINGS_FILE} - no unknown or malformed keys')
+else:
+    for message in report.get('messages', []):
+        print(f'    ⚠️  {message}')
+    print('    These keys are ignored by the app. Correct or remove them.')
+" || echo "    ⚠️  Could not validate settings.yml"
+
+# ---------------------------------------------------------------------------
+# Plex library check
+#
+# The expensive one to diagnose and the cheapest to check: if Plex's library
+# does not include this app's library folder, sessions download, sort and land
+# on disk correctly and then never appear. Nothing in this app looks wrong,
+# because nothing in this app is wrong.
+#
+# Never fatal, and silent when Plex is unreachable - a diagnostic that blocks
+# startup or invents an answer causes more problems than it solves.
+# ---------------------------------------------------------------------------
+PLEX_STATUS=$($PYTHON -c "
+import sys
+sys.path.insert(0, __import__('os').environ.get('MOTOGPARR_APP_DIR', '/app'))
+from utils.plexcheck import check_from_settings, OK, UNKNOWN
+result = check_from_settings()
+if result.status in (OK, UNKNOWN):
+    print(f'ok|{result.summary}')
+else:
+    print(f'warn|{result.status}|{result.summary}')
+    for line in result.detail:
+        print(f'detail|{line}')
+" 2>/dev/null)
+
+if echo "$PLEX_STATUS" | grep -q '^ok|'; then
+    echo ""
+    echo "  Plex library:"
+    echo "    ✅ $(echo "$PLEX_STATUS" | sed -n 's/^ok|//p')"
+elif echo "$PLEX_STATUS" | grep -q '^warn|'; then
+    echo ""
+    echo "  Plex library:"
+    echo "    ⚠️  $(echo "$PLEX_STATUS" | sed -n 's/^warn|[^|]*|//p')"
+    echo "$PLEX_STATUS" | sed -n 's/^detail|/       /p'
+fi
+
+# ---------------------------------------------------------------------------
+# Authentication
+#
+# The WebUI verifies a Cloudflare Access JWT itself rather than trusting that
+# Cloudflare was in the request path, because anything on the LAN or on the
+# Docker network can reach port 5679 directly. Say which mode is in force here:
+# an unauthenticated WebUI serving your Plex token is not something to discover
+# later by accident.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  Authentication:"
+$PYTHON -c "
+import sys
+sys.path.insert(0, __import__('os').environ.get('MOTOGPARR_APP_DIR', '/app'))
+from utils.web_auth import AuthGate
+from utils.auth import AuthError
+
+try:
+    gate = AuthGate.from_environment()
+except AuthError as exc:
+    print(f'    ❌ {exc}')
+    sys.exit(3)
+
+if gate.mode == 'none':
+    print('    ⚠️  OFF - the WebUI has no authentication.')
+    print('       Anyone who can reach port 5679 can read your Plex token and')
+    print('       API keys and trigger downloads. Set AUTH_ISSUER, AUTH_AUDIENCE')
+    print('       and AUTH_ALLOWED_EMAILS to require Cloudflare Access.')
+elif gate.config_error:
+    print('    ❌ Misconfigured - every request will be refused:')
+    print(f'       {gate.config_error}')
+else:
+    cfg = gate.verifier.config
+    print(f'    ✅ Cloudflare Access, issuer {cfg.issuer}')
+    # Counts only: the addresses themselves are personal data and the log is
+    # readable from the UI.
+    print(f'       {len(cfg.allowed_emails)} allowlisted address(es), audience set')
+" || echo "    ⚠️  Could not determine the authentication mode"
 
 # ---------------------------------------------------------------------------
 # Resolved paths

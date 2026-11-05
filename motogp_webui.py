@@ -39,7 +39,7 @@ from utils.config_loader import (
     get_motogp_library_path,
     validate,
     reload_settings,
-    save_settings,
+    update_settings,
     _load_yaml,
     get_prowlarr_url,
     get_prowlarr_api_key,
@@ -53,7 +53,13 @@ from utils.config_loader import (
 # CONFIGURATION
 # =============================================================================
 
-PYTHON_PATH = "/opt/venv/bin/python3"
+# The interpreter that spawns the grabber/overlay children.
+#
+# sys.executable rather than a hard-coded /opt/venv path: the WebUI is already
+# running under the right interpreter, so asking it is always correct, and it
+# keeps the app runnable outside the image (tests, local runs) where /opt/venv
+# does not exist. MOTOGPARR_PYTHON overrides both, matching entrypoint.sh.
+PYTHON_PATH = os.environ.get("MOTOGPARR_PYTHON") or sys.executable
 GRABBER_SCRIPT = SCRIPT_DIR / "motogp_grabber.py"
 OVERLAY_SCRIPT = SCRIPT_DIR / "motogp_overlay_utility.py"
 CONFIG_DIR = get_config_dir()
@@ -116,12 +122,72 @@ from grab_stats import get_stats_summary
 from activity_emitter import get_all_activity, clear_all_activity
 
 app = Flask(__name__)
+
+# Session cookie hygiene. The cookie only carries the verified identity so the UI
+# can show who is signed in; it is not the authentication mechanism (the JWT on
+# every request is), but there is no reason to let JavaScript read it.
+_secret = os.environ.get("MOTOGPARR_SECRET_KEY") or os.environ.get("AUTH_AUDIENCE") or ""
+if not _secret:
+    # Ephemeral: a restart invalidates sessions. That is acceptable because the
+    # session is only a display concern, and it avoids shipping a fixed default
+    # secret that would be the same in every deployment.
+    import secrets as _secrets
+    _secret = _secrets.token_hex(32)
+app.secret_key = _secret
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    # Not Secure-by-default: the app is served over http inside the LAN and
+    # Cloudflare terminates TLS outside it, so a Secure cookie would simply not
+    # be sent back by the LAN browser. Set MOTOGPARR_COOKIE_SECURE=1 if this
+    # container is ONLY ever reached through Cloudflare.
+    SESSION_COOKIE_SECURE=os.environ.get("MOTOGPARR_COOKIE_SECURE", "0") == "1",
+)
+
+# The UI is same-origin. A wildcard here meant any page in any browser that could
+# reach this host could read /app-config (Plex token, API keys) cross-origin, so
+# there is deliberately no Access-Control-Allow-Origin header at all.
 @app.after_request
-def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
     return response
+
+
+def _install_auth(flask_app):
+    """Attach the Cloudflare Access guard. Fail loudly, never silently open."""
+    from utils.web_auth import install as install_auth_guard
+
+    try:
+        return install_auth_guard(flask_app)
+    except Exception as exc:  # noqa: BLE001 - a broken guard must not mean no guard
+        print("=" * 66)
+        print("  ❌ Authentication could not be initialised:")
+        print(f"     {exc}")
+        print("  The WebUI will refuse every request until this is fixed.")
+        print("=" * 66)
+        return install_auth_guard(
+            flask_app,
+            gate=__import__("utils.web_auth", fromlist=["AuthGate"]).AuthGate(
+                mode="cloudflare", config_error=str(exc)
+            ),
+        )
+
+
+AUTH_GATE = _install_auth(app)
+
+
+@app.context_processor
+def inject_auth_context():
+    """Expose who is signed in (and whether auth is off) to every template."""
+    from flask import session as _session
+    from utils.web_auth import SESSION_EMAIL_KEY
+
+    return {
+        "identity_email": _session.get(SESSION_EMAIL_KEY),
+        "auth_disabled": getattr(AUTH_GATE, "mode", "none") == "none",
+    }
 # Store command output
 command_output = {
     "running": False,
@@ -259,18 +325,28 @@ def save_webui_settings(settings):
 
 
 def update_settings_yml(settings):
-    """Update settings.yml with max_grabs_per_run."""
-    try:
-        current = _load_yaml()
-        if "grabber" not in current:
-            current["grabber"] = {}
-        current["grabber"]["max_grabs_per_run"] = settings.get("max_grabs_per_run", 5)
-        save_settings(current)
-        reload_settings()
+    """
+    Persist the grabber settings from the WebUI into settings.yml.
+
+    Only the keys named here are written. The previous version loaded the whole
+    file, mutated it and wrote it all back, which had the same shape of bug as
+    the one /app-config had: any concurrent writer's change could be lost, and a
+    failed write was swallowed.
+
+    Returns True on success. The caller must report failure rather than saying
+    "saved" - a settings screen that claims success while nothing was written is
+    how the last round of bugs stayed hidden.
+    """
+    updates = {}
+    if "max_grabs_per_run" in settings:
+        updates["max_grabs_per_run"] = settings["max_grabs_per_run"]
+    if not updates:
         return True
-    except Exception as e:
-        print(f"Error updating settings.yml: {e}")
-        return False
+
+    ok = update_settings({"grabber": updates})
+    if ok:
+        reload_settings()
+    return ok
 
 
 # =============================================================================
@@ -631,9 +707,26 @@ def run():
 @app.route("/settings", methods=["GET", "POST"])
 def settings_route():
     if request.method == "POST":
-        new_settings = request.json
-        save_webui_settings(new_settings)
-        update_settings_yml(new_settings)
+        new_settings = request.get_json(silent=True)
+        if not isinstance(new_settings, dict):
+            return jsonify({"status": "error", "detail": "Expected a JSON object"}), 400
+
+        # Both writes must succeed before this says "saved". Previously a failed
+        # settings.yml write was swallowed and the UI reported success anyway.
+        try:
+            save_webui_settings(new_settings)
+        except OSError as exc:
+            return jsonify({
+                "status": "error",
+                "detail": f"Could not write webui_settings.json: {exc}",
+            }), 500
+
+        if not update_settings_yml(new_settings):
+            return jsonify({
+                "status": "error",
+                "detail": "Could not write settings.yml; check that /config is writable.",
+            }), 500
+
         return jsonify({"status": "saved"})
     return jsonify(load_webui_settings())
 
@@ -681,31 +774,118 @@ def library_status():
     return jsonify(data)
 
 
+#: Sections and keys the WebUI is allowed to write through /app-config.
+#:
+#: This is an allowlist rather than "whatever the client sent" because the client
+#: is a browser form, not a trusted editor. Anything not listed here stays in
+#: settings.yml untouched - which is the whole point: the previous version
+#: rebuilt the file from a fixed dict and silently deleted uiadminpassword,
+#: grabber.* and anything added later.
+APP_CONFIG_SECTIONS = {
+    "prowlarr": ("url", "api_key"),
+    "sabnzbd": ("url", "api_key"),
+    "plex": ("url", "token", "library_id", "library_name"),
+    "library": ("motogp_path", "downloads_path"),
+    "discord": ("webhook_url",),
+}
+APP_CONFIG_NESTED = {
+    "plex": {"path_mapping": ("container", "plex")},
+}
+APP_CONFIG_SCALARS = ("timezone",)
+APP_CONFIG_GRABBER = ("max_grabs_per_run", "allowed_groups", "required_quality")
+
+
+def _build_app_config_updates(payload: dict) -> dict:
+    """Translate a WebUI payload into a partial settings.yml update."""
+    updates = {}
+
+    for section, keys in APP_CONFIG_SECTIONS.items():
+        incoming = payload.get(section)
+        if not isinstance(incoming, dict):
+            continue
+        section_updates = {
+            key: incoming[key] for key in keys if key in incoming
+        }
+        for nested_name, nested_keys in APP_CONFIG_NESTED.get(section, {}).items():
+            nested_incoming = incoming.get(nested_name)
+            if isinstance(nested_incoming, dict):
+                section_updates[nested_name] = {
+                    key: nested_incoming[key]
+                    for key in nested_keys
+                    if key in nested_incoming
+                }
+        if section_updates:
+            updates[section] = section_updates
+
+    for key in APP_CONFIG_SCALARS:
+        if key in payload:
+            updates[key] = payload[key]
+
+    grabber = payload.get("grabber")
+    grabber_updates = {}
+    if isinstance(grabber, dict):
+        grabber_updates = {k: grabber[k] for k in APP_CONFIG_GRABBER if k in grabber}
+    elif "max_grabs_per_run" in payload:
+        # The settings form historically posts this at the top level.
+        grabber_updates["max_grabs_per_run"] = payload["max_grabs_per_run"]
+    if grabber_updates:
+        updates["grabber"] = grabber_updates
+
+    return updates
+
+
 @app.route("/app-config", methods=["GET", "POST"])
 def app_config_route():
     """Get or save app configuration (settings.yml)."""
     if request.method == "POST":
-        new_config = request.json
-        
-        settings = {
-            "prowlarr": new_config.get("prowlarr", {}),
-            "sabnzbd": new_config.get("sabnzbd", {}),
-            "plex": new_config.get("plex", {}),
-            "library": new_config.get("library", {}),
-            "discord": new_config.get("discord", {}),
-            "timezone": new_config.get("timezone", "Europe/London"),
-        }
-        
-        success = save_settings(settings)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"status": "error", "detail": "Expected a JSON object"}), 400
+
+        updates = _build_app_config_updates(payload)
+        success = update_settings(updates)
         reload_settings()
         validation = validate()
-        
-        return jsonify({"status": "saved" if success else "error", "validation": validation})
-    
+
+        return jsonify({
+            "status": "saved" if success else "error",
+            "applied": sorted(updates),
+            "validation": validation,
+        })
+
     reload_settings()
     settings = _load_yaml()
     validation = validate()
+    # uiadminpassword is excluded on purpose: it is not needed by the UI any more
+    # and one less copy of a credential in a JSON response is one less leak.
+    settings = {k: v for k, v in settings.items() if k != "uiadminpassword"}
     return jsonify({**settings, "validation": validation})
+
+
+@app.route("/diagnostics")
+def diagnostics():
+    """
+    Configuration problems that are invisible in normal use.
+
+    Two things live here because neither shows up as an error anywhere else:
+
+      * unknown or malformed settings.yml keys - the loader silently falls back
+        to defaults, so the app behaves as if the line were never written;
+      * whether Plex actually scans the folder this app writes to - if it does
+        not, sessions download and sort correctly and then simply never appear.
+
+    Also reports where the credentials came from (never their values), because
+    an environment variable in the container template silently beats a key typed
+    into this page, which makes "I already changed that" fail in a confusing way.
+    """
+    from utils.config_loader import credential_sources
+    from utils.plexcheck import check_from_settings
+
+    return jsonify({
+        "validation": validate(),
+        "credentials": credential_sources(),
+        "plex_library": check_from_settings().as_dict(),
+    })
 
 
 @app.route("/test-connections")
@@ -1282,28 +1462,6 @@ def manifest():
             }
         ]
     })
-
-@app.route('/verify-admin', methods=['POST'])
-def verify_admin():
-    """Verify admin password."""
-    import yaml
-    
-    data = request.get_json()
-    password = data.get("password", "") if data else ""
-    
-    try:
-        settings_file = CONFIG_DIR / "settings.yml"
-        if settings_file.exists():
-            with open(settings_file, "r") as f:
-                settings = yaml.safe_load(f)
-                admin_password = settings.get("uiadminpassword", "")
-                
-                if admin_password and password == admin_password:
-                    return jsonify({"valid": True})
-    except Exception as e:
-        print(f"Error verifying admin password: {e}")
-    
-    return jsonify({"valid": False})
 
 @app.route("/sw.js")
 def service_worker():

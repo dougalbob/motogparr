@@ -293,3 +293,68 @@ def test_template_path_overrides_are_blank():
         entry = _template_variable_targets()[name]
         assert not (entry.text or "").strip(), f"{name} must ship blank"
         assert not (entry.get("Default") or "").strip(), f"{name} Default must be blank"
+
+
+# ---------------------------------------------------------------------------
+# Grabber defaults: an empty allowlist silently grabs nothing
+# ---------------------------------------------------------------------------
+
+def test_allowed_groups_falls_back_to_the_built_in_default(config_dir):
+    """
+    filter_releases() rejects any release whose group is not in this list, so an
+    empty list means nothing is ever grabbed - and an empty candidate list looks
+    exactly like "no releases published yet". A duplicated function definition
+    once made this return [] whenever allowed_groups was unset.
+    """
+    from utils.config_loader import DEFAULT_ALLOWED_GROUPS, get_allowed_groups
+
+    assert get_allowed_groups() == list(DEFAULT_ALLOWED_GROUPS)
+    assert get_allowed_groups(), "an empty allowlist means the grabber never matches"
+
+
+def test_allowed_groups_default_agrees_with_the_grabber(config_dir):
+    """The default is duplicated in motogp_common.filter_releases()."""
+    from utils.config_loader import DEFAULT_ALLOWED_GROUPS, get_allowed_groups
+    from motogp_common import filter_releases, SessionType
+
+    release = {
+        "title": "MotoGP.2026.Round01.Thailand.Race.1080p.WEB.h264-VERUM",
+        "size": 1000, "link": "x",
+    }
+    round_info = {"round": 1, "venue": "Thailand", "aliases": [], "classes": ["MotoGP"]}
+
+    kept = filter_releases(
+        [release], SessionType.MOTOGP_RACE, 2026, round_info,
+        "1080p", get_allowed_groups(), None,
+    )
+    assert kept, (
+        "a release from a default group did not survive filtering - the "
+        "config_loader default and the grabber default have drifted apart"
+    )
+
+
+def test_allowed_groups_accepts_a_list_and_a_comma_string(config_dir):
+    from utils.config_loader import get_allowed_groups
+
+    settings = config_dir / "settings.yml"
+    settings.write_text("grabber:\n  allowed_groups: [ALPHA, beta]\n")
+    config_loader.reload_settings()
+    assert get_allowed_groups() == ["ALPHA", "beta"]
+
+    settings.write_text("grabber:\n  allowed_groups: ALPHA, beta ,\n")
+    config_loader.reload_settings()
+    assert get_allowed_groups() == ["ALPHA", "beta"]
+    config_loader.reload_settings()
+
+
+def test_configured_but_empty_allowed_groups_falls_back(config_dir):
+    """
+    `allowed_groups:` with nothing after it is a YAML mistake, not a request to
+    grab nothing for a whole season.
+    """
+    from utils.config_loader import DEFAULT_ALLOWED_GROUPS, get_allowed_groups
+
+    (config_dir / "settings.yml").write_text("grabber:\n  allowed_groups:\n")
+    config_loader.reload_settings()
+    assert get_allowed_groups() == list(DEFAULT_ALLOWED_GROUPS)
+    config_loader.reload_settings()
