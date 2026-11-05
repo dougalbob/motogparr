@@ -9,6 +9,7 @@ actually needs are present, and every variable it sets is one the app reads.
 """
 
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -105,11 +106,95 @@ def test_calendar_update_variable_is_documented(template):
     assert 'MOTOGPARR_CALENDAR_UPDATE:-auto' in entrypoint
 
 
-def test_template_url_points_at_this_file(template):
+def newest_tag() -> str:
+    """Newest version tag in the repo, so the TemplateURL cannot silently rot.
+
+    Tags are fetched from the remote (a shallow checkout may not carry them
+    locally), which is why this shells out to git rather than reading a file.
+    """
+    refs = subprocess.run(
+        ["git", "ls-remote", "--tags", "--refs", "origin"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    version_re = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+    tags = []
+    for line in refs.splitlines():
+        if "refs/tags/" not in line or line.endswith("^{}"):
+            continue
+        tag = line.split("refs/tags/", 1)[1]
+        if version_re.match(tag):
+            tags.append(tag)
+    assert tags, "no version tags found in the repo"
+    return sorted(
+        tags,
+        key=lambda t: tuple(int(p) for p in version_re.match(t).groups()),
+    )[-1]
+
+
+def test_template_url_is_pinned_to_the_latest_release_tag(template):
+    """TemplateURL must pin a release tag, never float on 'main'.
+
+    Pinning (decision b in the handoff) means pressing "Apply" in the Unraid
+    GUI cannot silently replace a user's locally edited template with whatever
+    main happens to be. The trade-off: old installs do not receive template
+    updates until the user re-points it, so the release checklist must remind
+    the releaser to bump TemplateURL on every release.
+    """
     url = template.findtext("TemplateURL")
-    assert url.endswith("/unraid/motogparr.xml"), url
+    assert "raw.githubusercontent.com/dougalbob/motogparr/" in url, url
+    # The segment after the repo name is the pinned ref (a tag, never main).
+    ref = url.split("raw.githubusercontent.com/dougalbob/motogparr/", 1)[1].split(
+        "/", 1
+    )[0]
+    assert ref != "main", f"TemplateURL must not float on main: {url}"
+    assert ref.startswith("v"), f"TemplateURL must pin a version tag: {url}"
+    assert ref == newest_tag(), (
+        f"TemplateURL pins {ref} but the newest tag is {newest_tag()}; "
+        "bump TemplateURL on every release"
+    )
     # The file must exist at the path the URL advertises, or Unraid 404s.
     assert (REPO_ROOT / "unraid" / "motogparr.xml").is_file()
+
+
+def test_every_config_has_unique_target_and_required_attributes(template):
+    """Each <Config> must carry a unique Target plus Type/Display/Default so
+    Unraid can render the Add Container form unambiguously."""
+    entries = configs(template)
+    targets = [c.get("Target") for c in entries]
+    assert all(targets), "every Config needs a Target"
+    assert len(targets) == len(set(targets)), f"duplicate Target values: {targets}"
+    for c in entries:
+        assert c.get("Type"), f"Config {c.get('Target')!r} missing Type"
+        assert c.get("Display") is not None, (
+            f"Config {c.get('Target')!r} missing Display"
+        )
+        assert c.get("Default") is not None, (
+            f"Config {c.get('Target')!r} missing Default"
+        )
+
+
+def test_puid_pgid_umask_and_auth_targets_present(template):
+    """PUID/PGID/UMASK and every AUTH_* variable must be offered by the
+    template (they are runtime configuration the user may need to set)."""
+    targets = {c.get("Target") for c in configs(template)}
+    for name in ("PUID", "PGID", "UMASK"):
+        assert name in targets, f"{name} is not in the Unraid template"
+    # Every AUTH_* the app reads must have a template entry.
+    from utils.config_loader import ENV_SPEC
+
+    auth_vars = [name for name in ENV_SPEC if name.startswith("AUTH_")]
+    assert auth_vars, "ENV_SPEC should define AUTH_* variables"
+    for name in auth_vars:
+        assert name in targets, f"{name} is not in the Unraid template"
+
+
+def test_new_variables_are_not_required(template):
+    """Newly added optional variables must not be Required="true", or they
+    would block the Add Container form for existing users."""
+    newly_optional = ("MOTOGPARR_HOST_MAP",)
+    for name in newly_optional:
+        entry = next(c for c in configs(template) if c.get("Target") == name)
+        assert entry.get("Required") != "true", f"{name} must not be required"
 
 
 def test_icon_file_referenced_by_url_exists(template):
