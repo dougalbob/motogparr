@@ -254,3 +254,14 @@ python -m pytest tests -q
 CI runs the same tests plus `utils/validate_calendar.py` on every season on each
 push and pull request; a pull request that edits a calendar gets a dedicated
 check that also rejects duplicate JSON keys.
+
+### For contributors and AI agents
+
+| Document | What it is |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | **Start here.** Current status, the security/design priority list and the implementation plan. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the app fits together: processes, data pipeline, config precedence, the WebUI route map and the auth model. |
+| [`SANDBOX.md`](SANDBOX.md) | Known agent-sandbox problems and their fixes (no Docker daemon, bare `pytest` breaks collection, …). |
+
+`aicontextual_notes/` is historical (up to v2.0) and kept for the design
+rationale only; surviving facts are folded into `docs/ARCHITECTURE.md`.
