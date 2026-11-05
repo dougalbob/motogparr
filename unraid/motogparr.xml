@@ -29,9 +29,13 @@
 
   <Config Name="Downloads" Target="/downloads" Default="/mnt/user/data/downloads" Mode="rw" Description="Your downloads share, mounted so completed downloads can be picked up and moved. Must match the completed-download folder you give SABnzbd." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/downloads</Config>
 
-  <Config Name="Library path" Target="MOTOGP_LIBRARY_PATH" Default="/media/MotoGP" Mode="" Description="Where the MotoGP library lives INSIDE the container, usually a folder under /media. Must match the path Plex uses for the same library, or Plex scans will not notice new files." Type="Variable" Display="always" Required="false" Mask="false">/media/MotoGP</Config>
+  <Config Name="Library path (optional)" Target="MOTOGP_LIBRARY_PATH" Default="" Mode="" Description="LEAVE BLANK unless you want to override settings.yml. Where the MotoGP library lives INSIDE the container, e.g. /media/Motorsport/MotoGP. Set here it beats settings.yml, which is a common surprise - blank means 'use settings.yml'." Type="Variable" Display="always" Required="false" Mask="false"/>
 
-  <Config Name="Downloads path" Target="MOTOGP_DOWNLOADS_PATH" Default="/downloads/complete/motogp" Mode="" Description="Where completed downloads appear INSIDE the container, usually a folder under /downloads." Type="Variable" Display="always" Required="false" Mask="false">/downloads/complete/motogp</Config>
+  <Config Name="Downloads path (optional)" Target="MOTOGP_DOWNLOADS_PATH" Default="" Mode="" Description="LEAVE BLANK unless you want to override settings.yml. Where completed downloads appear INSIDE the container, e.g. /downloads/complete/motogp." Type="Variable" Display="always" Required="false" Mask="false"/>
+
+  <Config Name="Plex path prefix - container side (optional)" Target="PLEX_PATH_CONTAINER" Default="" Mode="" Description="Plex reports paths as its own container sees them. Set this to the path prefix as MotoGParr sees it (often /media) and the matching Plex side below, or matching by exact path will silently never work. Blank means 'use settings.yml'." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Plex path prefix - Plex side (optional)" Target="PLEX_PATH_PLEX" Default="" Mode="" Description="The same prefix as Plex sees it, e.g. /data/media. Must be paired with the container-side value above." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <Config Name="Timezone" Target="TZ" Default="Europe/London" Mode="" Description="Timezone used for scheduling and log timestamps. Use a TZ database name, e.g. Europe/London." Type="Variable" Display="always" Required="false" Mask="false">Europe/London</Config>
 

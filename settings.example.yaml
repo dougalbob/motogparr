@@ -18,9 +18,12 @@ plex:
   path_mapping:
     container: /media          # Path as seen by MotoGParr container
     plex: /data/media          # Path as seen by Plex container
+    # Both sides are required. Without them the tagger compares this
+    # container's path against Plex's path, never matches, and gives up
+    # silently. Can also be set with PLEX_PATH_CONTAINER / PLEX_PATH_PLEX.
 
 library:
-  motogp_path: /media/Motorssport/MotoGP
+  motogp_path: /media/Motorsport/MotoGP
   downloads_path: /downloads/complete/motogp
 
 discord:

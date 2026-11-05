@@ -7,7 +7,7 @@ Test and apply overlay changes to existing MotoGP media artwork.
 
 Usage:
     # Test on a single folder (creates test_poster.jpg and test_fanart.jpg)
-    motogp-overlay test "/media/Motorssport/MotoGP/2025/Round 1 Thailand/25R01E21 MotoGP Race"
+    motogp-overlay test "/media/Motorsport/MotoGP/2025/Round 1 Thailand/25R01E21 MotoGP Race"
     
     # Test with a specific scale factor
     motogp-overlay test "/path/to/folder" --scale 1.2
@@ -16,7 +16,7 @@ Usage:
     motogp-overlay apply "/path/to/folder"
     
     # Apply to all sessions in a round
-    motogp-overlay apply-round "/media/Motorssport/MotoGP/2025/Round 1 Thailand"
+    motogp-overlay apply-round "/media/Motorsport/MotoGP/2025/Round 1 Thailand"
     
     # Apply to all sessions in a season
     motogp-overlay apply-season 2025
@@ -611,7 +611,7 @@ def main():
         epilog="""
 Examples:
   # Test overlay with default scale
-  motogp-overlay test "/media/Motorssport/MotoGP/2025/Round 1 Thailand/25R01E21 MotoGP Race"
+  motogp-overlay test "/media/Motorsport/MotoGP/2025/Round 1 Thailand/25R01E21 MotoGP Race"
   
   # Test with different scale
   motogp-overlay test "/path/to/folder" --scale 1.2
@@ -620,7 +620,7 @@ Examples:
   motogp-overlay apply "/path/to/folder" --scale 1.0
   
   # Apply to entire round
-  motogp-overlay apply-round "/media/Motorssport/MotoGP/2025/Round 1 Thailand"
+  motogp-overlay apply-round "/media/Motorsport/MotoGP/2025/Round 1 Thailand"
   
   # Apply to entire season
   motogp-overlay apply-season 2025

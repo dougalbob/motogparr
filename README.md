@@ -69,12 +69,16 @@ template, which is why the template marks them optional - but if you do set them
 there, they take priority over `settings.yml` (that is how the app is designed,
 and it is easy to blame the wrong one when a setting "will not save").
 
-The two path variables are the easy ones to get wrong, because they are paths
-*inside the container*:
+The template's path fields ship **blank** on purpose. A non-blank default would
+silently beat `settings.yml`, so editing a path in one place could be overridden
+by the other. Blank means "use `settings.yml`"; fill them in only to override.
 
-- `MOTOGP_LIBRARY_PATH` should match what Plex sees for the same library
-- `MOTOGP_DOWNLOADS_PATH` should match the completed-downloads folder you gave
-  SABnzbd
+Paths are the easy thing to get wrong, and they come in two halves: the volume
+mapping (`/media` in the table above) and the path *inside* it
+(`library.motogp_path`). The second must exist beneath the first. Set it in
+`settings.yml` and leave the template's path fields blank; see
+[Configuring paths](#configuring-paths), which also covers the Plex path mapping
+you will need if Plex runs as its own container.
 
 On first start the container creates `/config/settings.yml` from a commented
 template and prints which settings are still missing.
@@ -95,6 +99,78 @@ startup:
   MotoGParr - MotoGP Automated Recording
   Version: 2.3.0
 ```
+
+## Configuring paths
+
+Environment variables are the canonical configuration, because that is what a
+container launcher can set. `settings.yml` is the fallback, and the precedence is:
+
+```
+environment variable  >  settings.yml  >  built-in default
+```
+
+An environment variable that is **set but empty** counts as not set. That is
+deliberate: the Unraid template ships its path fields blank, so `settings.yml`
+stays authoritative and there is one place to change a path.
+
+| Variable | Overrides |
+|---|---|
+| `MOTOGP_LIBRARY_PATH` | `library.motogp_path` |
+| `MOTOGP_DOWNLOADS_PATH` | `library.downloads_path` |
+| `PLEX_PATH_CONTAINER` | `plex.path_mapping.container` |
+| `PLEX_PATH_PLEX` | `plex.path_mapping.plex` |
+| `MOTOGP_PLEX_LIBRARY_ID`, `MOTOGP_PLEX_LIBRARY` | `plex.library_id`, `plex.library_name` |
+| `PROWLARR_URL`, `PROWLARR_API_KEY` | `prowlarr.*` |
+| `SABNZBD_URL`, `SABNZBD_API_KEY` | `sabnzbd.*` |
+| `PLEX_URL`, `PLEX_TOKEN` | `plex.*` |
+| `DISCORD_WEBHOOK_URL` | `discord.webhook_url` |
+| `TZ` | `timezone` |
+
+A few variables are read by `entrypoint.sh` rather than by the Python code —
+`MOTOGPARR_CALENDAR_UPDATE` and `MOTOGPARR_SKIP_PATH_CHECK`. They are listed
+separately, because claiming the app reads them would be untrue.
+
+The full list is generated from the code, so it cannot drift:
+
+```bash
+python -m utils.config_loader --env-help
+```
+
+### The Plex path mapping matters more than it looks
+
+Matching a file in Plex is an exact string comparison against what Plex reports.
+If Plex runs as its own container, it sees `/data/media/Motorsport/MotoGP/...`
+while MotoGParr sees `/media/Motorsport/MotoGP/...`, and those will never be
+equal. Without a mapping the tagger retries, fails, and files arrive in Plex with
+no labels, genres or collections — looking like "tagging stopped working".
+
+```yaml
+plex:
+  path_mapping:
+    container: /media      # how MotoGParr sees it
+    plex: /data/media      # how Plex sees it
+```
+
+or `PLEX_PATH_CONTAINER=/media` and `PLEX_PATH_PLEX=/data/media` on the
+container. Both halves are required; one on its own does nothing.
+
+### Startup checks
+
+At every start the container prints each path, says **where the value came from**
+(an env var set by the template beats `settings.yml`, which surprises people),
+and whether the path exists:
+
+```
+  Paths:
+    Library path    /media/Motorsport/MotoGP  [settings.yml, ok]
+    Downloads path  /downloads/complete/motogp  [env via MOTOGP_DOWNLOADS_PATH, ok]
+    Plex mapping    /media -> /data/media
+```
+
+If a configured path does not exist inside the container, the container **refuses
+to start** and says which one — a moved folder and an unmounted share are
+otherwise indistinguishable, and the app would run for hours doing nothing.
+Override with `MOTOGPARR_SKIP_PATH_CHECK=1` if you really mean it.
 
 ## Calendars
 
