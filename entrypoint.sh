@@ -114,6 +114,74 @@ else:
     print('  ⚠️  Missing settings:', ', '.join(v['missing']))
 "
 
+# ---------------------------------------------------------------------------
+# Resolved paths
+#
+# A wrong path here is indistinguishable from an unmounted share: the app
+# starts, logs nothing unusual, and quietly does nothing for hours. So print
+# what was actually resolved, say where each value came from (an env var set by
+# the container template beats settings.yml, which surprises people), and stop
+# if a path that must exist does not.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  Paths:"
+$PYTHON -c "
+import sys
+from utils.config_loader import startup_report
+r = startup_report()
+for e in r['paths']:
+    if e['value'] is None:
+        state = 'not set'
+    else:
+        state = 'ok' if e['exists'] else 'MISSING'
+    src = e['source'] + (f\" via {e['env_var']}\" if e['source'] == 'env' else '')
+    print(f\"    {e['label']:<15} {e['value']}  [{src}, {state}]\")
+m = r['plex_path_mapping']
+if m['container'] and m['plex']:
+    print(f\"    {'Plex mapping':<15} {m['container']} -> {m['plex']}\")
+else:
+    print(f\"    {'Plex mapping':<15} not configured\")
+if r['warnings']:
+    print()
+    for w in r['warnings']:
+        print(f'    ⚠️  {w}')
+" || echo "    ⚠️  Could not read configuration"
+
+# Refuse to start when a configured path is not visible inside the container.
+# Without this the app runs happily for hours against a directory that does not
+# exist - a wrong path and an unmounted share look identical from here.
+#
+# The case this catches: a share mounted at /media while settings.yml still says
+# /media/Motorssport/MotoGP after a folder rename. The app grabs nothing, Plex
+# sees nothing, and nothing in the logs explains why.
+MISSING_PATHS=$($PYTHON -c "
+import os
+from utils.config_loader import get_motogp_library_path, get_downloads_path
+for label, path in (('Library path', get_motogp_library_path()),
+                    ('Downloads path', get_downloads_path())):
+    if path and not os.path.isdir(str(path)):
+        print(f'{label}={path}')
+" 2>/dev/null)
+
+if [ -n "$MISSING_PATHS" ]; then
+    echo ""
+    echo "  ❌ Configured path(s) do not exist inside the container:"
+    echo "$MISSING_PATHS" | while IFS='=' read -r label path; do
+        echo "       ${label}: ${path}"
+    done
+    echo ""
+    echo "     This is almost always a path that has moved, or an unmounted share."
+    echo "     Check the container's volume mappings, then set"
+    echo "     MOTOGP_LIBRARY_PATH / MOTOGP_DOWNLOADS_PATH, or the matching"
+    echo "     library.motogp_path / library.downloads_path in settings.yml."
+    echo "     To start anyway, set MOTOGPARR_SKIP_PATH_CHECK=1."
+    echo "=================================================="
+    if [ "${MOTOGPARR_SKIP_PATH_CHECK:-0}" != "1" ]; then
+        exit 1
+    fi
+    echo "  (continuing because MOTOGPARR_SKIP_PATH_CHECK=1)"
+fi
+
 echo ""
 echo "  Config Dir:     ${CONFIG_DIR}"
 echo "  Settings File:  ${SETTINGS_FILE}"

@@ -12,15 +12,18 @@ Usage:
 
 import argparse
 import json
+import os
 import random
 import shutil
 import sys
 from pathlib import Path
-from datetime import datetimemotogparr
+from datetime import datetime
 
 # Configuration
-CONFIG_DIR = Path("/mnt/user/appdata/motogparr")
-PLEX_LIBRARY_BASE = Path("/mnt/user/data/media/Motorssport/MotoGP")
+CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
+PLEX_LIBRARY_BASE = Path(
+    os.environ.get("MOTOGP_LIBRARY_PATH", "/media/MotoGP")
+)
 GRABBER_STATE_FILE = CONFIG_DIR / "grabber_state.json"
 
 def load_grabber_state():

@@ -295,15 +295,17 @@ except ImportError:
 
 
 def get_library_path() -> str:
-    """Get MotoGP library path from config or default."""
+    """
+    Get the MotoGP library path.
+
+    Configuration wins. When running without the config loader (direct
+    execution of a script) fall back to MOTOGP_LIBRARY_PATH, then a neutral
+    default - never a guessed share spelling, because a plausible-looking wrong
+    path is far worse than an obvious one.
+    """
     if _CONFIG_AVAILABLE:
         return get_motogp_library_path()
-    # Fallback for direct execution
-    if os.path.exists("/media"):
-        return "/media/MotoGP"
-    elif os.path.exists("/mnt/user/data/media"):
-        return "/mnt/user/data/media/Motorssport/MotoGP"
-    return "/media/MotoGP"
+    return os.environ.get("MOTOGP_LIBRARY_PATH", "/media/MotoGP")
 
 
 def get_config_dir() -> Path:

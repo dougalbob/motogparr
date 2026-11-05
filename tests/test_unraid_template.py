@@ -63,24 +63,15 @@ def test_config_folder_is_persistent(template):
 
 
 def test_variables_the_app_actually_reads(template):
-    """Every Variable must be one the app reads - a typo here fails silently."""
-    known = {
-        "MOTOGP_LIBRARY_PATH",
-        "MOTOGP_DOWNLOADS_PATH",
-        "TZ",
-        "MOTOGPARR_CALENDAR_UPDATE",
-        "PROWLARR_URL",
-        "PROWLARR_API_KEY",
-        "SABNZBD_URL",
-        "SABNZBD_API_KEY",
-        "PLEX_URL",
-        "PLEX_TOKEN",
-        "MOTOGP_PLEX_LIBRARY_ID",
-        "MOTOGP_PLEX_LIBRARY",
-        "DISCORD_WEBHOOK_URL",
-    }
+    """
+    Every Variable must be one the app reads - a typo here fails silently.
+    The authoritative list is ENV_SPEC, not a copy of it, so this cannot rot.
+    """
+    from utils.config_loader import all_known_env_vars
+
     targets = {c.get("Target") for c in configs(template, "Variable")}
-    assert targets <= known, f"template sets variables the app never reads: {targets - known}"
+    unknown = targets - all_known_env_vars()
+    assert not unknown, f"template sets variables nothing reads: {unknown}"
 
 
 def test_secrets_are_masked(template):

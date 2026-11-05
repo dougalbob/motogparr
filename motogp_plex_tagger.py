@@ -39,6 +39,8 @@ from utils.config_loader import (
     get_plex_library_name,
     get_plex_library_id,
     translate_path_for_plex,
+    plex_path_mapping_complete,
+    get_plex_path_mapping,
     get as config_get,
 )
 
@@ -307,11 +309,42 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     retries = MAX_RETRIES if wait_for_plex else 1
 
     plex_path = translate_path_for_plex(file_path)
+
+    # Matching is an exact string comparison against what Plex reports. When the
+    # two containers see the same file under different prefixes and no mapping
+    # is configured, this can never match - so say so before burning minutes on
+    # retries that are guaranteed to fail.
+    mapping = get_plex_path_mapping()
+    if not plex_path_mapping_complete():
+        logger.warning(
+            "  Plex path mapping is not configured - matching by exact path is "
+            "unlikely to work unless this container and Plex use identical paths."
+        )
+        logger.warning(
+            "  Fix: set plex.path_mapping.container / .plex in settings.yml, or "
+            "PLEX_PATH_CONTAINER / PLEX_PATH_PLEX on the container."
+        )
+    elif not str(file_path).startswith(mapping["container"]):
+        logger.warning(
+            f"  {file_path} is not under the configured container prefix "
+            f"({mapping['container']}) - Plex paths will not match."
+        )
+
     logger.info(f"  Plex path: {plex_path}")
     video = find_plex_item_by_path(plex, PLEX_LIBRARY, plex_path, retries=retries)
 
     if not video:
         logger.error(f"  ❌ File not found in Plex")
+        if not plex_path_mapping_complete():
+            logger.error(
+                "  Most likely cause: no Plex path mapping, so Plex's path for "
+                "this file is not the path searched above."
+            )
+        else:
+            logger.error(
+                "  Check the file is inside a folder the Plex library actually "
+                "scans, and that the library name matches exactly."
+            )
         return False
     
     logger.info(f"  ✅ Found in Plex: {video.title}")
