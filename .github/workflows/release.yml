@@ -144,7 +144,7 @@ jobs:
 
           git add "$file"
           git commit -m "Add $file" >/dev/null 2>&1 || true   # no-op when unchanged
-          git push origin "$branch"
+          git push origin "$branch" || true                    # branch may already exist from a previous run
 
       - name: Open or update the release-notes pull request
         env:
