@@ -1,0 +1,160 @@
+name: Release
+
+# Turns a version tag into a GitHub release with notes generated from the
+# merged pull requests since the previous tag, and writes the same text to
+# RELEASE_NOTES_v<version>.md so the notes live in the repository too.
+#
+# Why generated: the previous three releases were written by hand, which took an
+# hour each and drifted from what the commits actually did. Labels on PRs are the
+# only input (see .github/release.yml), so the notes cannot quietly omit a change
+# that was labelled.
+#
+# Anything genuinely worth explaining - a migration step, a behaviour change -
+# belongs in the PR description and will appear in the "Other changes" /
+# category list. This workflow does not invent prose.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)generate notes for, e.g. v2.5.0'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish release notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags are needed to find the previous release
+
+      - name: Resolve the tag and version
+        id: version
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      # The tag format matters: docker-publish.yml derives :2.5 and :latest from
+      # a semver tag. "V.2.2.1" silently produced no 2.2 tag, which is why this
+      # check exists rather than a comment saying "use semver".
+      - name: Require a vX.Y.Z tag
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error title=Bad tag format::'$tag' is not vX.Y.Z."
+            echo "The container workflow derives :MAJOR.MINOR and :latest from"
+            echo "semver tags; 'V.2.2.1' did not, and shipped untagged images."
+            exit 1
+          fi
+
+      - name: Find the previous release
+        id: previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          current="${{ steps.version.outputs.tag }}"
+          # Tags are listed newest first, so the first one that is not the tag
+          # being released is the previous release.
+          previous=$(gh release list --limit 50 --json tagName --jq '.[].tagName' \
+            | grep -vx "$current" | head -1 || true)
+          echo "tag=${previous}" >> "$GITHUB_OUTPUT"
+          if [ -z "$previous" ]; then
+            echo "No earlier release; notes will list all merged pull requests."
+          else
+            echo "Generating notes since ${previous}"
+          fi
+
+      - name: Generate notes from merged pull requests
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # generate-notes is POST, and takes JSON fields - gh api defaults to
+          # GET and its own naming, so both have to be explicit here.
+          args=(
+            --method POST
+            "repos/${{ github.repository }}/releases/generate-notes"
+            -f "tag_name=${{ steps.version.outputs.tag }}"
+            -f "configuration_file_path=.github/release.yml"
+          )
+          if [ -n "${{ steps.previous.outputs.tag }}" ]; then
+            args+=(-f "previous_tag_name=${{ steps.previous.outputs.tag }}")
+          fi
+
+          gh api "${args[@]}" --jq .body > generated_notes.md
+
+          # A release with an empty body usually means every PR was unlabelled or
+          # excluded. Say so instead of publishing a blank page.
+          if [ ! -s generated_notes.md ]; then
+            echo "::warning title=Empty release notes::No pull requests matched. Check PR labels."
+          fi
+
+          echo "--- generated ---"
+          head -40 generated_notes.md
+
+      - name: Write the notes into the repository
+        run: |
+          file="RELEASE_NOTES_v${{ steps.version.outputs.version }}.md"
+          {
+            echo "# MotoGParr ${{ steps.version.outputs.tag }}"
+            echo
+            cat generated_notes.md
+            echo
+            echo "---"
+            echo
+            echo "_Generated from merged pull requests. Container image:_"
+            echo "\`ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}\`"
+          } > "$file"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+        id: writeup
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag exists; updating its notes."
+            gh release edit "$tag" --notes-file generated_notes.md
+          else
+            gh release create "$tag" \
+              --title "MotoGParr $tag" \
+              --notes-file generated_notes.md \
+              --verify-tag
+          fi
+
+      - name: Upload the notes file as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ steps.version.outputs.version }}
+          path: RELEASE_NOTES_v*.md
+          retention-days: 30
+
+      # Committing back to the tag's branch would fight with the PR that just
+      # merged, so the file is offered as an artifact and the job summary
+      # explains how to keep it. A future change could open a follow-up PR.
+      - name: Explain where the file went
+        run: |
+          {
+            echo "## Release ${{ steps.version.outputs.tag }} published"
+            echo
+            echo "Notes generated from merged pull requests and attached to the release."
+            echo
+            echo "A copy named \`${{ steps.writeup.outputs.file }}\` is attached to this"
+            echo "workflow run as an artifact. To keep it in the repository, commit it"
+            echo "on \`main\` from a follow-up PR (this workflow deliberately does not"
+            echo "push to a protected branch)."
+          } >> "$GITHUB_STEP_SUMMARY"

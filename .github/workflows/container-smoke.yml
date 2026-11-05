@@ -1,0 +1,260 @@
+name: Container smoke test
+
+# Builds the real image and runs it. Until now the container was only ever
+# validated by reading entrypoint.sh and by tests that extract shell blocks from
+# it - which cannot catch a missing apt package, a COPY that misses a file, a
+# port that is not exposed, or a privilege drop that does not work.
+#
+# This is the only place the image itself is exercised, so it is deliberately
+# end-to-end and dumb: start it, wait for the healthcheck, assert what a user
+# would notice.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'aicontextual_notes/**'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: motogparr-smoke:test
+  CONTAINER: motogparr-smoke
+
+jobs:
+  smoke:
+    name: Build and run the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            MOTOGPARR_VERSION=smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---------------------------------------------------------------------
+      # What the image contains
+      # ---------------------------------------------------------------------
+
+      - name: Image must not contain development files
+        run: |
+          set -euo pipefail
+          listing=$(docker run --rm --entrypoint sh "$IMAGE" -c 'find /app -maxdepth 2')
+
+          fail=0
+          for pattern in 'backup' 'test_' 'aicontextual' 'pytest'; do
+            if echo "$listing" | grep -qi "$pattern"; then
+              echo "::error title=Image is carrying $pattern::$(echo "$listing" | grep -i "$pattern")"
+              fail=1
+            fi
+          done
+
+          # The utility that deletes media must not be inside the image at all.
+          if docker run --rm --entrypoint sh "$IMAGE" -c \
+              'test -e /app/scripts/cleanup_utility.py'; then
+            echo "::error title=Destructive utility in image::/app/scripts/cleanup_utility.py exists"
+            fail=1
+          fi
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "Image contents look clean."
+
+      - name: Required runtime files are present
+        run: |
+          set -euo pipefail
+          for path in \
+              /app/entrypoint.sh \
+              /app/motogp_webui.py \
+              /app/motogp_scheduler.py \
+              /app/utils/healthcheck.py \
+              /app/utils/auth.py \
+              /app/utils/permissions.py \
+              /app/utils/settings_schema.py \
+              /app/utils/plexcheck.py \
+              /app/templates/base.html \
+              /app/templates/auth_error.html \
+              /app/static/css/style.css \
+              /app/config/motogp_2026.json ; do
+            docker run --rm --entrypoint sh "$IMAGE" -c "test -e $path" \
+              || { echo "::error title=Missing from image::$path"; exit 1; }
+          done
+          echo "All required files present."
+
+      - name: setpriv must exist, or the privilege drop cannot happen
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE" -c 'command -v setpriv' \
+            || { echo "::error title=setpriv missing::the container would run as root"; exit 1; }
+
+      # ---------------------------------------------------------------------
+      # Run it
+      # ---------------------------------------------------------------------
+
+      - name: Start the container
+        run: |
+          set -euo pipefail
+          cfg=$(mktemp -d)
+          media=$(mktemp -d)
+          downloads=$(mktemp -d)
+          # Unraid-style ownership: the app runs as 99:100.
+          sudo chown -R 99:100 "$cfg" "$media" "$downloads"
+
+          docker run -d --name "$CONTAINER" \
+            -p 5679:5679 \
+            -e PUID=99 -e PGID=100 \
+            -e AUTH_MODE=none \
+            -e MOTOGP_LIBRARY_PATH="$media" \
+            -e MOTOGP_DOWNLOADS_PATH="$downloads" \
+            -v "$cfg:/config" \
+            -v "$media:/media" \
+            -v "$downloads:/downloads" \
+            "$IMAGE"
+
+          echo "CONFIG_HOST=$cfg" >> "$GITHUB_ENV"
+
+      - name: Wait for the WebUI to answer
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:5679/healthz >/dev/null 2>&1; then
+              echo "Healthy after ${attempt}s"
+              curl -fsS http://127.0.0.1:5679/healthz
+              exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" != "true" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          echo "::error title=WebUI never answered::the container did not serve /healthz on 5679"
+          docker logs "$CONTAINER" || true
+          exit 1
+
+      - name: Docker's own healthcheck must agree
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER")
+            echo "health: $status"
+            case "$status" in
+              healthy) exit 0 ;;
+              unhealthy) echo "::error title=Container reported unhealthy::"; docker logs "$CONTAINER"; exit 1 ;;
+            esac
+            sleep 2
+          done
+          echo "::error title=Health status never settled::"
+          docker inspect -f '{{json .State.Health}}' "$CONTAINER" || true
+          exit 1
+
+      # The whole point of the privilege change, asserted rather than assumed.
+      - name: The application must not be running as root
+        run: |
+          set -euo pipefail
+          uid=$(docker top "$CONTAINER" -o uid | tail -n +2 | sort -u | tr '\n' ' ')
+          echo "process uids: $uid"
+          if echo "$uid" | tr ' ' '\n' | grep -qxE '0|root'; then
+            echo "::error title=Running as root::$uid"
+            docker top "$CONTAINER"
+            exit 1
+          fi
+
+      - name: Startup output must report version, paths, auth and permissions
+        run: |
+          set -euo pipefail
+          logs=$(docker logs "$CONTAINER" 2>&1)
+          echo "$logs"
+          for expected in "Version: smoke" "Running as:" "Permissions" "Authentication"; do
+            echo "$logs" | grep -q "$expected" \
+              || { echo "::error title=Missing startup output::'$expected'"; exit 1; }
+          done
+
+      - name: Calendars were copied into /config
+        run: |
+          set -euo pipefail
+          ls -l "$CONFIG_HOST"
+          test -f "$CONFIG_HOST/motogp_2026.json" \
+            || { echo "::error title=Calendar missing from /config::"; exit 1; }
+          test -f "$CONFIG_HOST/settings.yml" \
+            || { echo "::error title=settings.yml was not created::"; exit 1; }
+
+      - name: Schema check runs against the generated settings.yml
+        run: |
+          docker exec "$CONTAINER" /opt/venv/bin/python3 -m utils.settings_schema /config/settings.yml
+
+      # Auth is the feature that would be silently absent if a dependency were
+      # missing from the image, so prove it is wired.
+      - name: With auth enabled, everything but /healthz must be refused
+        run: |
+          set -euo pipefail
+          docker rm -f "$CONTAINER" >/dev/null
+          cfg=$(mktemp -d); media=$(mktemp -d); downloads=$(mktemp -d)
+          sudo chown -R 99:100 "$cfg" "$media" "$downloads"
+
+          # The previous container may still be releasing 5679; retry rather
+          # than failing the job for a reason unrelated to the image.
+          for attempt in $(seq 1 10); do
+            if docker run -d --name "$CONTAINER" \
+                -p 5679:5679 \
+                -e PUID=99 -e PGID=100 \
+                -e AUTH_ISSUER=https://example.cloudflareaccess.com \
+                -e AUTH_AUDIENCE=AUDTAG \
+                -e AUTH_ALLOWED_EMAILS=me@example.com \
+                -e MOTOGP_LIBRARY_PATH="$media" \
+                -e MOTOGP_DOWNLOADS_PATH="$downloads" \
+                -v "$cfg:/config" -v "$media:/media" -v "$downloads:/downloads" \
+                "$IMAGE"; then
+              break
+            fi
+            echo "port not available yet (attempt ${attempt}); retrying"
+            sleep 2
+          done
+          docker inspect "$CONTAINER" >/dev/null 2>&1 \
+            || { echo "::error title=Second container did not start::"; exit 1; }
+
+          for attempt in $(seq 1 45); do
+            curl -fsS http://127.0.0.1:5679/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5679/)
+          echo "GET / -> $code"
+          [ "$code" = "401" ] || { echo "::error title=Unauthenticated access allowed::/ returned $code, expected 401"; docker logs "$CONTAINER"; exit 1; }
+
+          # A forged header must not be enough.
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H 'Cf-Access-Jwt-Assertion: not-a-real-token' http://127.0.0.1:5679/app-config)
+          echo "GET /app-config with a rubbish token -> $code"
+          [ "$code" = "401" ] || { echo "::error title=Forged token accepted::$code"; exit 1; }
+
+          curl -fsS http://127.0.0.1:5679/healthz >/dev/null \
+            || { echo "::error title=healthz must stay public::"; exit 1; }
+          echo "Auth behaves as designed."
+
+      - name: Container logs
+        if: always()
+        run: docker logs "$CONTAINER" 2>&1 || true
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f "$CONTAINER" || true

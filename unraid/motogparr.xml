@@ -59,6 +59,12 @@
 
   <Config Name="Plex library name (optional)" Target="MOTOGP_PLEX_LIBRARY" Default="" Mode="" Description="Optional. Display name of the Plex library, used for logging only." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
+  <Config Name="PUID (run as user id)" Target="PUID" Default="99" Mode="" Description="User id the app runs as. Default 99 is Unraid's 'nobody', which owns your shares. Change it only if your appdata or media folders belong to a different user - the container checks write access at startup and tells you if it is wrong." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+
+  <Config Name="PGID (run as group id)" Target="PGID" Default="100" Mode="" Description="Group id the app runs as. Default 100 is Unraid's 'users'. Set it to match the group that owns your media folders." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+
+  <Config Name="UMASK" Target="UMASK" Default="0022" Mode="" Description="Permission mask for newly created files. 0022 gives rw-r--r--. Use 0002 if other tools need to modify the same files as part of the same group." Type="Variable" Display="advanced" Required="false" Mask="false">0022</Config>
+
   <Config Name="Auth: Cloudflare issuer" Target="AUTH_ISSUER" Default="" Mode="" Description="Only needed if this container is reachable from the internet through Cloudflare Access. Your team's issuer URL, e.g. https://yourteam.cloudflareaccess.com - found in Cloudflare Zero Trust under Access > Applications. Leave blank to keep the WebUI unauthenticated (LAN use only)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <Config Name="Auth: Access audience (AUD) tag" Target="AUTH_AUDIENCE" Default="" Mode="" Description="The Access application's AUD tag. Tokens issued for any other application are rejected. Required if AUTH_ISSUER is set." Type="Variable" Display="advanced" Required="false" Mask="false"/>

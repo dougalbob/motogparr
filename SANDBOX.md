@@ -156,7 +156,48 @@ Outbound access is limited to GitHub/PyPI. So:
 
 ---
 
-## 9. Long-running processes
+## 9. You cannot lint the workflows here
+
+`actionlint` is not installed, and neither route to getting it works:
+
+- `pip install actionlint-py` fails — it tries to build a wheel that has no
+  release binary for this platform.
+- The GitHub release asset host (`release-assets.githubusercontent.com`) is
+  **not** in the allowlist, so `curl` of the tarball fails with
+  `SSL_ERROR_SYSCALL` even though `github.com` and `codeload.github.com` are
+  reachable.
+
+Consequence: workflow YAML can only be checked with `yaml.safe_load` locally
+(`tests/test_workflows.py` asserts structure and the properties that have broken
+before). Everything else — action expressions, `gh api` flags, shell inside
+`run:` — is verified by pushing and reading the Actions log. Budget for one
+failing run per workflow you touch; that is normal here, not a mistake.
+
+Remember that PyYAML parses the bare key `on:` as the boolean `True`, so
+`data["on"]` raises `KeyError` on a valid workflow.
+
+## 10. Testing the privilege drop without Docker
+
+There is no daemon, but the sandbox *does* have `setpriv` and `sudo`, so the
+root → PUID:PGID path can be tested for real:
+
+```bash
+chmod -R a+rX /path/to/checkout     # PUID must be able to read /app
+chmod -R 777 /tmp/priv/config       # ...and write /config
+sudo env CONFIG_DIR=/tmp/priv/config PUID=999 PGID=1000 \
+     MOTOGPARR_PYTHON=/path/to/venv/bin/python3 \
+     MOTOGP_LIBRARY_PATH=/tmp/priv/lib \
+     bash /path/to/checkout/entrypoint.sh
+```
+
+Expect `Running as: 999:1000` and `uid=999` in the permissions block. To prove
+the refusal, `chmod 755` the config dir instead of 777 — it should name the
+folder, print the `chown` command and exit.
+
+Two traps that cost time: the venv must be readable by the target uid
+(`chmod -R a+rX`), and `/tmp` paths must be writable by it.
+
+## 11. Long-running processes
 
 The WebUI is a Flask dev server on `0.0.0.0:5679`. It binds fine in the sandbox
 and is shown as a live preview, but it will fail at `PYTHON_PATH` for anything

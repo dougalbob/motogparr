@@ -16,12 +16,22 @@ Images are built and published by GitHub Actions (`.github/workflows/docker-publ
 
 | What you do | What you get |
 |---|---|
-| Publish a GitHub release tagged `v2.3.0` | `:2.3.0`, `:2.3`, `:latest` |
+| Publish a GitHub release tagged `v2.3.0` | `:2.3.0`, `:2.3`, `:latest` + generated release notes |
 | Merge a PR to `main` | `:edge` (unreleased, for testing) |
 | Run the workflow manually | tags for the ref you pick |
 
 `:latest` only moves when a version tag is published, so a half-finished commit
 on `main` never reaches a container that is force-updated.
+
+Release notes are generated from merged pull requests by
+`.github/workflows/release.yml`, categorised by label via `.github/release.yml`.
+They used to be written by hand, which took an hour a release and drifted from
+what the commits did. **Label your pull requests** — an unlabelled one still
+appears, under "Other changes", but not in the category it belongs to.
+
+Tags must be `vX.Y.Z`. `V.2.2.1` did not match the container workflow's semver
+patterns and shipped images without a `:2.2` tag; the release workflow now
+refuses any other format.
 
 ### One-time GHCR setup (only if a build fails with `permission_denied`)
 
@@ -202,6 +212,43 @@ whose UI has gone reports **unhealthy** instead of "Up". Check it with:
 ```bash
 docker inspect MotoGParr --format '{{.State.Health.Status}}'
 ```
+
+## Permissions (PUID / PGID)
+
+The container starts as root only long enough to drop privileges, then runs
+everything as **`PUID`:`PGID`** — default **99:100**, which is what Unraid calls
+`nobody:users`.
+
+| Variable | Default | |
+|---|---|---|
+| `PUID` | `99` | User id the app runs as |
+| `PGID` | `100` | Group id the app runs as |
+| `UMASK` | `0022` | Permission mask for new files (`0002` if a group must share writes) |
+
+These are runtime variables rather than a `USER` line in the image, because the
+right id is per-installation and an image with a fixed uid cannot be adjusted
+without a rebuild.
+
+At startup the container checks that it can actually write to `/config`, the
+library path and the downloads path, and refuses to start if it cannot — naming
+the folder and the command that fixes it:
+
+```
+  Permissions (uid=99 gid=100):
+    ✅ config (root) /config
+    ✅ library      /media/Motorsport/MotoGP
+    ❌ config (logs) /config/logs [NOT WRITABLE]
+
+     This is almost always ownership. The container runs as 99:100, so those
+     folders must be owned (or writable) by it:
+       chown -R 99:100 '/config/logs'
+     or set PUID/PGID on the container to the owner of those folders.
+```
+
+The point of failing here is that the alternative is invisible: an unwritable
+folder shows up as settings that revert, downloads that never sort, or a
+`PermissionError` in a subprocess hours later. `MOTOGPARR_SKIP_PATH_CHECK=1`
+starts anyway.
 
 ## Access and authentication
 

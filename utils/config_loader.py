@@ -162,7 +162,13 @@ ENTRYPOINT_ENV: Dict[str, str] = {
     "MOTOGPARR_CALENDAR_UPDATE":
         "auto | warn | off - what to do when the /config calendars differ",
     "MOTOGPARR_SKIP_PATH_CHECK":
-        "1 = start even when a configured path does not exist",
+        "1 = start even when a configured path does not exist or is unwritable",
+    "PUID":
+        "uid to run as (default 99 = nobody; Unraid shares are 99:100)",
+    "PGID":
+        "gid to run as (default 100 = users)",
+    "UMASK":
+        "file creation mask for new media (default 0022)",
 }
 
 #: Informational only: set by the Dockerfile / build workflow, never a setting.

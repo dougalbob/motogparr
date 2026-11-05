@@ -221,6 +221,64 @@ It was introduced by my own authentication change and is fixed here, with a test
 that also asserts this default agrees with the copy inside
 `motogp_common.filter_releases()`.
 
+## The container no longer runs as root
+
+It starts as root only long enough to drop privileges, then everything — the
+WebUI, the scheduler, the watcher, every subprocess — runs as **`PUID`:`PGID`,
+default 99:100** (Unraid's `nobody:users`).
+
+| Variable | Default | |
+|---|---|---|
+| `PUID` | `99` | user id the app runs as |
+| `PGID` | `100` | group id |
+| `UMASK` | `0022` | permission mask for new files |
+
+These are runtime variables rather than a `USER` line in the image, because the
+right id is per-installation and a baked-in uid cannot be changed without a
+rebuild.
+
+**The failure mode this prevents** is not a permissions error. A wrong owner
+looks like settings that save and then revert, downloads that complete and are
+never sorted, or a `PermissionError` in a subprocess at 3am. So the container
+now checks before it starts:
+
+```
+  Permissions (uid=99 gid=100):
+    ✅ config (root) /config
+    ✅ library      /media/Motorsport/MotoGP
+    ❌ config (logs) /config/logs [NOT WRITABLE]
+
+     This is almost always ownership. The container runs as 99:100:
+       chown -R 99:100 '/config/logs'
+     or set PUID/PGID to the owner of those folders.
+```
+
+Only folders the app writes to are checked, so a read-only media share is fine.
+`MOTOGPARR_SKIP_PATH_CHECK=1` starts anyway.
+
+> **Unraid users:** this is the update most likely to need a setting changed.
+> If your appdata or media folders are not owned by 99:100, set `PUID`/`PGID` to
+> match. The startup log tells you which folder is wrong, so you do not have to
+> guess.
+
+## Release notes are generated now, and the image is tested before it ships
+
+Three releases this session were written by hand — an hour each, and they drift
+from what the commits actually did. Notes now come from the merged pull requests,
+categorised by label (`.github/release.yml`), with the tag format enforced
+(`V.2.2.1` previously produced no `:2.2` image tag).
+
+A new workflow, `container-smoke.yml`, builds the real image and runs it on every
+PR that touches code. It asserts what a user would notice, and things a
+syntax check cannot:
+
+- no `*.backup`, no tests, and no media-deleting utility inside `/app`
+- `setpriv` is present and **the process is not uid 0**
+- `/healthz` answers and Docker reports `healthy`
+- calendars and `settings.yml` land in `/config`
+- with `AUTH_*` set, every route returns 401 — including with a forged token —
+  while `/healthz` stays public
+
 ## Under the hood
 
 - `utils/auth.py` — verification only, no Flask import. Signature, issuer,
@@ -230,7 +288,7 @@ that also asserts this default agrees with the copy inside
 - `AUTH_*` are environment variables only. Putting an allowlist in a file the UI
   can rewrite is not a security control.
 - `AUTH_MODE=none` exists for local development; it warns in the log and in the UI.
-- 220 tests (was 135), including 21 that sign real RS256 tokens and verify them
+- 252 tests (was 135), including 21 that sign real RS256 tokens and verify them
   against a local key set — no network in the suite.
 - The denial page deliberately does *not* extend `base.html`: it renders from
   `before_request`, where no view context exists, and the first version 500'd
@@ -238,9 +296,17 @@ that also asserts this default agrees with the copy inside
 
 ## Upgrading
 
-Pull and Force Update. If you already run behind Cloudflare Access, add the three
-`AUTH_*` variables to the container (they are in the Unraid template under
-*advanced*) and restart. Until you do, the app keeps working unauthenticated and
-says so at startup.
+Pull and Force Update.
 
-Same calendar, same paths, same configuration keys. No files are migrated.
+1. **Update the Unraid template** so the new variables appear (`PUID`, `PGID`,
+   `UMASK`, and the five `AUTH_*`). The container works without them — defaults
+   are 99:100 and auth stays off — but the startup log will tell you what is
+   unset.
+2. If you use Cloudflare Access, set `AUTH_ISSUER`, `AUTH_AUDIENCE` and
+   `AUTH_ALLOWED_EMAILS`. Until you do, the WebUI keeps working unauthenticated
+   and says so, loudly, at startup and in a UI banner.
+3. Watch the first startup for the **Permissions** block. If it refuses to
+   start, it names the folder and the `chown` command.
+
+Same calendar, same paths, same configuration keys. No files are migrated —
+except that `uiadminpassword` is no longer read and can be deleted.

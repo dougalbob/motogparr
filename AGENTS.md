@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.4.1** · **Tests: 220 passing** · **Single user, self-hosted**
+**Current release: v2.4.1** · **Tests: 252 passing** · **Single user, self-hosted**
 
 ---
 
@@ -83,7 +83,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 220 passed
+.venv/bin/python -m pytest tests -q          # expect 252 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -148,12 +148,12 @@ v2.4.1 — update it as items land.
 |---|---|---|
 | 1 | No authentication on the WebUI; secrets exposed | **DONE (v2.5.0)** — Cloudflare Access JWT verification |
 | 2 | No `.dockerignore`; 6 stale `.backup` files tracked in git | **DONE (v2.5.0)** — `.dockerignore` added (context 1.23 GB → 754 MB); backups removed and gitignored |
-| 3 | Container runs as root (no `USER` directive) | OPEN (needs decision, §7) |
+| 3 | Container runs as root (no `USER` directive) | **DONE (v2.5.0)** — drops to PUID:PGID (99:100) via setpriv, checked at startup |
 | 4 | `test_cleanup_utility.py` deletes files and ships in the image | **DONE (v2.5.0)** — moved to `scripts/`, `--confirm` gate, not in the image |
 | 5 | No schema validation for `settings.yml` | **DONE (v2.5.0)** — `utils/settings_schema.py`, reported at startup and in the UI |
 | 6 | Plex library root is never checked | **DONE (v2.5.0)** — `utils/plexcheck.py`, surfaced at startup and in `/diagnostics` |
-| 7 | Release notes written by hand | OPEN |
-| 8 | No container integration test in CI | OPEN |
+| 7 | Release notes written by hand | **DONE (v2.5.0)** — generated from merged PRs, categorised by label |
+| 8 | No container integration test in CI | **DONE (v2.5.0)** — `container-smoke.yml` builds and runs the image |
 | + | Cloudflare Access JWT verification (`AUTH_*`) | **DONE (v2.5.0)** |
 
 ### Findings added during the documentation review
@@ -291,7 +291,44 @@ is invisible; check for shadows before assuming a helper is what you wrote.
   and in the UI — "Plex is not scanning this folder" is the actual cause of the
   missing-sessions mystery, and it is checkable.
 
-### PR 5 — Release engineering *(items 7, 8)*
+### PR 5 — Release engineering *(items 7, 8)* — **DONE (v2.5.0)**
+
+- `.github/workflows/release.yml` — on a `v*` tag, generates notes from merged
+  PRs via the `releases/generate-notes` API (POST, JSON body — `gh api` defaults
+  to GET and would 404), publishes or updates the release, and uploads
+  `RELEASE_NOTES_v<version>.md` as an artifact. It does **not** push to `main`:
+  the notes file is an artifact, and keeping it in the repo is a follow-up PR.
+- `.github/release.yml` — label → category. Unlabelled PRs land in "Other
+  changes" so nothing is ever omitted, only uncategorised.
+- Tag format is enforced (`vX.Y.Z`) because `V.2.2.1` produced no `:2.2` tag.
+- `.github/workflows/container-smoke.yml` — builds the real image, runs it, and
+  asserts: no dev files in `/app`, `setpriv` present, `/healthz` answers, Docker
+  reports healthy, **the process is not uid 0**, calendars and settings.yml land
+  in `/config`, the schema check runs, and with `AUTH_*` set every route except
+  `/healthz` returns 401 including with a forged token.
+
+**This is the only place the image is exercised.** There is no Docker daemon in
+the agent sandbox, so no container change can be verified locally — write the
+test, push, and read the Actions log. Do not claim the image was run.
+
+### PR 6 — Non-root container *(item 3)* — **DONE (v2.5.0)**
+
+`entrypoint.sh` drops root → `PUID:PGID` (default 99:100) with `setpriv` and
+re-execs itself; `UMASK` is applied; it refuses to continue if still uid 0.
+`utils/permissions.py` then checks write access to `/config`, the library and the
+downloads path — only paths the app writes, so a read-only media share is fine —
+and refuses to start naming the folder, the uid, and the `chown` command.
+
+Deliberately *not* a Dockerfile `USER`: the correct uid is per-installation and
+an image with a fixed one cannot be adjusted on Unraid without a rebuild. A test
+asserts there is no `USER` line.
+
+Side effects worth knowing: `SCRIPT_DIR` is now derived from the script's own
+location, `PYTHON` is overridable via `MOTOGPARR_PYTHON`, and the WebUI uses
+`sys.executable` instead of a hard-coded `/opt/venv/bin/python3` — all three so
+the entrypoint and app can be run from a checkout, which is how the privilege
+drop was actually tested (as root, then asserting uid 999).
+
 - **Generated release notes**: `.github/workflows/release.yml` using
   `gh release create --generate-notes` (categorised labels), triggered by a
   `v*` tag. Write the notes into `RELEASE_NOTES_vX.Y.Z.md` as an artifact and
@@ -304,7 +341,7 @@ is invisible; check for shadows before assuming a helper is what you wrote.
   no `test_*.py`, and no `.git`. This is the only place item 3 and the
   entrypoint can be validated — there is no Docker daemon in the agent sandbox.
 
-### PR 6 — Non-root container *(item 3, needs your decision)*
+### PR 6 — Non-root container *(item 3)* — **DONE (v2.5.0)**
 Not in the original order because it interacts with Unraid. On Unraid the
 media/appdata shares are owned by `nobody:users` (99:100), so a blind
 `USER nobody` produces permission errors on `/config` and `/media` writes. The

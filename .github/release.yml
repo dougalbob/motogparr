@@ -1,0 +1,37 @@
+# Release note configuration
+# =============================================================================
+# GitHub uses this to build release notes from merged pull requests. It replaces
+# hand-written notes, which cost an hour per release and drifted from what
+# actually changed.
+#
+# Labels are the only input, so a PR with no label lands in "Other changes" -
+# still listed, never lost. Add a label when opening a PR and the note writes
+# itself.
+#
+# Used by .github/workflows/release.yml via the releases/generate-notes API.
+
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - dependabot
+
+  categories:
+    - title: Security
+      labels:
+        - security
+    - title: Fixes
+      labels:
+        - bug
+        - fix
+    - title: Improvements
+      labels:
+        - enhancement
+        - feature
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Other changes
+      labels:
+        - "*"

@@ -53,7 +53,13 @@ from utils.config_loader import (
 # CONFIGURATION
 # =============================================================================
 
-PYTHON_PATH = "/opt/venv/bin/python3"
+# The interpreter that spawns the grabber/overlay children.
+#
+# sys.executable rather than a hard-coded /opt/venv path: the WebUI is already
+# running under the right interpreter, so asking it is always correct, and it
+# keeps the app runnable outside the image (tests, local runs) where /opt/venv
+# does not exist. MOTOGPARR_PYTHON overrides both, matching entrypoint.sh.
+PYTHON_PATH = os.environ.get("MOTOGPARR_PYTHON") or sys.executable
 GRABBER_SCRIPT = SCRIPT_DIR / "motogp_grabber.py"
 OVERLAY_SCRIPT = SCRIPT_DIR / "motogp_overlay_utility.py"
 CONFIG_DIR = get_config_dir()

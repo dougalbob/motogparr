@@ -53,6 +53,7 @@ so stopping is honest.
 | `utils/healthcheck.py` | stdlib-only `HEALTHCHECK` probe for `/healthz` |
 | `utils/settings_schema.py` | Permitted shape of `settings.yml`; unknown/wrong-typed keys |
 | `utils/plexcheck.py` | Is Plex actually scanning the library folder? |
+| `utils/permissions.py` | Can PUID:PGID write where it must? |
 
 ---
 
@@ -237,7 +238,7 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **220 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
+- **252 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
   Docker required.
 - `tests/test_webui_security.py` is a set of **characterisation tests that assert
   the current insecure behaviour** (secrets returned by `/app-config`, config
@@ -279,7 +280,16 @@ excluded, and no `COPY` source is.
 
 `scripts/` is deliberately not copied. It holds utilities that delete media.
 
-No `USER` directive: the container runs as root. Still open (item 3).
+No `USER` directive, deliberately: `entrypoint.sh` drops root to `PUID:PGID`
+(default 99:100) with `setpriv` and re-execs itself. A fixed `USER` would bake in
+one uid, and on Unraid the right uid is per-installation. `UMASK` is applied and
+the script refuses to continue if it is still uid 0.
+
+`utils/permissions.py` then checks write access to `/config`, the library path
+and the downloads path before any work starts. Only paths the app writes are
+checked, so a read-only media share is legitimate. A failure names the folder,
+the uid and the `chown` command, because the alternative symptom — settings that
+revert, downloads that never sort — does not look like permissions.
 
 `assets/` is large because artwork is baked in per class/season; treat it as an
 external-data candidate if image size becomes a problem.
