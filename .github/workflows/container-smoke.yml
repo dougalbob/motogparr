@@ -117,7 +117,14 @@ jobs:
           media=$(mktemp -d)
           downloads=$(mktemp -d)
           # Unraid-style ownership: the app runs as 99:100.
+          #
+          # mktemp -d creates these 0700 owned by the runner, so chowning them to
+          # the app user locks the runner out of its own directory - `ls` then
+          # fails with "Permission denied", which looks like a missing calendar
+          # but is a permissions problem in the test harness. 0755 leaves the
+          # runner able to read while the app still owns and writes them.
           sudo chown -R 99:100 "$cfg" "$media" "$downloads"
+          sudo chmod 0755 "$cfg" "$media" "$downloads"
 
           # The paths the app is told about must be the CONTAINER paths
           # (/media, /downloads), not the host paths that were mounted. Passing
@@ -253,12 +260,40 @@ jobs:
 
       - name: Calendars were copied into /config
         run: |
-          set -euo pipefail
-          ls -l "$CONFIG_HOST"
-          test -f "$CONFIG_HOST/motogp_2026.json" \
-            || { echo "::error title=Calendar missing from /config::"; exit 1; }
-          test -f "$CONFIG_HOST/settings.yml" \
-            || { echo "::error title=settings.yml was not created::"; exit 1; }
+          set -uo pipefail
+          # Evidence first, and never fatal: a listing that fails must not be
+          # reported as a missing file.
+          echo "--- host view of /config ---"
+          ls -la "$CONFIG_HOST" || echo "(runner cannot list $CONFIG_HOST)"
+
+          # Authoritative check inside the container, where these paths are what
+          # the application really wrote.
+          docker exec "$CONTAINER" sh -c '
+            ls -la /config
+            for f in /config/motogp_2026.json /config/settings.yml; do
+              if [ -f "$f" ]; then
+                echo "PRESENT $f"
+              else
+                echo "MISSING $f"
+              fi
+            done
+          ' | tee /tmp/config.txt
+          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+            echo "::error title=Could not inspect /config in the container::"
+            exit 1
+          fi
+
+          missing=$(grep '^MISSING ' /tmp/config.txt || true)
+          if [ -n "$missing" ]; then
+            echo "::error title=Expected files are missing from /config::$missing"
+            docker logs "$CONTAINER" 2>&1 | tail -40 || true
+            exit 1
+          fi
+
+          # settings.yml must be usable, not merely present.
+          docker exec "$CONTAINER" sh -c 'test -s /config/settings.yml' \
+            || { echo "::error title=settings.yml is empty::"; exit 1; }
+          echo "/config holds the calendar and a non-empty settings.yml."
 
       - name: Schema check runs against the generated settings.yml
         run: |
