@@ -5,3 +5,10 @@ __pycache__/
 *.log
 config/grabber_state.json
 .DS_Store
+
+# Test artefacts
+.pytest_cache/
+tests/__pycache__/
+
+# Local test virtualenv
+.venv*/

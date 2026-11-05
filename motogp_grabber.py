@@ -27,7 +27,7 @@ import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 # Add script directory to path
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -45,6 +45,7 @@ from motogp_common import (
     get_desired_sessions,
     SESSION_TO_CALENDAR_KEY, CALENDAR_KEY_TO_SESSION, CALENDAR_KEY_TO_DAY,
     get_config_dir, get_library_path,
+    is_round_active, round_runs_session, get_round_status,
 )
 from activity_emitter import emit_activity, ActivityStage, mark_error
 
@@ -173,32 +174,38 @@ class GrabberState:
 # CALENDAR UTILITIES
 # =============================================================================
 
-def get_session_end_time(round_info: dict, session_type: SessionType) -> Optional[datetime]:
-    """Get GMT end time for a session from calendar."""
+def get_session_times(round_info: dict, session_type: SessionType) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """
+    Get GMT (start, end) for a session from the calendar.
+
+    Both come from the same source so callers such as "upcoming sessions" do not
+    have to guess the start time. Returns (None, None) when the round does not
+    run the session or has no time for it.
+    """
     calendar_key = SESSION_TO_CALENDAR_KEY.get(session_type)
     if not calendar_key:
-        return None
+        return (None, None)
 
     day = CALENDAR_KEY_TO_DAY.get(calendar_key)
     if not day:
-        return None
+        return (None, None)
 
     sessions = round_info.get("sessions", {})
     day_sessions = sessions.get(day, {})
     session_info = day_sessions.get(calendar_key)
 
     if not session_info:
-        return None
+        return (None, None)
 
     gmt_time = session_info.get("gmt")
     if not gmt_time:
-        return None
+        return (None, None)
 
     weekend_start = round_info.get("weekend_start")
     race_date = round_info.get("date")
 
     if not weekend_start or not race_date:
-        return None
+        return (None, None)
 
     try:
         weekend_start_dt = datetime.strptime(weekend_start, "%Y-%m-%d")
@@ -211,7 +218,7 @@ def get_session_end_time(round_info: dict, session_type: SessionType) -> Optiona
         elif day == "sunday":
             session_date = race_date_dt
         else:
-            return None
+            return (None, None)
 
         gmt_day = session_info.get("gmt_day")
         if gmt_day:
@@ -223,14 +230,24 @@ def get_session_end_time(round_info: dict, session_type: SessionType) -> Optiona
             session_date += timedelta(days=day_offsets.get(gmt_day, 0))
 
         hour, minute = map(int, gmt_time.split(":"))
-        session_dt = session_date.replace(hour=hour, minute=minute)
+        start_dt = session_date.replace(hour=hour, minute=minute)
 
         duration = session_info.get("duration_mins", 45)
-        return session_dt + timedelta(minutes=duration)
+        return (start_dt, start_dt + timedelta(minutes=duration))
 
     except Exception as e:
         logger.debug(f"Error parsing session datetime: {e}")
-        return None
+        return (None, None)
+
+
+def get_session_end_time(round_info: dict, session_type: SessionType) -> Optional[datetime]:
+    """Get GMT end time for a session from calendar."""
+    return get_session_times(round_info, session_type)[1]
+
+
+def get_session_start_time(round_info: dict, session_type: SessionType) -> Optional[datetime]:
+    """Get GMT start time for a session from calendar."""
+    return get_session_times(round_info, session_type)[0]
 
 
 def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None) -> List[dict]:
@@ -256,6 +273,15 @@ def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None
         round_num = round_info.get("round", 0)
         venue = round_info.get("venue", "Unknown")
         rounds_checked += 1
+
+        # A cancelled/postponed round must never be searched for, even if its
+        # old dates still fall inside the active window.
+        if not is_round_active(round_info):
+            logger.info(
+                f"Round {round_num} {venue}: status is "
+                f"'{get_round_status(round_info)}', skipping"
+            )
+            continue
 
         # Only consider current race weekend
         race_date_str = round_info.get("date")
@@ -304,6 +330,14 @@ def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None
         for session_type in SCHEDULABLE_SESSIONS:
             if not desired.get(session_type, False):
                 logger.debug(f"  {session_type.full_display_name}: Not in desired sessions, skipping")
+                continue
+
+            # The weekend format decides which sessions exist (e.g. no MotoGP
+            # warm-up from 2027, Sprint Qualifying added).
+            if not round_runs_session(round_info, session_type, calendar):
+                logger.debug(
+                    f"  {session_type.full_display_name}: Not run at this round, skipping"
+                )
                 continue
 
             end_time = get_session_end_time(round_info, session_type)
@@ -356,15 +390,19 @@ def get_upcoming_sessions(calendar: dict, hours_ahead: int = 48) -> List[dict]:
         round_num = round_info.get("round", 0)
         venue = round_info.get("venue", "Unknown")
 
+        if not is_round_active(round_info):
+            continue
+
         for session_type in SCHEDULABLE_SESSIONS:
             if not desired.get(session_type, False):
                 continue
 
-            end_time = get_session_end_time(round_info, session_type)
-            if not end_time:
+            if not round_runs_session(round_info, session_type, calendar):
                 continue
 
-            start_time = end_time - timedelta(minutes=45)
+            start_time, end_time = get_session_times(round_info, session_type)
+            if not start_time or not end_time:
+                continue
 
             if now < start_time <= cutoff:
                 upcoming.append({
@@ -445,6 +483,14 @@ def identify_missing_sessions(
         if round_filter and round_num != round_filter:
             continue
 
+        # Never hunt for sessions belonging to a cancelled/postponed round.
+        if not is_round_active(round_entry):
+            logger.info(
+                f"Round {round_num} {round_entry.get('venue', '?')}: status is "
+                f"'{get_round_status(round_entry)}', not looking for sessions"
+            )
+            continue
+
         if only_past:
             round_date_str = round_entry.get("date", "")
             if round_date_str:
@@ -459,6 +505,10 @@ def identify_missing_sessions(
 
         for session_type, wanted in get_desired_sessions().items():
             if not wanted:
+                continue
+
+            # Skip sessions this weekend format does not run.
+            if not round_runs_session(round_entry, session_type, calendar):
                 continue
 
             if session_type not in existing_for_round:
@@ -587,10 +637,15 @@ def build_search_queries(round_info: dict, session_type: SessionType, season: in
         if len(alias) > 2 and alias.lower() not in ['uk', 'gp', 'tt']:
             queries.append(f"{class_search} {season} {alias}")
 
-    # Round-based queries
-    queries.append(f"{class_search} {season} Round{round_num:02d}")
-    queries.append(f"{class_search} {season} Round{round_num}")
-    queries.append(f"{class_search} {season} Round {round_num}")
+    # Round-based queries. The calendar may carry alternative round numbers
+    # for the same event (see "round_aliases"), which happens when the
+    # championship is renumbered mid-season after a postponement.
+    for alias in [round_num] + list(round_info.get("round_aliases") or []):
+        if not alias:
+            continue
+        queries.append(f"{class_search} {season} Round{alias:02d}")
+        queries.append(f"{class_search} {season} Round{alias}")
+        queries.append(f"{class_search} {season} Round {alias}")
 
     # Remove duplicates
     seen = set()

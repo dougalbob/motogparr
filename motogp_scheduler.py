@@ -28,7 +28,10 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
 # Import centralized logging FIRST
-from motogp_common import setup_logging, get_logger, load_calendar, has_session_times, get_config_dir
+from motogp_common import (
+    setup_logging, get_logger, load_calendar, has_session_times, get_config_dir,
+    is_round_active,
+)
 from motogp_watcher import create_watcher
 
 from utils.config_loader import (
@@ -112,6 +115,9 @@ def get_current_race_weekend(calendar: dict) -> Optional[dict]:
     today = now.date()
     
     for round_info in calendar.get("rounds", []):
+        if not is_round_active(round_info):
+            continue
+
         race_date_str = round_info.get("date")
         weekend_start_str = round_info.get("weekend_start")
         
@@ -155,6 +161,9 @@ def get_next_race_weekend(calendar: dict) -> Optional[dict]:
     next_date = None
     
     for round_info in calendar.get("rounds", []):
+        if not is_round_active(round_info):
+            continue
+
         race_date_str = round_info.get("date")
         weekend_start_str = round_info.get("weekend_start")
         

@@ -130,7 +130,12 @@
                         classes.push('race-day');
                     }
                     
-                    tooltip = `Round ${race.number}: ${race.venue}`;
+                    if (race.status && race.status !== 'scheduled') {
+                        classes.push('inactive');
+                        tooltip = `Round ${race.number}: ${race.venue} (${race.status})`;
+                    } else {
+                        tooltip = `Round ${race.number}: ${race.venue}`;
+                    }
                     onclick = `onclick="showRaceDetails(${race.number})"`;
                 }
                 
@@ -181,6 +186,10 @@
         // Format date as DD-MM-YYYY
         const formattedDate = race.date.split('-').reverse().join('-');
         
+        const statusLabel = race.status && race.status !== 'scheduled'
+            ? `<div class="race-status-badge race-status-${race.status}">${race.status.toUpperCase()}</div>`
+            : '';
+
         let html = `
             <div class="race-detail-header">
                 <div class="race-detail-flag">
@@ -190,9 +199,33 @@
                     <div class="race-round">Round ${race.number}</div>
                     <div class="race-venue">${race.venue}</div>
                     <div class="race-date">${formattedDate}</div>
+                    ${statusLabel}
                 </div>
             </div>
         `;
+
+        // Weekend format (differs by season and, from 2027, by class)
+        if (race.format && Object.keys(race.format).length) {
+            const dayOrder = ['friday', 'saturday', 'sunday'];
+            const otherClasses = (race.classes || []).filter(c => c !== 'motogp');
+            const formatClasses = otherClasses.length === 3 ? 'MotoGP, Moto2, Moto3' : 'MotoGP';
+            const formatNote = otherClasses.length
+                ? `<div class="race-format-note">${formatClasses}</div>` : '';
+
+            html += `<div class="race-format">
+                <div class="race-format-title">Weekend format${formatNote}</div>`;
+            dayOrder.forEach(day => {
+                const sessions = race.format[day];
+                if (!sessions) return;
+                html += `<div class="race-format-day">
+                    <span class="race-format-day-label">${day.slice(0, 3).toUpperCase()}</span>
+                    <span class="race-format-sessions">${sessions.map(s =>
+                        `${s.label} <em>${s.duration_mins}m</em>`
+                    ).join(' &middot; ')}</span>
+                </div>`;
+            });
+            html += `</div>`;
+        }
         
         if (isPast) {
             const grabbed = status.grabbed || 0;
@@ -239,6 +272,11 @@
                 // Show footer if there are missing sessions
                 document.getElementById('modal-footer').style.display = hasMissing ? 'flex' : 'none';
             }
+        } else if (race.status && race.status !== 'scheduled') {
+            html += `<div class="race-progress">
+                <div class="race-progress-label">This round is marked as ${race.status}.</div>
+            </div>`;
+            document.getElementById('modal-footer').style.display = 'none';
         } else {
             const daysUntil = Math.ceil((raceDate - today) / (1000 * 60 * 60 * 24));
             html += `
