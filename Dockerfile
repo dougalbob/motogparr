@@ -52,4 +52,10 @@ VOLUME ["/config"]
 
 EXPOSE 5679
 
+# The WebUI can die while the scheduler keeps the container "Up". Without this,
+# Docker (and therefore Unraid) reports healthy for a container whose UI is gone,
+# which is exactly the confusion this probe removes.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD ["/opt/venv/bin/python3", "/app/utils/healthcheck.py"]
+
 ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1320,4 +1320,26 @@ if __name__ == "__main__":
     print("  MotoGParr Web UI")
     print("  Open http://your-server-ip:5679")
     print("=" * 50)
-    app.run(host="0.0.0.0", port=5679, debug=False)
+
+    try:
+        app.run(host="0.0.0.0", port=5679, debug=False)
+    except OSError as exc:
+        # Flask/Werkzeug would otherwise dump a traceback whose most useful
+        # line is the errno. Say the actual thing that is wrong: something else
+        # already owns the port (on Unraid, almost always an older container
+        # that was not fully removed).
+        import errno as _errno
+
+        if exc.errno == _errno.EADDRINUSE:
+            print("")
+            print("  ❌ Port 5679 is already in use - the WebUI cannot start.")
+            print("     Another container is almost certainly still running and")
+            print("     holding the port. Check with:")
+            print("       docker ps --format '{{.Names}} {{.Ports}}'")
+            print("     Remove or stop it, or give this container a different")
+            print("     host port.")
+            print("=" * 50)
+            raise SystemExit(1)
+
+        print(f"  ❌ WebUI could not start: {exc}")
+        raise SystemExit(1)

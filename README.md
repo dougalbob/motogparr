@@ -167,10 +167,40 @@ and whether the path exists:
     Plex mapping    /media -> /data/media
 ```
 
-If a configured path does not exist inside the container, the container **refuses
-to start** and says which one — a moved folder and an unmounted share are
-otherwise indistinguishable, and the app would run for hours doing nothing.
-Override with `MOTOGPARR_SKIP_PATH_CHECK=1` if you really mean it.
+A missing **library** path stops the container: nothing can be sorted, and the
+alternative is a container that looks healthy while doing nothing for hours. A
+missing **downloads** path is only a warning — that folder is often absent on a
+fresh install or after a share is reorganised, and refusing to boot the WebUI
+over it would remove the very thing you would use to fix it.
+
+Override the library check with `MOTOGPARR_SKIP_PATH_CHECK=1` if you really mean
+it.
+
+### If the WebUI dies
+
+The WebUI runs under supervision. If it exits, it is restarted (up to five times)
+and the death is logged:
+
+```
+  ❌ WebUI exited (code 1) after 42s.
+     Restarting it (attempt 1/5);
+     the scheduler is unaffected.
+```
+
+A process that dies within seconds of starting is treated as a startup fault
+rather than a crash and is **not** retried — the usual cause is port 5679 still
+being held by an older container, and the log says so. The scheduler keeps
+running in that case, so the container still does its job.
+
+If the scheduler itself exits, the container stops rather than pretending to
+work, so Docker's restart policy (or Unraid's) can act.
+
+The image also declares a `HEALTHCHECK` that requests `/` on 5679, so a container
+whose UI has gone reports **unhealthy** instead of "Up". Check it with:
+
+```bash
+docker inspect MotoGParr --format '{{.State.Health.Status}}'
+```
 
 ## Calendars
 
