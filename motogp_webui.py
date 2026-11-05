@@ -132,8 +132,9 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     # Not Secure-by-default: the app is served over http inside the LAN and
-    # Cloudflare terminates TLS outside it. Set MOTOOGPARR_COOKIE_SECURE=1 when
-    # the container is only ever reached through Cloudflare.
+    # Cloudflare terminates TLS outside it, so a Secure cookie would simply not
+    # be sent back by the LAN browser. Set MOTOGPARR_COOKIE_SECURE=1 if this
+    # container is ONLY ever reached through Cloudflare.
     SESSION_COOKIE_SECURE=os.environ.get("MOTOGPARR_COOKIE_SECURE", "0") == "1",
 )
 

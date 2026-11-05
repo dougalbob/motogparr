@@ -109,6 +109,46 @@ The page names the actual reason rather than showing a bare 403:
 | `Token has expired` | Reload; Access usually re-issues |
 | `not assigned to this installation` | Cloudflare let it through, but the address is not in `AUTH_ALLOWED_EMAILS` |
 
+## Repository hygiene, and one thing you must do
+
+**A live Prowlarr API key was committed to this public repository.**
+
+`test_prowlarr.py` at the repo root contained a working Prowlarr URL and API key.
+It arrived in the `cac8dc5` merge, so it has been world-readable since then. The
+file is deleted in this release, but **deleting it does not un-publish it** — it
+is still in git history and the branch was pushed.
+
+> **Action: rotate the Prowlarr API key** (Settings → General → API Key → Reset)
+> and update it in the container. Assume it is compromised.
+
+The same file also exposed the LAN address `192.168.1.241`.
+
+That file is gone, and `tests/test_build_hygiene.py` now scans the working tree
+for credential literals — it cannot scan history, so the rule is: if a key may
+have leaked, rotate it. Rewriting a public repository's history does not recall
+the clones.
+
+### Other cleanup
+
+- **`.dockerignore` added.** Every build was sending the daemon 1.23 GB: `.git`
+  (372 MB), `assets/` (753 MB), plus tests, docs and local config. It now sends
+  754 MB, almost all of it artwork the image genuinely needs. The image itself
+  was always small — the Dockerfile copies an explicit file list — but the
+  transfer was not. (Shrinking `assets/` further is a separate job: 753 MB of
+  posters and fanart baked into the image.)
+- **Six `*.backup` files deleted.** They had drifted out of date, and git already
+  holds every previous version. Now gitignored so they cannot return.
+- **The cleanup utility is no longer a test, and no longer in your way.**
+  `test_cleanup_utility.py` deleted media from the library, sat at the repo root
+  where `pytest` could collect it, and was named like a test while asserting
+  nothing (its imports had been broken for months unnoticed). It is now
+  `scripts/cleanup_utility.py`: same job, requires `--confirm`, refuses to run
+  outside a real session folder, and its default library path now matches the
+  documented layout instead of a tree that did not exist.
+- `MOTOGPARR_COOKIE_SECURE` is now a registered setting (it was read but
+  undocumented). Set it to `1` only if the container is reached *solely* through
+  Cloudflare.
+
 ## Under the hood
 
 - `utils/auth.py` — verification only, no Flask import. Signature, issuer,
@@ -118,7 +158,7 @@ The page names the actual reason rather than showing a bare 403:
 - `AUTH_*` are environment variables only. Putting an allowlist in a file the UI
   can rewrite is not a security control.
 - `AUTH_MODE=none` exists for local development; it warns in the log and in the UI.
-- 151 tests (was 135), including 21 that sign real RS256 tokens and verify them
+- 173 tests (was 135), including 21 that sign real RS256 tokens and verify them
   against a local key set — no network in the suite.
 - The denial page deliberately does *not* extend `base.html`: it renders from
   `before_request`, where no view context exists, and the first version 500'd

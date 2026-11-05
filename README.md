@@ -341,6 +341,20 @@ CI runs the same tests plus `utils/validate_calendar.py` on every season on each
 push and pull request; a pull request that edits a calendar gets a dedicated
 check that also rejects duplicate JSON keys.
 
+Run `python -m pytest tests` — not bare `pytest`, which also walks the repository
+root. Root-level scratch scripts are not permitted (see `tests/test_build_hygiene.py`).
+
+### Maintenance scripts
+
+`scripts/cleanup_utility.py` removes random grabbed episodes from the library so
+the download path can be exercised again. **It deletes media.** It is not a test,
+it is not in the container image, and it refuses to run without `--confirm`:
+
+```bash
+python scripts/cleanup_utility.py --count 5 --dry-run     # preview
+python scripts/cleanup_utility.py --count 5 --confirm     # delete
+```
+
 ### For contributors and AI agents
 
 | Document | What it is |

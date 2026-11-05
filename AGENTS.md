@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.4.1** · **Tests: 151 passing** · **Single user, self-hosted**
+**Current release: v2.4.1** · **Tests: 173 passing** · **Single user, self-hosted**
 
 ---
 
@@ -83,7 +83,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 151 passed
+.venv/bin/python -m pytest tests -q          # expect 173 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -132,8 +132,10 @@ Still true, and still worth knowing:
 - `/run` spawns a subprocess from a client-supplied string and
   `/download-selected` triggers downloads. Both are authenticated writes now,
   but the argument handling is still string-splitting: treat as untrusted.
-- `test_cleanup_utility.py` **deletes library folders and rewrites grabber
-  state** and still ships in the image. Must not — item 4, still open.
+- `scripts/cleanup_utility.py` **deletes library folders and rewrites grabber
+  state**. It is no longer a test, no longer at the repo root, no longer in the
+  image, and requires `--confirm`. Keep it that way: `tests/test_build_hygiene.py`
+  asserts it cannot be copied in.
 
 ---
 
@@ -145,9 +147,9 @@ v2.4.1 — update it as items land.
 | # | Issue | Status |
 |---|---|---|
 | 1 | No authentication on the WebUI; secrets exposed | **DONE (v2.5.0)** — Cloudflare Access JWT verification |
-| 2 | No `.dockerignore`; 6 stale `.backup` files tracked in git | OPEN |
+| 2 | No `.dockerignore`; 6 stale `.backup` files tracked in git | **DONE (v2.5.0)** — `.dockerignore` added (context 1.23 GB → 754 MB); backups removed and gitignored |
 | 3 | Container runs as root (no `USER` directive) | OPEN (needs decision, §7) |
-| 4 | `test_cleanup_utility.py` deletes files and ships in the image | OPEN |
+| 4 | `test_cleanup_utility.py` deletes files and ships in the image | **DONE (v2.5.0)** — moved to `scripts/`, `--confirm` gate, not in the image |
 | 5 | No schema validation for `settings.yml` | OPEN |
 | 6 | Plex library root is never checked | OPEN |
 | 7 | Release notes written by hand | OPEN |
@@ -222,18 +224,29 @@ The remaining sub-items below are kept as the rationale, not as outstanding work
    every route (enumerate `app.url_map` and assert each rule is either
    guarded or on the public allowlist — this is the test that stops regressions).
 
-### PR 3 — Hygiene *(items 2, 4)*
-- `.dockerignore`: `.git`, `*.backup*`, `aicontextual_notes`, `.venv*`, tests,
-  `docs`, `AGENTS.md`, `SANDBOX.md`, caches. Watch the build context: `assets/`
-  is ~755 MB and `.git` 373 MB, all of it currently sent to the daemon.
-- Delete the six tracked `*.backup*` files (`git rm`), and the `.backup` files
-  under `templates/`. They are pre-refactor snapshots with no value now that git
-  is the history.
-- Move `test_cleanup_utility.py` out of the image — `scripts/` (not copied by
-  the Dockerfile) or delete it. It rewrites library state and is a foot-gun if
-  reachable; it must not be in `/app`. Its imports were broken for months
-  without CI noticing, which is the argument for it not being a test at all.
-- `test_prowlarr.py` in the repo root has the same problem (collection error).
+### PR 3 — Hygiene *(items 2, 4)* — **DONE (v2.5.0)**
+- `.dockerignore` added. Measured context was 1.23 GB, of which `.git` was
+  372 MB; tests, docs and local config made up most of the rest. Now 754 MB.
+  A test now asserts the two directions that matter: development-only paths are
+  excluded, and **nothing the Dockerfile COPYs is excluded**.
+- The six tracked `*.backup*` files deleted; `*.backup*`/`*.bak`/`*.orig`
+  gitignored so they cannot come back.
+- `test_cleanup_utility.py` → `scripts/cleanup_utility.py`: renamed (it is not a
+  test — it asserts nothing and `pytest` could collect it), moved out of the root,
+  out of the image, and given a `--confirm` gate plus a "is this actually a
+  session folder" check before `rmtree`. Its library default also did not match
+  the documented layout, so it had been searching the wrong tree.
+- `test_prowlarr.py` deleted: it held a live Prowlarr API key (see §7a), had a
+  collection error, and was a scratch script.
+- `MOTOGPARR_COOKIE_SECURE` added to `ENV_SPEC` and the Unraid template. It was
+  read by the WebUI but unregistered, which is the "documented but dead" class
+  this repo already got burned by.
+
+**Correction to the original finding:** item 4 said the cleanup utility "ships in
+the image". It did not — the Dockerfile copies an explicit file list and never
+included it. The exposure was real but narrower: it was collectable by `pytest`
+and sitting in a public repo. Verifying that cost two minutes and is worth
+repeating before recording a finding as fact.
 
 ### PR 4 — Correctness *(items 5, 6, finding E)*
 - **`settings.yml` schema** (`utils/schema.py` or a table in `config_loader`):
@@ -272,6 +285,41 @@ overrides, or (b) keep root and document it. Recommend (a), shipped with the
 smoke test asserting the process is not UID 0.
 
 ---
+
+## 7a. Incidents
+
+Record security incidents here with dates and required actions, so a later
+session does not re-discover them or assume they were handled.
+
+### 2026-11-05 — live Prowlarr API key committed to a public repository
+
+`test_prowlarr.py` at the repository root contained a working Prowlarr URL and
+API key:
+
+```python
+PROWLARR_URL = "http://192.168.1.241:9696"
+PROWLARR_API_KEY = "<redacted>"
+```
+
+**The repository is public** (`gh repo view --json isPrivate` → `false`), and the
+file arrived in the `cac8dc5` merge, so the key was world-readable from then
+until it was deleted. It is still recoverable from git history
+(`git log --all -S<key>`), and this branch has been pushed, so deleting the file
+does not un-publish it.
+
+**Required action (cannot be done from the sandbox — no Prowlarr access):**
+
+1. Rotate the Prowlarr API key: Prowlarr → Settings → General → API Key → Reset.
+2. Update `PROWLARR_API_KEY` wherever it is set (Unraid template, `settings.yml`).
+3. Rotate any other key that was stored alongside it if they share a values file.
+
+The file was deleted in v2.5.0 and `tests/test_build_hygiene.py` now scans the
+working tree for credential literals. It cannot scan history; if a key is ever
+suspected, assume it is compromised and rotate rather than rewriting history —
+rewriting a public repo does not recall clones.
+
+The same file also leaked the LAN address `192.168.1.241`; treat the layout of
+your network as public knowledge from that date.
 
 ## 8. Known traps (learned the hard way)
 

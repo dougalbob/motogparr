@@ -21,3 +21,10 @@ tests/__pycache__/
 
 # Local test virtualenv
 .venv*/
+
+# Backup files are not source control. Six of these were tracked for months and
+# drifted out of date; git already keeps every previous version.
+*.backup
+*.backup*
+*.bak
+*.orig

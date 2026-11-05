@@ -67,6 +67,8 @@
 
   <Config Name="Auth: mode" Target="AUTH_MODE" Default="" Mode="" Description="Leave blank to decide automatically: cloudflare when AUTH_ISSUER is set, otherwise none. Set cloudflare to require the token even if the issuer is misconfigured (fails closed). Set none only for local development - it logs a warning and shows a banner in the UI." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
+  <Config Name="Auth: secure cookie" Target="MOTOGPARR_COOKIE_SECURE" Default="" Mode="" Description="Leave blank unless this container is ONLY reachable through Cloudflare. 1 marks the session cookie Secure, which is correct when TLS terminates at Cloudflare but stops the cookie working over plain http on the LAN." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
   <Config Name="Auth: certs URL override" Target="AUTH_CERTS_URL" Default="" Mode="" Description="Leave blank. Overrides where the Access signing keys are fetched from; defaults to AUTH_ISSUER/cdn-cgi/access/certs." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <Config Name="Discord webhook (optional)" Target="DISCORD_WEBHOOK_URL" Default="" Mode="" Description="Optional. Post a message to Discord when a session is grabbed or fails." Type="Variable" Display="advanced" Required="false" Mask="true"/>

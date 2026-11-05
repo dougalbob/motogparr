@@ -234,7 +234,7 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **151 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
+- **173 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
   Docker required.
 - `tests/test_webui_security.py` is a set of **characterisation tests that assert
   the current insecure behaviour** (secrets returned by `/app-config`, config
@@ -263,14 +263,20 @@ the WebUI), `fonts-dejavu-core` for overlay text, `EXPOSE 5679`,
 `HEALTHCHECK` → `utils/healthcheck.py` (stdlib only; the image has no `curl`).
 
 The Dockerfile copies an explicit list of files rather than the tree — so a new
-top-level module is invisible to the image until you add a `COPY` line. It also
-means `test_cleanup_utility.py` shipping in the image was an explicit choice, not
-an accident.
+top-level module is invisible to the image until you add a `COPY` line. The flip
+side is that nothing ships by accident: `test_cleanup_utility.py` was never in
+the image, contrary to an early review finding.
 
-No `USER` directive: the container runs as root. No `.dockerignore`: the whole
-755 MB `assets/` tree and 373 MB `.git` are sent to the build daemon, and the
-build context includes `*.backup*` files (which `COPY` avoids, but the context
-still carries).
+`.dockerignore` (added v2.5.0) keeps the build context small: measured 1.23 GB
+before, 754 MB after, and 372 MB of the former was `.git`. What remains is almost
+entirely `assets/` (753 MB of posters and fanart), which the image genuinely
+needs — shrinking that is a separate job, not a `.dockerignore` one.
+`tests/test_build_hygiene.py` checks both directions: development files are
+excluded, and no `COPY` source is.
+
+`scripts/` is deliberately not copied. It holds utilities that delete media.
+
+No `USER` directive: the container runs as root. Still open (item 3).
 
 `assets/` is large because artwork is baked in per class/season; treat it as an
 external-data candidate if image size becomes a problem.

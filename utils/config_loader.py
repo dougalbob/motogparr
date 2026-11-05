@@ -149,6 +149,10 @@ ENV_SPEC: Dict[str, Dict[str, Any]] = {
         "section": "auth", "key": "mode", "cast": str,
         "description": "cloudflare (default when AUTH_ISSUER is set) or none",
     },
+    "MOTOGPARR_COOKIE_SECURE": {
+        "section": "auth", "key": "cookie_secure", "cast": str,
+        "description": "1 = mark the session cookie Secure (only when served over https)",
+    },
 }
 
 
