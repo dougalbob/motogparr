@@ -250,3 +250,32 @@ def test_verify_admin_route_no_longer_exists(client):
     """
     test_client, _ = client
     assert test_client.post("/verify-admin", json={"password": "hunter2"}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics: the configuration problems that are otherwise invisible
+# ---------------------------------------------------------------------------
+
+def test_diagnostics_route_reports_schema_credentials_and_plex(client):
+    test_client, _ = client
+    response = test_client.get("/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert {"validation", "credentials", "plex_library"} <= set(payload)
+    assert "schema" in payload["validation"]
+
+
+def test_diagnostics_never_returns_credential_values(client):
+    """
+    It reports *where* each credential came from, because an env var in the
+    container template silently beats a key typed into this page. It must never
+    return the value itself.
+    """
+    test_client, _ = client
+    body = test_client.get("/diagnostics").get_data(as_text=True)
+
+    assert "plex-token" not in body
+    assert "prowlarr-key" not in body
+    assert "sab-key" not in body
+    assert body.count("settings.yml") >= 1 or '"default"' in body

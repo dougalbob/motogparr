@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.4.1** · **Tests: 173 passing** · **Single user, self-hosted**
+**Current release: v2.4.1** · **Tests: 220 passing** · **Single user, self-hosted**
 
 ---
 
@@ -83,7 +83,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 173 passed
+.venv/bin/python -m pytest tests -q          # expect 220 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -150,8 +150,8 @@ v2.4.1 — update it as items land.
 | 2 | No `.dockerignore`; 6 stale `.backup` files tracked in git | **DONE (v2.5.0)** — `.dockerignore` added (context 1.23 GB → 754 MB); backups removed and gitignored |
 | 3 | Container runs as root (no `USER` directive) | OPEN (needs decision, §7) |
 | 4 | `test_cleanup_utility.py` deletes files and ships in the image | **DONE (v2.5.0)** — moved to `scripts/`, `--confirm` gate, not in the image |
-| 5 | No schema validation for `settings.yml` | OPEN |
-| 6 | Plex library root is never checked | OPEN |
+| 5 | No schema validation for `settings.yml` | **DONE (v2.5.0)** — `utils/settings_schema.py`, reported at startup and in the UI |
+| 6 | Plex library root is never checked | **DONE (v2.5.0)** — `utils/plexcheck.py`, surfaced at startup and in `/diagnostics` |
 | 7 | Release notes written by hand | OPEN |
 | 8 | No container integration test in CI | OPEN |
 | + | Cloudflare Access JWT verification (`AUTH_*`) | **DONE (v2.5.0)** |
@@ -248,8 +248,38 @@ included it. The exposure was real but narrower: it was collectable by `pytest`
 and sitting in a public repo. Verifying that cost two minutes and is worth
 repeating before recording a finding as fact.
 
-### PR 4 — Correctness *(items 5, 6, finding E)*
-- **`settings.yml` schema** (`utils/schema.py` or a table in `config_loader`):
+### PR 4 — Correctness *(items 5, 6, finding E)* — **DONE (v2.5.0)**
+
+What shipped:
+
+- `utils/settings_schema.py` — the permitted shape of settings.yml, with
+  `unknown-key` / `wrong-type` / `bad-value` issues and "did you mean"
+  suggestions. Reported through `validate()` (so the WebUI shows it), at startup,
+  and via `python -m utils.settings_schema`. Deliberately never fatal: the app
+  has a default for everything and an outage is worse than a warning.
+  Two design rules, both enforced by tests: an empty value is *not* a type error
+  (the loader treats empty as unset), and `library_id: 16` is fine unquoted.
+- `utils/plexcheck.py` — compares the configured library path with the Plex
+  library's real `locations`, translated through `plex.path_mapping` first.
+  Distinguishes `ok` / `not_scanned` / `mapping_missing` / `unreachable` /
+  `unknown`, names the inverted-mapping case explicitly, and never guesses.
+  Uses a real path-boundary check, not `startswith`, so `/media/MotoGP2` is not
+  mistaken for `/media/MotoGP`.
+- Both surface at startup and in **Settings → Admin → 🩺 Diagnostics**, together
+  with `credential_sources()` — which reports `env` vs `settings.yml` per
+  credential (never the value), because an env var in the Unraid template
+  silently beats a key typed into the UI.
+
+**Regression found while doing this:** `get_allowed_groups()` had been defined
+*twice*, the second definition shadowing the first and returning `[]` when
+unset. `filter_releases()` rejects any release not from an allowed group, so the
+grabber would have matched **nothing** — silently, because an empty candidate
+list looks identical to "no releases published yet". Introduced by the PR 2 edit,
+caught by review, now covered by a test that also asserts the default agrees
+with the copy in `motogp_common.filter_releases()`. Lesson: a duplicated `def`
+is invisible; check for shadows before assuming a helper is what you wrote.
+
+- **`settings.yml` schema** (`utils/settings_schema.py`):
   known sections/keys with types and defaults, mirroring `ENV_SPEC`. Unknown key
   → warning in `validate()` and at startup, naming the key and the nearest known
   one. Reported via `/app-config` validation so the UI can show it. Add the

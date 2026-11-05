@@ -29,7 +29,7 @@ Usage:
 import os
 import yaml
 from pathlib import Path
-from typing import Any, Optional, Dict
+from typing import Any, Dict, List, Optional
 
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
 SETTINGS_FILE = CONFIG_DIR / "settings.yml"
@@ -384,39 +384,47 @@ def translate_path_for_plex(container_path: str) -> str:
 # GRABBER-SPECIFIC SETTINGS
 # =============================================================================
 
-def get_allowed_groups() -> list:
-    """Get list of allowed release groups."""
-    groups = get("grabber", "allowed_groups")
-    if isinstance(groups, list):
-        return groups
-    return ["VERUM", "MWR", "BILLIE"]
+#: Release groups the grabber accepts when nothing is configured.
+#:
+#: This default is load-bearing, not cosmetic: filter_releases() rejects any
+#: release whose group is not in the list, so an empty list means *nothing* is
+#: ever grabbed - silently, because an empty candidate list looks the same as
+#: "no releases published yet". Duplicated in motogp_common.filter_releases();
+#: a test asserts the two agree.
+DEFAULT_ALLOWED_GROUPS = ("VERUM", "MWR", "BILLIE")
+
+
+def get_allowed_groups() -> List[str]:
+    """
+    Release groups the grabber will accept.
+
+    Read from config but never written by the UI before v2.5.0, so it was
+    effectively a hidden setting: present in settings.yml, invisible everywhere
+    else. Accepts a list (settings.yml) or a comma-separated string (env), and
+    falls back to DEFAULT_ALLOWED_GROUPS when unset.
+
+    An explicitly configured empty list is honoured - that is a deliberate
+    choice rather than an accident, so it is left to the caller to be surprised.
+    """
+    value = get("grabber", "allowed_groups")
+
+    if value is None or value == "":
+        return list(DEFAULT_ALLOWED_GROUPS)
+    if isinstance(value, str):
+        groups = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, (list, tuple)):
+        groups = [str(part).strip() for part in value if str(part).strip()]
+    else:
+        return list(DEFAULT_ALLOWED_GROUPS)
+
+    # A configured-but-empty value is almost always a YAML mistake such as
+    # `allowed_groups:` with nothing after it. Falling back beats silently
+    # grabbing nothing for a whole season.
+    return groups or list(DEFAULT_ALLOWED_GROUPS)
 
 
 def get_required_quality() -> str:
     """Get required video quality."""
-    return get("grabber", "required_quality", "1080p")
-
-
-def get_allowed_groups() -> list:
-    """
-    Release groups the grabber will accept.
-
-    Read from config but never written by the UI before v2.4.2, so it was
-    effectively a hidden setting: present in settings.yml, invisible everywhere
-    else. Accepts a comma-separated string so ALLOWED_GROUPS-style env config
-    works too.
-    """
-    value = get("grabber", "allowed_groups")
-    if value is None or value == "":
-        return []
-    if isinstance(value, str):
-        return [part.strip() for part in value.split(",") if part.strip()]
-    if isinstance(value, (list, tuple)):
-        return [str(part).strip() for part in value if str(part).strip()]
-    return []
-
-
-def get_required_quality() -> str:
     return get("grabber", "required_quality", "1080p")
 
 
@@ -478,12 +486,45 @@ def validate() -> Dict[str, Any]:
         if value:
             configured.append(name)
     
+    # Schema problems are reported but do not make the config invalid: the app
+    # has a default for everything, and refusing to start over a typo in an
+    # optional key would be worse than telling the user about it.
+    try:
+        from utils.settings_schema import validate_file
+        schema = validate_file(SETTINGS_FILE)
+    except Exception as exc:  # noqa: BLE001 - never let the checker break startup
+        schema = None
+        print(f"Warning: could not validate settings.yml: {exc}")
+
     return {
         "valid": len(missing) == 0,
         "missing": missing,
         "configured": configured,
         "settings_file": str(SETTINGS_FILE),
         "settings_file_exists": SETTINGS_FILE.exists(),
+        "schema": schema.as_dict() if schema else {"ok": True, "issues": [], "messages": []},
+    }
+
+
+def credential_sources() -> Dict[str, str]:
+    """
+    Where each credential came from: "env", "settings.yml" or "default".
+
+    Exists because of a specific, repeated confusion: a key typed into the WebUI
+    is saved to settings.yml and appears to take effect, while an environment
+    variable in the container template quietly wins. The app then fails
+    authentication against Prowlarr/Plex with a key the user has already
+    replaced, and blames the wrong thing.
+
+    Values are never returned - only the source.
+    """
+    return {
+        name: get_with_source(section, key)[1]
+        for name, (section, key) in {
+            "prowlarr_api_key": ("prowlarr", "api_key"),
+            "sabnzbd_api_key": ("sabnzbd", "api_key"),
+            "plex_token": ("plex", "token"),
+        }.items()
     }
 
 

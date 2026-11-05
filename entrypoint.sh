@@ -115,6 +115,65 @@ else:
 "
 
 # ---------------------------------------------------------------------------
+# Settings schema
+#
+# A misspelled key in settings.yml is silently ignored by the loader, which
+# falls back to a default. The app then behaves as if the line were never
+# written - the same class of bug as an environment variable that is documented
+# but never read. Report it here; the WebUI shows the same list.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  Settings file:"
+$PYTHON -c "
+import sys
+sys.path.insert(0, '/app')
+from utils.config_loader import SETTINGS_FILE, validate
+
+report = validate().get('schema') or {}
+if report.get('ok'):
+    print(f'    ✅ {SETTINGS_FILE} - no unknown or malformed keys')
+else:
+    for message in report.get('messages', []):
+        print(f'    ⚠️  {message}')
+    print('    These keys are ignored by the app. Correct or remove them.')
+" || echo "    ⚠️  Could not validate settings.yml"
+
+# ---------------------------------------------------------------------------
+# Plex library check
+#
+# The expensive one to diagnose and the cheapest to check: if Plex's library
+# does not include this app's library folder, sessions download, sort and land
+# on disk correctly and then never appear. Nothing in this app looks wrong,
+# because nothing in this app is wrong.
+#
+# Never fatal, and silent when Plex is unreachable - a diagnostic that blocks
+# startup or invents an answer causes more problems than it solves.
+# ---------------------------------------------------------------------------
+PLEX_STATUS=$($PYTHON -c "
+import sys
+sys.path.insert(0, '/app')
+from utils.plexcheck import check_from_settings, OK, UNKNOWN
+result = check_from_settings()
+if result.status in (OK, UNKNOWN):
+    print(f'ok|{result.summary}')
+else:
+    print(f'warn|{result.status}|{result.summary}')
+    for line in result.detail:
+        print(f'detail|{line}')
+" 2>/dev/null)
+
+if echo "$PLEX_STATUS" | grep -q '^ok|'; then
+    echo ""
+    echo "  Plex library:"
+    echo "    ✅ $(echo "$PLEX_STATUS" | sed -n 's/^ok|//p')"
+elif echo "$PLEX_STATUS" | grep -q '^warn|'; then
+    echo ""
+    echo "  Plex library:"
+    echo "    ⚠️  $(echo "$PLEX_STATUS" | sed -n 's/^warn|[^|]*|//p')"
+    echo "$PLEX_STATUS" | sed -n 's/^detail|/       /p'
+fi
+
+# ---------------------------------------------------------------------------
 # Authentication
 #
 # The WebUI verifies a Cloudflare Access JWT itself rather than trusting that

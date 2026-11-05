@@ -288,6 +288,64 @@ The page names the reason. The usual ones:
 | `Token has expired` | Reload; Access usually re-issues |
 | `not assigned to this installation` | Cloudflare let it through but the address is not in `AUTH_ALLOWED_EMAILS` |
 
+## Checking your configuration
+
+Two classes of problem are invisible in normal use, so both are reported
+explicitly rather than left to be discovered.
+
+### Unknown or misspelled settings
+
+A key the app does not recognise is **silently ignored** — the loader falls back
+to its default and behaves as if the line were never written. That is how a
+typo can cost an evening, so it is now reported at startup and in the WebUI:
+
+```
+  Settings file:
+    ⚠️  prowlarr.api_kye: unknown key; nothing reads it (did you mean prowlarr.api_key?)
+    ⚠️  librari: unknown section; nothing reads it (did you mean library?)
+    These keys are ignored by the app. Correct or remove them.
+```
+
+Check any time:
+
+```bash
+docker exec -it motogparr /opt/venv/bin/python3 -m utils.settings_schema /config/settings.yml
+```
+
+It also catches values that parse but cannot work — `required_quality: 1440p`,
+`max_grabs_per_run: "22"` — and it never refuses to start over one. A warning is
+not worth an outage.
+
+### "Is Plex actually scanning this folder?"
+
+The highest-value check in the app. If the Plex library does not include the
+folder this app writes to, everything succeeds — download, sort, file on disk —
+and the session **never appears in Plex**. Nothing in MotoGParr is wrong, so
+nothing in its logs looks wrong.
+
+`/diagnostics` (Settings → Admin → 🩺 Diagnostics) compares the configured
+library path with what the Plex library really lists, translating through
+`plex.path_mapping` first:
+
+```
+✅ Plex is scanning this folder (via /data/media/Motorsport/MotoGP).
+
+⚠️ Plex is NOT scanning this folder. Sessions will download, sort correctly,
+   and then never appear in Plex.
+   App path:        /media/Motorsport/MotoGP
+   As Plex sees it: /data/media/Motorsport/MotoGP
+   Plex folders:    /data/media/Unrelated
+```
+
+It diagnoses the common causes specifically — a mapping that is inverted, a
+`library_name` that matches no section — and says "unknown" rather than guessing
+when Plex is unreachable. It never triggers a scan.
+
+The same panel reports **where each credential came from** (`env` or
+`settings.yml`). That matters because an environment variable in the container
+template silently beats a key typed into the WebUI: the page says "saved", and
+the app carries on using the old value.
+
 ## Calendars
 
 Season calendars live in `config/motogp_<year>.json` and are baked into the

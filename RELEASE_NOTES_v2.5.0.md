@@ -149,6 +149,78 @@ the clones.
   undocumented). Set it to `1` only if the container is reached *solely* through
   Cloudflare.
 
+## Two silent failures now have a voice
+
+Both of these are the same shape of problem: nothing errors, so nothing gets
+investigated.
+
+### A misspelled setting is no longer ignored in silence
+
+An unrecognised key in `settings.yml` used to be dropped without a word — the
+app fell back to its default and behaved as if the line had never been written.
+Now it is reported at startup and in the WebUI:
+
+```
+  Settings file:
+    ⚠️  prowlarr.api_kye: unknown key; nothing reads it (did you mean prowlarr.api_key?)
+    ⚠️  grabber.required_quality: '1440p' is not one of 720p, 1080p, 2160p
+    These keys are ignored by the app. Correct or remove them.
+```
+
+It never refuses to start over one. A warning is not worth an outage.
+
+Check on demand:
+
+```bash
+docker exec -it motogparr /opt/venv/bin/python3 -m utils.settings_schema /config/settings.yml
+```
+
+### "Plex isn't scanning this folder"
+
+This is the one that cost you the missing sessions. If the Plex library does not
+contain the folder MotoGParr writes to, everything succeeds — the download, the
+sort, the file on disk — and the session simply never appears. Nothing in the app
+is wrong, so nothing in its logs looks wrong.
+
+**Settings → Admin → 🩺 Diagnostics** now answers the question directly:
+
+```
+✅ Plex is scanning this folder (via /data/media/Motorsport/MotoGP).
+```
+
+or, when it is not:
+
+```
+⚠️ Plex is NOT scanning this folder. Sessions will download, sort correctly,
+   and then never appear in Plex.
+   App path:        /media/Motorsport/MotoGP
+   As Plex sees it: /data/media/Motorsport/MotoGP
+   Plex folders:    /data/media/Unrelated
+```
+
+It names the usual causes — an **inverted** path mapping, a `library_name` that
+matches no section — and says "unknown" rather than guessing when Plex is
+unreachable. It never triggers a scan.
+
+The same panel shows **where each credential came from** (`env` or
+`settings.yml`), never the value. That is there because of a real trip-up: a key
+typed into the WebUI is saved and looks like it took effect, while an environment
+variable in the Unraid template quietly wins — so the app keeps failing
+authentication with a key you have already replaced.
+
+## A silent regression, caught before release
+
+While building the schema check I found `get_allowed_groups()` defined **twice**
+in `config_loader.py`, the second silently shadowing the first and returning an
+empty list when nothing was configured. `filter_releases()` rejects any release
+whose group is not in that list, so the grabber would have matched **nothing**,
+for a whole season, with no error — an empty candidate list looks exactly like
+"no releases published yet".
+
+It was introduced by my own authentication change and is fixed here, with a test
+that also asserts this default agrees with the copy inside
+`motogp_common.filter_releases()`.
+
 ## Under the hood
 
 - `utils/auth.py` — verification only, no Flask import. Signature, issuer,
@@ -158,7 +230,7 @@ the clones.
 - `AUTH_*` are environment variables only. Putting an allowlist in a file the UI
   can rewrite is not a security control.
 - `AUTH_MODE=none` exists for local development; it warns in the log and in the UI.
-- 173 tests (was 135), including 21 that sign real RS256 tokens and verify them
+- 220 tests (was 135), including 21 that sign real RS256 tokens and verify them
   against a local key set — no network in the suite.
 - The denial page deliberately does *not* extend `base.html`: it renders from
   `before_request`, where no view context exists, and the first version 500'd

@@ -50,7 +50,9 @@ so stopping is honest.
 | `utils/config_loader.py` | **`ENV_SPEC`**, settings precedence, validation, startup report |
 | `utils/calendar_sync.py` | Same-season check + safe replacement of `/config` calendars |
 | `utils/validate_calendar.py` | CLI calendar/library checker |
-| `utils/healthcheck.py` | stdlib-only `HEALTHCHECK` probe for `/` |
+| `utils/healthcheck.py` | stdlib-only `HEALTHCHECK` probe for `/healthz` |
+| `utils/settings_schema.py` | Permitted shape of `settings.yml`; unknown/wrong-typed keys |
+| `utils/plexcheck.py` | Is Plex actually scanning the library folder? |
 
 ---
 
@@ -183,6 +185,7 @@ bottom nav for mobile; `/logs` is reachable but not in the top nav.
 | `/activity`, `/activity/stream` | GET | Activity feed + SSE | low |
 | `/calendar`, `/calendar-data` | GET | Calendar views | low |
 | `/api/sabnzbd/queue` | GET | Proxies SABnzbd queue with the API key | medium |
+| `/diagnostics` | GET | Schema issues, credential provenance, Plex library check | medium (no values) |
 | `/flags/<path>`, `/assets/<path>` | GET | Static files | low (path must be checked) |
 | `/manifest.json`, `/sw.js` | GET | PWA — public | — |
 | `/healthz` | GET | Liveness for the Docker HEALTHCHECK — public | — |
@@ -234,7 +237,7 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **173 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
+- **220 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
   Docker required.
 - `tests/test_webui_security.py` is a set of **characterisation tests that assert
   the current insecure behaviour** (secrets returned by `/app-config`, config

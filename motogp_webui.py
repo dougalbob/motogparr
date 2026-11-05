@@ -856,6 +856,32 @@ def app_config_route():
     return jsonify({**settings, "validation": validation})
 
 
+@app.route("/diagnostics")
+def diagnostics():
+    """
+    Configuration problems that are invisible in normal use.
+
+    Two things live here because neither shows up as an error anywhere else:
+
+      * unknown or malformed settings.yml keys - the loader silently falls back
+        to defaults, so the app behaves as if the line were never written;
+      * whether Plex actually scans the folder this app writes to - if it does
+        not, sessions download and sort correctly and then simply never appear.
+
+    Also reports where the credentials came from (never their values), because
+    an environment variable in the container template silently beats a key typed
+    into this page, which makes "I already changed that" fail in a confusing way.
+    """
+    from utils.config_loader import credential_sources
+    from utils.plexcheck import check_from_settings
+
+    return jsonify({
+        "validation": validate(),
+        "credentials": credential_sources(),
+        "plex_library": check_from_settings().as_dict(),
+    })
+
+
 @app.route("/test-connections")
 def test_connections():
     """Test connections to Prowlarr, SABnzbd, and Plex."""
