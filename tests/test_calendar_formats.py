@@ -353,9 +353,31 @@ def test_validator_flags_duplicate_round_numbers(calendar_2026):
 
 def test_validator_flags_folder_mismatch(calendar_2026):
     calendar = copy.deepcopy(calendar_2026)
-    calendar["rounds"][3]["folder"] = "Round 4 Qatar"
+    calendar["rounds"][3]["folder"] = "Round 5 Qatar"      # wrong number
     problems = common.validate_calendar(calendar)
-    assert any("does not match round" in p for p in problems)
+    assert any("but the entry is round" in p for p in problems)
+
+
+def test_validator_flags_folder_venue_mismatch(calendar_2026):
+    """A folder that keeps the old round but the new venue is the 2026 trap."""
+    calendar = copy.deepcopy(calendar_2026)
+    calendar["rounds"][19]["folder"] = "Round 20 Malaysia"  # Qatar is round 20
+    problems = common.validate_calendar(calendar)
+    assert any("Malaysia" in p for p in problems)
+
+
+def test_validator_accepts_unpadded_legacy_folders(calendar_2026):
+    """2025 uses 'Round 1 Thailand'; padding must not be treated as an error."""
+    calendar = copy.deepcopy(calendar_2026)
+    calendar["rounds"][0]["folder"] = "Round 1 Thailand"
+    assert common.validate_calendar(calendar) == []
+
+
+def test_validator_flags_non_round_folder(calendar_2026):
+    calendar = copy.deepcopy(calendar_2026)
+    calendar["rounds"][0]["folder"] = "Thailand Round One"
+    problems = common.validate_calendar(calendar)
+    assert any("is not 'Round" in p for p in problems)
 
 
 def test_validator_flags_out_of_order_dates(calendar_2026):

@@ -1,7 +1,15 @@
 FROM python:3.11-slim
 
+# Set by the build workflow from the git tag, so the running container can say
+# which release it is. Defaults to "dev" for a local build.
+ARG MOTOGPARR_VERSION=dev
+
 LABEL maintainer="MotoGParr"
 LABEL description="MotoGP Automated Recording & Retrieval"
+LABEL org.opencontainers.image.title="MotoGParr"
+LABEL org.opencontainers.image.description="MotoGP automated retrieval and Plex library manager"
+LABEL org.opencontainers.image.source="https://github.com/dougalbob/motogparr"
+LABEL org.opencontainers.image.version="${MOTOGPARR_VERSION}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
@@ -38,6 +46,7 @@ RUN chmod +x entrypoint.sh *.py
 ENV PYTHONUNBUFFERED=1
 ENV CONFIG_DIR=/config
 ENV TZ=Europe/London
+ENV MOTOGPARR_VERSION=${MOTOGPARR_VERSION}
 
 VOLUME ["/config"]
 

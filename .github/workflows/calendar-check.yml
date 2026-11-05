@@ -1,0 +1,87 @@
+name: Calendar check
+
+# Fails a pull request when a season calendar is edited in a way that would
+# break the grabber or the Plex library: duplicate or gappy round numbers,
+# folder names that disagree with the round, bad dates, unparseable or
+# inconsistent session times, missing artwork, duplicate JSON keys.
+#
+# Also prints the parsed calendar so a change to the championship numbering is
+# visible in the PR diff review.
+
+on:
+  pull_request:
+    paths:
+      - 'config/motogp_*.json'
+      - 'utils/validate_calendar.py'
+      - 'motogp_common.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate calendars
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Reject duplicate JSON keys
+        run: |
+          # json.load() silently keeps the last duplicate key, which is an easy
+          # way to lose a round when editing by hand. Fail loudly instead.
+          failed=0
+          for calendar in config/motogp_*.json; do
+            echo "--- $calendar ---"
+            python - "$calendar" <<'PY' || failed=1
+          import json, sys
+
+          def no_duplicates(pairs):
+              seen = {}
+              for key, value in pairs:
+                  if key in seen:
+                      raise ValueError(f"duplicate key {key!r}")
+                  seen[key] = value
+              return seen
+
+          path = sys.argv[1]
+          with open(path) as f:
+              json.load(f, object_pairs_hook=no_duplicates)
+          print("  no duplicate keys")
+          PY
+          done
+          exit $failed
+
+      - name: Validate calendars
+        run: |
+          for calendar in config/motogp_*.json; do
+            season=$(basename "$calendar" .json | sed 's/motogp_//')
+            python utils/validate_calendar.py --season "$season"
+          done
+
+      - name: Show round numbering
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for path in sorted(Path("config").glob("motogp_*.json")):
+              data = json.loads(path.read_text())
+              print(f"\n{path.name} - {len(data['rounds'])} rounds")
+              for entry in data["rounds"]:
+                  status = entry.get("status", "scheduled")
+                  marker = "" if status == "scheduled" else f"  [{status}]"
+                  print(f"  {entry['round']:>2}  {entry['venue']:<16} "
+                        f"{entry['date']}  {entry['folder']}{marker}")
+          PY
+
+      - name: Run tests
+        run: python -m pytest tests -q
