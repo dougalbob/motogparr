@@ -39,6 +39,8 @@
 
   <Config Name="Timezone" Target="TZ" Default="Europe/London" Mode="" Description="Timezone used for scheduling and log timestamps. Use a TZ database name, e.g. Europe/London." Type="Variable" Display="always" Required="false" Mask="false">Europe/London</Config>
 
+  <Config Name="Skip path check (rarely needed)" Target="MOTOGPARR_SKIP_PATH_CHECK" Default="" Mode="" Description="Leave blank. Set to 1 only to start despite a missing library path - for example while reorganising a share. A missing library path normally stops the container so it cannot run for hours doing nothing." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
   <Config Name="Calendar updates" Target="MOTOGPARR_CALENDAR_UPDATE" Default="auto" Mode="" Description="What to do when the calendar in /config differs from the one in the image. auto = refresh it and keep a .bak (only when it is provably the same season). warn = report it and never write. off = stay quiet. Use warn if you edit calendars by hand." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
 
   <Config Name="Prowlarr URL (optional)" Target="PROWLARR_URL" Default="" Mode="" Description="Optional. If left blank, set it in the WebUI instead. Values here override settings.yml. e.g. http://192.168.1.100:9696" Type="Variable" Display="advanced" Required="false" Mask="false"/>
