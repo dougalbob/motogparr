@@ -23,6 +23,26 @@ Images are built and published by GitHub Actions (`.github/workflows/docker-publ
 `:latest` only moves when a version tag is published, so a half-finished commit
 on `main` never reaches a container that is force-updated.
 
+### One-time GHCR setup (only if a build fails with `permission_denied`)
+
+Making the *repository* public does **not** change the visibility of a package
+that already existed - they are separate settings. If the workflow fails with:
+
+```
+denied: permission_denied: read_package
+```
+
+the existing package is private and not linked to this repository, so the
+workflow token cannot read it and therefore cannot push to it. Fix once:
+
+1. Open `https://github.com/users/dougalbob/packages/container/motogparr/settings`
+2. **Danger Zone → Change visibility → Public**
+3. Recommended: **Manage Actions access → add this repository** with the
+   `Write` role, so the workflow owns the package it publishes
+
+Then re-run the failed job. The workflow prints these instructions itself on
+that failure.
+
 ## Installing on Unraid
 
 There is a container template at [`unraid/motogparr.xml`](unraid/motogparr.xml).
@@ -65,7 +85,8 @@ In Unraid: **Docker → your container → Force Update** after a new release.
 docker pull ghcr.io/dougalbob/motogparr:latest
 ```
 
-The repository is public, so the package is pullable without credentials.
+The repository is public, so once the package itself is public it pulls without
+credentials.
 
 To confirm what is actually running, the container prints its version at
 startup:
