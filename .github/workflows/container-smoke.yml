@@ -176,32 +176,43 @@ jobs:
           exit 1
 
       # The whole point of the privilege change, asserted rather than assumed.
+      #
+      # Deliberately NOT checked with `docker exec id -u`: exec starts a NEW
+      # process as the image's configured user, which is root because there is
+      # no USER line (that is the design - see tests/test_permissions.py). It
+      # would report root no matter how well the drop worked. What matters is
+      # the user of the processes the entrypoint actually started, which is what
+      # `docker top` shows.
       - name: The application must not be running as root
         run: |
           set -euo pipefail
 
-          # WHOAMI_EXIT=0 means "running as root"; anything else means it is not.
-          whoami=$(docker top "$CONTAINER" -o user | tail -n +2 | sort -u | tr '\n' ' ')
-          echo "docker top users: $whoami"
+          users=$(docker top "$CONTAINER" -o user | tail -n +2 | sort -u | tr '\n' ' ')
+          echo "process users: [$users]"
 
-          if echo "$whoami" | tr ' ' '\n' | grep -qx 'root'; then
-            uid=$(docker top "$CONTAINER" -o uid | tail -n +2 | sort -u | tr '\n' ' ')
-            echo "::error title=Running as root::docker top reports users [$whoami] uids [$uid]"
+          if [ -z "${users// /}" ]; then
+            echo "::error title=Could not read process owners::docker top returned nothing"
+            docker top "$CONTAINER"
             exit 1
           fi
 
-          # `docker top -o uid` yields NUMBERS for non-root processes and the
-          # NAME "root" for root, so the old grep for '0' could never match -
-          # this step was passing vacuously until it was inverted.
-          # The decisive check asks the container itself:
-          if docker exec "$CONTAINER" sh -c 'test "$(id -u)" = "0"'; then
-            echo "::error title=Running as root::id -u inside the container is 0"
-            docker exec "$CONTAINER" id || true
+          # One process would mean the supervisor never started its children, so
+          # a "no root found" pass could otherwise be vacuous.
+          count=$(docker top "$CONTAINER" -o user | tail -n +2 | wc -l)
+          echo "process count: $count"
+          if [ "$count" -lt 2 ]; then
+            echo "::error title=Supervisor started no children::only $count process(es)"
+            docker top "$CONTAINER"
             exit 1
           fi
 
-          echo "uid inside the container: $(docker exec "$CONTAINER" id -u)"
-          echo "Running unprivileged, as intended."
+          if echo "$users" | tr ' ' '\n' | grep -qx 'root'; then
+            echo "::error title=Running as root::process users [$users]"
+            docker top "$CONTAINER"
+            exit 1
+          fi
+
+          echo "All container processes are unprivileged: [$users]"
 
       - name: Startup output must report version, paths, auth and permissions
         run: |
