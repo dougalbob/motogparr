@@ -240,9 +240,18 @@ the folder and the command that fixes it:
     ❌ config (logs) /config/logs [NOT WRITABLE]
 
      This is almost always ownership. The container runs as 99:100, so those
-     folders must be owned (or writable) by it:
-       chown -R 99:100 '/config/logs'
-     or set PUID/PGID on the container to the owner of those folders.
+     folders must be owned (or writable) by it. The paths above are inside the
+     container; on the host, chown the folder you mounted at each one:
+
+       config (logs) /config/logs (container)
+           chown -R 99:100 '/mnt/user/appdata/motogparr/config/logs'   (host)
+
+     or set PUID/PGID on the container to the owner of those folders
+     (Unraid shares are normally 99:100).
+
+     Set MOTOGPARR_HOST_MAP="/media=/mnt/user/data/media,/downloads=/mnt/user/data/downloads"
+     in the container (Unraid template: "Host path map") and the hint prints
+     the exact host path for each mounted folder instead of the generic form.
 ```
 
 The point of failing here is that the alternative is invisible: an unwritable
