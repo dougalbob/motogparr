@@ -178,59 +178,68 @@ jobs:
       # The whole point of the privilege change, asserted rather than assumed.
       #
       # Four wrong ways to check this, all tried and all rejected:
-      #   * `docker top` - python:3.11-slim has no ps, so it fails outright and
-      #     `set -e` killed the step before it could explain itself.
+      #   * `docker top` - python:3.11-slim has no ps, so it fails outright; and
+      #     GitHub runs each step as `bash -e`, so the step died before it could
+      #     explain itself.
       #   * `docker exec id -u` - exec starts a NEW process as the image's
       #     configured user, which is root because there is deliberately no USER
       #     line. It reports root however well the drop worked.
       #   * grepping uids from `docker top -o uid` - that prints numbers for
       #     non-root processes and the NAME for root, so '0' never matched.
       #   * scanning /proc for "motogp_webui" - the scanning shell's own cmdline
-      #     contains that string, so it matched itself and ran as root.
+      #     contains that string, so it matched itself, and as root.
       #
-      # The filter that works: only processes whose argv[0] is a python
-      # interpreter. /proc needs no ps, and this sees the processes that are
-      # actually running.
+      # So: filter on argv[0] being a python interpreter, and let the container
+      # side print evidence only. All judgement happens out here, because a
+      # non-zero exit from `docker exec` would kill the step under `bash -e`
+      # before anything was printed - that is what exit code 2 was.
       - name: The application must not be running as root
         run: |
-          set -uo pipefail   # not -e: print diagnostics rather than dying silently
-
-          docker exec "$CONTAINER" sh -c '
-            found=0
+          set -uo pipefail
+          if ! docker exec "$CONTAINER" sh -c '
             for p in /proc/[0-9]*; do
-              cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null)
+              cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null) || continue
               case "${cmd%% *}" in
                 *python*) ;;
                 *) continue ;;
               esac
               case "$cmd" in
                 *motogp_webui.py*|*motogp_scheduler.py*)
-                  uid=$(awk "/^Uid:/{print \$2}" "$p/status" 2>/dev/null || echo "?")
-                  echo "PROC $uid $cmd"
-                  found=$((found+1))
+                  uid=$(awk "/^Uid:/{print \$2}" "$p/status" 2>/dev/null) || uid="?"
+                  echo "PROC ${uid:-?} $cmd"
                   ;;
               esac
             done
-            exit $found
-          ' | tee /tmp/procs.txt
-          found=${PIPESTATUS[0]}
+            exit 0
+          ' > /tmp/procs.txt; then
+            echo "::error title=/proc could not be scanned::docker exec failed"
+            docker exec "$CONTAINER" sh -c 'ls -l /proc/1/status; cat /proc/1/status | head -5' || true
+            exit 1
+          fi
+          cat /tmp/procs.txt
 
+          found=$(grep -c '^PROC ' /tmp/procs.txt || true)
+          found=${found:-0}
           echo "app processes found: $found"
           if [ "$found" -lt 2 ]; then
             echo "::error title=Supervisor started no children::found $found app process(es)"
+            docker logs "$CONTAINER" 2>&1 | tail -30 || true
             exit 1
           fi
 
           if grep -q '^PROC 0 ' /tmp/procs.txt; then
             echo "::error title=Running as root::$(grep '^PROC 0 ' /tmp/procs.txt)"
+            docker logs "$CONTAINER" 2>&1 | tail -30 || true
             exit 1
           fi
 
-          docker logs "$CONTAINER" 2>&1 | grep -qE 'Running as: +[0-9]+:[0-9]+' \
-            || { echo "::error title=No privilege-drop line in the startup log::"; docker logs "$CONTAINER" 2>&1 | head -20; exit 1; }
+          if ! docker logs "$CONTAINER" 2>&1 | grep -qE 'Running as: +[0-9]+:[0-9]+'; then
+            echo "::error title=No privilege-drop line in the startup log::"
+            docker logs "$CONTAINER" 2>&1 | head -30 || true
+            exit 1
+          fi
 
-          echo "Unprivileged, and the startup log says so:"
-          cat /tmp/procs.txt
+          echo "Unprivileged, and the startup log says so."
 
       - name: Startup output must report version, paths, auth and permissions
         run: |
