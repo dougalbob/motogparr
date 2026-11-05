@@ -120,13 +120,17 @@ plus `CONFIG_DIR`. `MOTOGPARR_VERSION` is informational.
 
 | Store | Written by | Read by | Holds |
 |---|---|---|---|
-| `/config/settings.yml` | entrypoint (template), WebUI `/app-config` + `/settings` | `config_loader` | services, paths, plex mapping, `grabber.*`, `timezone` |
-| `/config/webui_settings.json` | WebUI `/settings` | `motogp_common.get_desired_sessions()`, WebUI | desired sessions, `max_grabs_per_run` |
+| `/config/settings.yml` | entrypoint (template), WebUI `/app-config` + `/settings` | `config_loader` | services, paths, plex mapping, `grabber.*` (including `max_grabs_per_run`), `timezone` |
+| `/config/webui_settings.json` | WebUI `/settings` (sessions only) | `motogp_common.get_desired_sessions()`, WebUI | desired sessions only |
 
-The desired-sessions setting **only** exists in JSON. `max_grabs_per_run` is
-written to *both*, and the JSON copy is not what the grabber reads — the grabber
-uses `config_loader.get_max_grabs_per_run()`. Known inconsistency; do not assume
-`/settings` changes take effect for the grabber without checking.
+The desired-sessions setting **only** exists in JSON. `max_grabs_per_run` is a
+`grabber.*` setting: it lives in settings.yml, which is what the grabber reads
+via `config_loader.get_max_grabs_per_run()`. The UI merges it in at
+presentation time (`/settings` and the settings page), so there is exactly one
+source of truth. On first load, a legacy `max_grabs_per_run` still sitting in
+`webui_settings.json` is migrated once into settings.yml and then dropped from
+the JSON; settings.yml wins on disagreement. Neither store may silently shadow
+the other.
 
 ### Plex path mapping
 
@@ -144,7 +148,7 @@ This is the single most common cause of "tagging stopped working".
 | File | Purpose | Safe to delete? |
 |---|---|---|
 | `settings.yml` | Main config | No |
-| `webui_settings.json` | Desired sessions, max grabs | No (resets to defaults) |
+| `webui_settings.json` | Desired sessions only | No (resets to defaults) |
 | `grabber_state.json` | `searched` / `grabbed` maps; also the stats source | No — rewrites history |
 | `watcher_state.json` | processed / pending / failed, retry backoff | Loses retry state |
 | `activity_events.json` | Activity tab events (file-locked) | Yes |
@@ -171,7 +175,7 @@ bottom nav for mobile; `/logs` is reachable but not in the top nav.
 | `/settings-page` | GET | Settings + admin sub-tab | low (data gated client-side only) |
 | `/logs` | GET | Log viewer | **exposes log text** |
 | `/run` | POST | Spawns grabber/overlay with a client-supplied arg string | **high — unauthenticated action** |
-| `/settings` | GET/POST | Reads/writes `webui_settings.json` + `grabber.max_grabs_per_run` | **write** |
+| `/settings` | GET/POST | Reads/writes sessions in `webui_settings.json`; `max_grabs_per_run` is read from and written to `settings.yml` via `config_loader` | **write** |
 | `/status` | GET | Background command output | low |
 | `/api/activity-events` | GET | Activity events | low |
 | `/api/activity-events/clear` | POST | Clears events | write |

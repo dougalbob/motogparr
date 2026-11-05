@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.4.1** · **Tests: 252 passing** · **Single user, self-hosted**
+**Current release: v2.5.0** · **Tests: 262 passing** · **Single user, self-hosted**
 
 ---
 
@@ -168,6 +168,7 @@ risk family as item 1.
 | C | `uiadminpassword` was plaintext, `==`-compared, invisible to `config_loader`, and gated only the client. **Fixed:** route and key removed; identity is server-side. | — |
 | D | `/logs/stream` and `/logs/recent` expose log lines; URLs containing API keys have appeared in these logs before. **Mitigated:** both now require a verified identity. Logs are still log lines — do not add secrets to them. | `motogp_webui.py` |
 | E | `grabber.allowed_groups`, `grabber.required_quality`, `grabber.search_delay_hours` were read from config but unreachable and undocumented. **Fixed:** documented in `settings.example.yaml`, with getters; still YAML/env only. | `utils/config_loader.py` |
+| J1 | **Two settings stores shadow each other for `max_grabs_per_run`.** The UI displayed the JSON copy while the grabber read `settings.yml`. **Fixed:** `settings.yml` owns `grabber.*`; `webui_settings.json` holds sessions only; `/settings` reads `max_grabs_per_run` from `config_loader` at presentation time; a legacy JSON value is migrated once into `settings.yml` (settings.yml wins on disagreement); a corrupt or missing JSON file logs a warning naming the path and falls back to defaults. | `motogp_webui.py`, `utils/config_loader.py`, `tests/test_settings_store.py` |
 
 ---
 
@@ -388,10 +389,12 @@ your network as public knowledge from that date.
   `JSONDecodeError` — several places already do, silently.
 - `discover_seasons()` reads `/config`, not the image, so a season only appears
   in the UI once the entrypoint has copied the calendar into `/config`.
-- `WEBUI_CONFIG_FILE` (`webui_settings.json`) is the *real* store for desired
-  sessions and `max_grabs_per_run` at runtime; `settings.yml` is only written by
-  the WebUI for `grabber.max_grabs_per_run`. Two stores, one visible setting —
-  keep that in mind before "fixing" either.
+- `WEBUI_CONFIG_FILE` (`webui_settings.json`) holds desired sessions only.
+  `max_grabs_per_run` is a `grabber.*` setting owned by `settings.yml` and read
+  by the grabber via `config_loader.get_max_grabs_per_run()`; the UI reads it
+  from there at presentation time. A legacy value left in the JSON is migrated
+  once on first load, and `settings.yml` wins on disagreement — never assume the
+  two stores agree.
 - `grab_stats.py` and friends derive stats from `grabber_state.json`; deleting
   that file (as the cleanup utility does) rewrites the app's history.
 - Flask dev server is used in production (`app.run`). Fine on a LAN behind

@@ -11,12 +11,15 @@ import subprocess
 import threading
 import json
 import re
+import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from flask import (
     Flask, render_template, request, jsonify, 
     send_from_directory, Response
 )
+
+logger = logging.getLogger("motogp.webui")
 
 # Add paths for imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -36,10 +39,13 @@ from motogp_common import (
 )
 
 from utils.config_loader import (
+    SETTINGS_FILE,
     get_motogp_library_path,
     validate,
     reload_settings,
     update_settings,
+    has_setting,
+    get_max_grabs_per_run,
     _load_yaml,
     get_prowlarr_url,
     get_prowlarr_api_key,
@@ -299,54 +305,105 @@ def get_next_race_info() -> dict:
 
 
 
-def load_webui_settings():
-    """Load WebUI settings from config file."""
+def migrate_max_grabs_per_run() -> None:
+    """
+    One-time migration of max_grabs_per_run out of webui_settings.json.
+
+    settings.yml owns grabber.* (the grabber reads config_loader, not this
+    JSON file), so a value saved only in the JSON was never actually used by
+    the grabber while the UI displayed it.
+
+    Idempotent and never loses a value:
+
+      * settings.yml lacks grabber.max_grabs_per_run  -> write the JSON's
+        value there once, then drop the key from the JSON;
+      * settings.yml already has it                  -> the JSON copy is
+        stale; drop it without overwriting (settings.yml wins).
+    """
+    if not WEBUI_CONFIG_FILE.exists():
+        return
+    try:
+        with open(WEBUI_CONFIG_FILE, "r") as f:
+            saved = json.load(f)
+    except Exception:
+        # Corrupt JSON: nothing to migrate; load_webui_settings warns instead.
+        return
+    if not isinstance(saved, dict) or "max_grabs_per_run" not in saved:
+        return
+
+    value = saved["max_grabs_per_run"]
+
+    if not has_setting("grabber", "max_grabs_per_run"):
+        ok = update_settings({"grabber": {"max_grabs_per_run": value}})
+        if not ok:
+            logger.warning(
+                "Could not migrate max_grabs_per_run to %s; the value stays "
+                "in %s until /config is writable",
+                SETTINGS_FILE, WEBUI_CONFIG_FILE,
+            )
+            return
+
+    del saved["max_grabs_per_run"]
+    try:
+        save_webui_settings(saved)
+    except OSError as exc:  # noqa: BLE001 - report, never silently keep a duplicate
+        logger.warning(
+            "Could not drop max_grabs_per_run from %s: %s",
+            WEBUI_CONFIG_FILE, exc,
+        )
+
+
+def load_webui_settings() -> dict:
+    """Load WebUI settings from config file.
+
+    webui_settings.json owns only the desired sessions. grabber settings
+    (max_grabs_per_run and the rest of grabber.*) live in settings.yml and are
+    read by the grabber via config_loader.get_max_grabs_per_run(); they are
+    merged into the UI presentation at read time, never stored in this file.
+
+    settings.yml may be edited outside this process, so it is re-read on
+    every load - there is no stale JSON shadowing it any more.
+
+    A corrupt or missing webui_settings.json logs a warning naming the path
+    and falls back to default sessions; sessions still work.
+    """
+    reload_settings()  # settings.yml can change under this process
+    migrate_max_grabs_per_run()
+
     defaults = {
-        "max_grabs_per_run": 22,
         "sessions": {k: v["default"] for k, v in SESSION_TYPES.items()}
     }
-    
+
     if WEBUI_CONFIG_FILE.exists():
         try:
-            with open(WEBUI_CONFIG_FILE, 'r') as f:
+            with open(WEBUI_CONFIG_FILE, "r") as f:
                 saved = json.load(f)
+        except Exception as exc:  # noqa: BLE001 - never silently default
+            logger.warning(
+                "Could not read %s: %s; falling back to default sessions",
+                WEBUI_CONFIG_FILE, exc,
+            )
+        else:
+            if isinstance(saved, dict):
                 defaults.update(saved)
-        except Exception:
-            pass
-    
+    else:
+        logger.warning(
+            "%s not found; falling back to default sessions",
+            WEBUI_CONFIG_FILE,
+        )
+
     return defaults
 
 
 def save_webui_settings(settings):
-    """Save WebUI settings to config file."""
+    """Save WebUI settings to config file.
+
+    Callers must not pass max_grabs_per_run: it is a grabber setting and
+    belongs in settings.yml, not in this file.
+    """
     WEBUI_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(WEBUI_CONFIG_FILE, 'w') as f:
+    with open(WEBUI_CONFIG_FILE, "w") as f:
         json.dump(settings, f, indent=2)
-
-
-def update_settings_yml(settings):
-    """
-    Persist the grabber settings from the WebUI into settings.yml.
-
-    Only the keys named here are written. The previous version loaded the whole
-    file, mutated it and wrote it all back, which had the same shape of bug as
-    the one /app-config had: any concurrent writer's change could be lost, and a
-    failed write was swallowed.
-
-    Returns True on success. The caller must report failure rather than saying
-    "saved" - a settings screen that claims success while nothing was written is
-    how the last round of bugs stayed hidden.
-    """
-    updates = {}
-    if "max_grabs_per_run" in settings:
-        updates["max_grabs_per_run"] = settings["max_grabs_per_run"]
-    if not updates:
-        return True
-
-    ok = update_settings({"grabber": updates})
-    if ok:
-        reload_settings()
-    return ok
 
 
 # =============================================================================
@@ -657,6 +714,7 @@ def library():
 @app.route("/settings-page")
 def settings_page():
     settings = load_webui_settings()
+    settings["max_grabs_per_run"] = get_max_grabs_per_run()
     session_defaults = {k: v["default"] for k, v in SESSION_TYPES.items()}
     next_race = get_next_race_info()
     calendar_data = {str(year): get_rounds_for_season(year) for year in SEASONS}
@@ -711,6 +769,11 @@ def settings_route():
         if not isinstance(new_settings, dict):
             return jsonify({"status": "error", "detail": "Expected a JSON object"}), 400
 
+        # max_grabs_per_run is a grabber setting: it lives in settings.yml,
+        # which is what the grabber reads. webui_settings.json keeps sessions
+        # only, so pop it before writing the JSON store.
+        max_grabs = new_settings.pop("max_grabs_per_run", None)
+
         # Both writes must succeed before this says "saved". Previously a failed
         # settings.yml write was swallowed and the UI reported success anyway.
         try:
@@ -721,14 +784,18 @@ def settings_route():
                 "detail": f"Could not write webui_settings.json: {exc}",
             }), 500
 
-        if not update_settings_yml(new_settings):
+        if max_grabs is not None and not update_settings(
+            {"grabber": {"max_grabs_per_run": max_grabs}}
+        ):
             return jsonify({
                 "status": "error",
                 "detail": "Could not write settings.yml; check that /config is writable.",
             }), 500
 
         return jsonify({"status": "saved"})
-    return jsonify(load_webui_settings())
+    settings = load_webui_settings()
+    settings["max_grabs_per_run"] = get_max_grabs_per_run()
+    return jsonify(settings)
 
 
 @app.route("/status")

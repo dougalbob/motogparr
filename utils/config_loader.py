@@ -278,6 +278,24 @@ def get(section: str, key: Optional[str], default: Any = None) -> Any:
     return get_with_source(section, key, default)[0]
 
 
+def has_setting(section: str, key: str) -> bool:
+    """True when settings.yml explicitly contains (section, key).
+
+    Distinct from :func:`get_with_source`: an explicit value that happens to
+    equal the default is still "configured", so a stale copy in another store
+    (webui_settings.json) must never overwrite it.
+    """
+    settings = _load_yaml() or {}
+    node = settings.get(section)
+    if not isinstance(node, dict):
+        return False
+    for part in key.split("."):
+        if part not in node:
+            return False
+        node = node[part]
+    return True
+
+
 def get_int(section: str, key: str, default: int = 0) -> int:
     """Get setting as integer."""
     value = get(section, key)
