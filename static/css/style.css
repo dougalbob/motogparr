@@ -2401,3 +2401,89 @@ button.small { padding: 6px 10px; font-size: 11px; }
     }
 }
 
+
+/* ---------------------------------------------------------------------------
+   Round status + weekend format (calendar modal)
+   Added so cancelled/postponed rounds and per-season format changes
+   (e.g. the 2027 MotoGP weekend) are visible without code changes.
+   --------------------------------------------------------------------------- */
+
+.race-status-badge {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    border: 1px solid rgba(231, 76, 60, 0.5);
+}
+
+.race-status-postponed {
+    background: rgba(243, 156, 18, 0.2);
+    color: #f39c12;
+    border-color: rgba(243, 156, 18, 0.5);
+}
+
+.race-status-replaced,
+.race-status-cancelled,
+.race-status-canceled {
+    background: rgba(149, 165, 166, 0.2);
+    color: #95a5a6;
+    border-color: rgba(149, 165, 166, 0.5);
+}
+
+.day.inactive {
+    opacity: 0.45;
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgba(231, 76, 60, 0.35) 0,
+        rgba(231, 76, 60, 0.35) 3px,
+        transparent 3px,
+        transparent 6px
+    );
+}
+
+.race-format {
+    margin: 18px 0;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+}
+
+.race-format-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.race-format-note {
+    text-transform: none;
+    letter-spacing: 0;
+    color: #666;
+    font-size: 11px;
+}
+
+.race-format-day {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    color: #ccc;
+    padding: 3px 0;
+}
+
+.race-format-day-label {
+    flex: 0 0 34px;
+    color: #888;
+    font-weight: bold;
+}
+
+.race-format-sessions em {
+    color: #888;
+    font-style: normal;
+    font-size: 11px;
+}

@@ -28,6 +28,11 @@ from motogp_common import (
     load_calendar,
     DEFAULT_DESIRED_SESSIONS,
     get_config_dir,
+    get_round_status,
+    is_round_active,
+    get_round_classes,
+    get_weekend_format,
+    round_runs_session,
 )
 
 from utils.config_loader import (
@@ -56,12 +61,35 @@ WEBUI_CONFIG_FILE = CONFIG_DIR / "webui_settings.json"
 LOG_FILE = CONFIG_DIR / "logs" / "motogp.log"
 MOTOGP_LIBRARY_PATH = get_motogp_library_path()
 
-SEASONS = [2024, 2025, 2026]
+def discover_seasons() -> list:
+    """
+    Seasons that have a calendar file, newest last.
+
+    Derived from config/motogp_<year>.json rather than hard coded, so dropping
+    in next season's calendar is enough to make it appear in the UI.
+    """
+    years = set()
+    try:
+        for path in CONFIG_DIR.glob("motogp_*.json"):
+            suffix = path.stem.split("_")[-1]
+            if suffix.isdigit():
+                years.add(int(suffix))
+    except OSError:
+        pass
+
+    if not years:
+        years.add(datetime.now().year)
+
+    return sorted(years)
+
+
+SEASONS = discover_seasons()
 
 SESSION_GROUPS = {
     "MotoGP": [
         "MOTOGP_PRESS_CONFERENCE", "MOTOGP_FP1", "MOTOGP_PRACTICE",
-        "MOTOGP_FP2", "MOTOGP_Q1", "MOTOGP_Q2", "MOTOGP_SPRINT",
+        "MOTOGP_FP2", "MOTOGP_FP3", "MOTOGP_Q1", "MOTOGP_Q2",
+        "MOTOGP_SPRINT_QUALIFYING", "MOTOGP_SPRINT",
         "MOTOGP_WARMUP", "MOTOGP_RACE", "MOTOGP_CHEQUERED_FLAG",
     ],
     "Moto2": [
@@ -117,10 +145,18 @@ def load_calendar_data(year: int) -> dict:
 def get_rounds_for_season(year: int) -> list:
     """Get list of rounds with venue names for a season."""
     calendar = load_calendar_data(year)
-    return [
-        {"number": r.get("round"), "venue": r.get("venue"), "date": r.get("date")}
-        for r in calendar.get("rounds", [])
-    ]
+    rounds = []
+    for r in calendar.get("rounds", []):
+        rounds.append({
+            "number": r.get("round"),
+            "venue": r.get("venue"),
+            "date": r.get("date"),
+            "status": get_round_status(r),
+            "active": is_round_active(r),
+            "classes": get_round_classes(r, calendar),
+            "format": get_weekend_format(r, calendar),
+        })
+    return rounds
 
 
 def get_next_race_info() -> dict:
@@ -331,6 +367,11 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
         desired_count = 0
         
         for session_type in sorted(desired_set, key=lambda x: int(x)):
+            # Only count sessions this weekend actually runs, otherwise a 2026
+            # round would show Sprint Qualifying / FP3 as missing.
+            if not round_runs_session(r, session_type, calendar):
+                continue
+
             exists = session_type in round_existing
             sessions.append({
                 "type": session_type,
@@ -345,12 +386,18 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
             "number": round_num,
             "venue": r.get("venue", "Unknown"),
             "date": r.get("date", ""),
+            "status": get_round_status(r),
+            "active": is_round_active(r),
             "is_future": is_future,
             "sessions": sessions,
             "grabbed_count": grabbed_count,
             "desired_count": desired_count,
         })
         
+        # Cancelled/postponed rounds do not count towards the season totals.
+        if not is_round_active(r):
+            continue
+
         result["total_grabbed"] += grabbed_count
         result["total_desired"] += desired_count
         
@@ -442,8 +489,12 @@ def run_overlay_command(args: str):
             )
             
             if round_info:
-                venue = round_info.get("venue", "Unknown")
-                round_path = os.path.join(MOTOGP_LIBRARY_PATH, year, f"Round {round_num} {venue}")
+                # Always use the folder name from the calendar so renumbered
+                # rounds (e.g. Qatar moving to Round 20) resolve correctly.
+                folder = round_info.get("folder") or (
+                    f"Round {int(round_num):02d} {round_info.get('venue', 'Unknown')}"
+                )
+                round_path = os.path.join(MOTOGP_LIBRARY_PATH, year, folder)
                 cmd = [PYTHON_PATH, str(OVERLAY_SCRIPT), "apply-round", round_path, "--scale", scale]
                 if dry_run:
                     cmd.append("--dry-run")

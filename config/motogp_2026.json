@@ -8,6 +8,105 @@
   ],
   "timezone_note": "All session times are in GMT/UTC. Local times vary by venue.",
   "your_timezone": "GMT+0",
+  "weekend_formats": {
+    "motogp_standard": {
+      "friday": [
+        {
+          "session": "fp1",
+          "label": "FP1",
+          "duration_mins": 45,
+          "note": "Same as 2026"
+        },
+        {
+          "session": "practice",
+          "label": "Practice",
+          "duration_mins": 60,
+          "note": "Top 10 get direct Q2 access"
+        }
+      ],
+      "saturday": [
+        {
+          "session": "fp2",
+          "label": "FP2",
+          "duration_mins": 30
+        },
+        {
+          "session": "qualifying",
+          "label": "Qualifying",
+          "duration_mins": 30
+        },
+        {
+          "session": "sprint",
+          "label": "Sprint",
+          "duration_mins": 25,
+          "note": "Grid from grand prix qualifying"
+        }
+      ],
+      "sunday": [
+        {
+          "session": "warmup",
+          "label": "Warm-up",
+          "duration_mins": 10
+        },
+        {
+          "session": "race",
+          "label": "Race",
+          "duration_mins": 50,
+          "note": "Grid from grand prix qualifying"
+        }
+      ]
+    },
+    "motogp_2027": {
+      "friday": [
+        {
+          "session": "fp1",
+          "label": "FP1",
+          "duration_mins": 45,
+          "note": "Same as 2026"
+        },
+        {
+          "session": "fp2",
+          "label": "FP2",
+          "duration_mins": 30,
+          "note": "Was 1 hour; no longer decides Q2 places"
+        },
+        {
+          "session": "sprint_qualifying",
+          "label": "Sprint Qualifying",
+          "duration_mins": 15,
+          "note": "NEW - sets the Sprint grid"
+        }
+      ],
+      "saturday": [
+        {
+          "session": "fp3",
+          "label": "FP3",
+          "duration_mins": 20,
+          "note": "Was 30 minutes"
+        },
+        {
+          "session": "qualifying",
+          "label": "Grand Prix Qualifying",
+          "duration_mins": 30,
+          "note": "Q1 15 mins all riders; Q2 15 mins top 12 from Q1"
+        },
+        {
+          "session": "sprint",
+          "label": "Sprint",
+          "duration_mins": 25,
+          "note": "Grid from Sprint Qualifying"
+        }
+      ],
+      "sunday": [
+        {
+          "session": "race",
+          "label": "Race",
+          "duration_mins": 50,
+          "note": "Warm-up removed; grid from Grand Prix qualifying"
+        }
+      ]
+    }
+  },
   "rounds": [
     {
       "round": 1,
@@ -23,7 +122,25 @@
       "date": "2026-03-01",
       "weekend_start": "2026-02-27",
       "weekend_end": "2026-03-01",
-      "folder": "Round 1 Thailand",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 01 Thailand",
       "local_timezone": "Asia/Bangkok",
       "utc_offset": "+07:00",
       "sessions": {
@@ -151,7 +268,25 @@
       "date": "2026-03-22",
       "weekend_start": "2026-03-20",
       "weekend_end": "2026-03-22",
-      "folder": "Round 2 Brazil",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 02 Brazil",
       "local_timezone": "America/Sao_Paulo",
       "utc_offset": "-03:00",
       "sessions": {
@@ -267,7 +402,7 @@
     {
       "round": 3,
       "venue": "Americas",
-      "official_name": "Americas Grand Prix",
+      "official_name": "Grand Prix of the Americas",
       "circuit": "Circuit of the Americas",
       "aliases": [
         "americas",
@@ -279,7 +414,25 @@
       "date": "2026-03-29",
       "weekend_start": "2026-03-27",
       "weekend_end": "2026-03-29",
-      "folder": "Round 3 Americas",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 03 Americas",
       "local_timezone": "America/Chicago",
       "utc_offset": "-05:00",
       "sessions": {
@@ -394,146 +547,36 @@
     },
     {
       "round": 4,
-      "venue": "Qatar",
-      "official_name": "Qatar Grand Prix",
-      "circuit": "Lusail International Circuit",
-      "aliases": [
-        "qatar",
-        "lusail",
-        "losail",
-        "doha"
-      ],
-      "date": "2026-04-12",
-      "weekend_start": "2026-04-10",
-      "weekend_end": "2026-04-12",
-      "folder": "Round 4 Qatar",
-      "local_timezone": "Asia/Qatar",
-      "utc_offset": "+03:00",
-      "sessions": {
-        "friday": {
-          "moto3_fp1": {
-            "local": "14:00",
-            "gmt": "11:00",
-            "duration_mins": 35
-          },
-          "motogp_fp1": {
-            "local": "14:45",
-            "gmt": "11:45",
-            "duration_mins": 45
-          },
-          "moto2_fp1": {
-            "local": "15:40",
-            "gmt": "12:40",
-            "duration_mins": 35
-          },
-          "moto3_practice": {
-            "local": "18:00",
-            "gmt": "15:00",
-            "duration_mins": 30
-          },
-          "motogp_practice": {
-            "local": "18:45",
-            "gmt": "15:45",
-            "duration_mins": 60
-          },
-          "moto2_practice": {
-            "local": "20:00",
-            "gmt": "17:00",
-            "duration_mins": 30
-          }
-        },
-        "saturday": {
-          "moto3_fp2": {
-            "local": "14:25",
-            "gmt": "11:25",
-            "duration_mins": 30
-          },
-          "motogp_fp2": {
-            "local": "15:05",
-            "gmt": "12:05",
-            "duration_mins": 30
-          },
-          "moto2_fp2": {
-            "local": "15:45",
-            "gmt": "12:45",
-            "duration_mins": 30
-          },
-          "moto3_qualifying": {
-            "local": "16:15",
-            "gmt": "13:15",
-            "duration_mins": 30
-          },
-          "motogp_qualifying": {
-            "local": "17:00",
-            "gmt": "14:00",
-            "duration_mins": 30
-          },
-          "motogp_sprint": {
-            "local": "20:00",
-            "gmt": "17:00",
-            "duration_mins": 25
-          },
-          "moto2_qualifying": {
-            "local": "20:45",
-            "gmt": "17:45",
-            "duration_mins": 30
-          }
-        },
-        "sunday": {
-          "motogp_warmup": {
-            "local": "16:40",
-            "gmt": "13:40",
-            "duration_mins": 10
-          },
-          "moto3_race": {
-            "local": "18:00",
-            "gmt": "15:00",
-            "duration_mins": 40
-          },
-          "moto2_race": {
-            "local": "19:15",
-            "gmt": "16:15",
-            "duration_mins": 45
-          },
-          "motogp_race": {
-            "local": "21:00",
-            "gmt": "18:00",
-            "duration_mins": 50
-          }
-        }
-      },
-      "search_delay_hours": 1,
-      "assets": {
-        "motogp": {
-          "fanart": "fanart_qatar.jpg",
-          "poster": "poster_qatar.jpg"
-        },
-        "moto2": {
-          "fanart": "fanart_qatar.jpg",
-          "poster": "poster_qatar.jpg"
-        },
-        "moto3": {
-          "fanart": "fanart_qatar.jpg",
-          "poster": "poster_qatar.jpg"
-        }
-      },
-      "flag": "qa.svg"
-    },
-    {
-      "round": 5,
       "venue": "Spain",
       "official_name": "Spanish Grand Prix",
-      "circuit": "Circuito de Jerez",
+      "circuit": "Circuito de Jerez - Angel Nieto",
       "aliases": [
-        "spanish",
         "spain",
-        "jerez",
-        "jerez de la frontera"
+        "spanish",
+        "jerez"
       ],
       "date": "2026-04-26",
       "weekend_start": "2026-04-24",
       "weekend_end": "2026-04-26",
-      "folder": "Round 5 Spain",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 04 Spain",
       "local_timezone": "Europe/Madrid",
       "utc_offset": "+02:00",
       "sessions": {
@@ -571,18 +614,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -596,13 +639,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -647,10 +690,10 @@
       "flag": "es.svg"
     },
     {
-      "round": 6,
+      "round": 5,
       "venue": "France",
       "official_name": "French Grand Prix",
-      "circuit": "Le Mans",
+      "circuit": "Circuit Bugatti (Le Mans)",
       "aliases": [
         "france",
         "french",
@@ -661,7 +704,25 @@
       "date": "2026-05-10",
       "weekend_start": "2026-05-08",
       "weekend_end": "2026-05-10",
-      "folder": "Round 6 France",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 05 France",
       "local_timezone": "Europe/Paris",
       "utc_offset": "+02:00",
       "sessions": {
@@ -699,18 +760,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -724,13 +785,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -775,12 +836,13 @@
       "flag": "fr.svg"
     },
     {
-      "round": 7,
+      "round": 6,
       "venue": "Catalunya",
       "official_name": "Catalan Grand Prix",
       "circuit": "Circuit de Barcelona-Catalunya",
       "aliases": [
         "catalunya",
+        "catalonia",
         "catalan",
         "barcelona",
         "montmelo"
@@ -788,7 +850,25 @@
       "date": "2026-05-17",
       "weekend_start": "2026-05-15",
       "weekend_end": "2026-05-17",
-      "folder": "Round 7 Catalunya",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 06 Catalunya",
       "local_timezone": "Europe/Madrid",
       "utc_offset": "+02:00",
       "sessions": {
@@ -826,18 +906,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -851,13 +931,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -899,22 +979,41 @@
           "poster": "poster_catalunya.jpg"
         }
       },
-      "flag": "es-ct.svg"
+      "flag": "es.svg"
     },
     {
-      "round": 8,
+      "round": 7,
       "venue": "Italy",
       "official_name": "Italian Grand Prix",
-      "circuit": "Mugello",
+      "circuit": "Autodromo Internazionale del Mugello",
       "aliases": [
         "italy",
         "italian",
-        "mugello"
+        "mugello",
+        "tuscany"
       ],
       "date": "2026-05-31",
       "weekend_start": "2026-05-29",
       "weekend_end": "2026-05-31",
-      "folder": "Round 8 Italy",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 07 Italy",
       "local_timezone": "Europe/Rome",
       "utc_offset": "+02:00",
       "sessions": {
@@ -952,18 +1051,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -977,13 +1076,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -1028,20 +1127,37 @@
       "flag": "it.svg"
     },
     {
-      "round": 9,
+      "round": 8,
       "venue": "Hungary",
       "official_name": "Hungarian Grand Prix",
-      "circuit": "Balaton Park",
+      "circuit": "Balaton Park Circuit",
       "aliases": [
         "hungary",
         "hungarian",
-        "balaton",
-        "balaton park"
+        "balaton"
       ],
       "date": "2026-06-07",
       "weekend_start": "2026-06-05",
       "weekend_end": "2026-06-07",
-      "folder": "Round 9 Hungary",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 08 Hungary",
       "local_timezone": "Europe/Budapest",
       "utc_offset": "+02:00",
       "sessions": {
@@ -1079,18 +1195,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1104,13 +1220,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -1155,20 +1271,37 @@
       "flag": "hu.svg"
     },
     {
-      "round": 10,
+      "round": 9,
       "venue": "Czech Republic",
       "official_name": "Czech Grand Prix",
       "circuit": "Automotodrom Brno",
       "aliases": [
         "czech",
-        "brno",
         "czechia",
-        "czech republic"
+        "brno"
       ],
       "date": "2026-06-21",
       "weekend_start": "2026-06-19",
       "weekend_end": "2026-06-21",
-      "folder": "Round 10 Czech Republic",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 09 Czech Republic",
       "local_timezone": "Europe/Prague",
       "utc_offset": "+02:00",
       "sessions": {
@@ -1206,18 +1339,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1231,13 +1364,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -1282,21 +1415,38 @@
       "flag": "cz.svg"
     },
     {
-      "round": 11,
+      "round": 10,
       "venue": "Netherlands",
-      "official_name": "Dutch Grand Prix",
+      "official_name": "Dutch TT",
       "circuit": "TT Circuit Assen",
       "aliases": [
         "netherlands",
         "dutch",
         "assen",
-        "holland",
-        "tt circuit"
+        "tt"
       ],
       "date": "2026-06-28",
       "weekend_start": "2026-06-26",
       "weekend_end": "2026-06-28",
-      "folder": "Round 11 Netherlands",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 10 Netherlands",
       "local_timezone": "Europe/Amsterdam",
       "utc_offset": "+02:00",
       "sessions": {
@@ -1334,18 +1484,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1359,13 +1509,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -1410,7 +1560,7 @@
       "flag": "nl.svg"
     },
     {
-      "round": 12,
+      "round": 11,
       "venue": "Germany",
       "official_name": "German Grand Prix",
       "circuit": "Sachsenring",
@@ -1422,7 +1572,25 @@
       "date": "2026-07-12",
       "weekend_start": "2026-07-10",
       "weekend_end": "2026-07-12",
-      "folder": "Round 12 Germany",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 11 Germany",
       "local_timezone": "Europe/Berlin",
       "utc_offset": "+02:00",
       "sessions": {
@@ -1460,18 +1628,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1485,13 +1653,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -1536,23 +1704,38 @@
       "flag": "de.svg"
     },
     {
-      "round": 13,
+      "round": 12,
       "venue": "Great Britain",
       "official_name": "British Grand Prix",
       "circuit": "Silverstone Circuit",
       "aliases": [
-        "britain",
+        "great britain",
         "british",
         "silverstone",
-        "uk",
-        "great britain",
-        "united kingdom",
-        "england"
+        "uk"
       ],
       "date": "2026-08-09",
       "weekend_start": "2026-08-07",
       "weekend_end": "2026-08-09",
-      "folder": "Round 13 Great Britain",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 12 Great Britain",
       "local_timezone": "Europe/London",
       "utc_offset": "+01:00",
       "sessions": {
@@ -1590,18 +1773,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "07:40",
+            "local": "09:00",
+            "gmt": "08:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "08:20",
+            "local": "09:40",
+            "gmt": "08:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "09:00",
+            "local": "10:20",
+            "gmt": "09:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1615,13 +1798,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "14:00",
+            "local": "14:00",
+            "gmt": "13:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "14:45",
+            "local": "14:45",
+            "gmt": "13:45",
             "duration_mins": 30
           }
         },
@@ -1666,7 +1849,7 @@
       "flag": "gb.svg"
     },
     {
-      "round": 14,
+      "round": 13,
       "venue": "Aragon",
       "official_name": "Aragon Grand Prix",
       "circuit": "MotorLand Aragon",
@@ -1678,7 +1861,25 @@
       "date": "2026-08-30",
       "weekend_start": "2026-08-28",
       "weekend_end": "2026-08-30",
-      "folder": "Round 14 Aragon",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 13 Aragon",
       "local_timezone": "Europe/Madrid",
       "utc_offset": "+02:00",
       "sessions": {
@@ -1716,18 +1917,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1741,13 +1942,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -1792,20 +1993,37 @@
       "flag": "es.svg"
     },
     {
-      "round": 15,
+      "round": 14,
       "venue": "San Marino",
       "official_name": "San Marino Grand Prix",
-      "circuit": "Misano World Circuit",
+      "circuit": "Misano World Circuit Marco Simoncelli",
       "aliases": [
         "san marino",
-        "sanmarino",
         "misano",
         "rimini"
       ],
       "date": "2026-09-13",
       "weekend_start": "2026-09-11",
       "weekend_end": "2026-09-13",
-      "folder": "Round 15 San Marino",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 14 San Marino",
       "local_timezone": "Europe/Rome",
       "utc_offset": "+02:00",
       "sessions": {
@@ -1843,18 +2061,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1868,13 +2086,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -1919,21 +2137,38 @@
       "flag": "sm.svg"
     },
     {
-      "round": 16,
+      "round": 15,
       "venue": "Austria",
       "official_name": "Austrian Grand Prix",
       "circuit": "Red Bull Ring",
       "aliases": [
         "austria",
         "austrian",
-        "red bull ring",
         "spielberg",
-        "redbull"
+        "red bull ring"
       ],
       "date": "2026-09-20",
       "weekend_start": "2026-09-18",
       "weekend_end": "2026-09-20",
-      "folder": "Round 16 Austria",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 15 Austria",
       "local_timezone": "Europe/Vienna",
       "utc_offset": "+02:00",
       "sessions": {
@@ -1971,18 +2206,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "06:40",
+            "local": "09:00",
+            "gmt": "07:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "07:20",
+            "local": "09:40",
+            "gmt": "07:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "08:00",
+            "local": "10:20",
+            "gmt": "08:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -1996,13 +2231,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "13:00",
+            "local": "14:00",
+            "gmt": "12:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "13:45",
+            "local": "14:45",
+            "gmt": "12:45",
             "duration_mins": 30
           }
         },
@@ -2047,20 +2282,37 @@
       "flag": "at.svg"
     },
     {
-      "round": 17,
+      "round": 16,
       "venue": "Japan",
       "official_name": "Japanese Grand Prix",
-      "circuit": "Twin Ring Motegi",
+      "circuit": "Mobility Resort Motegi",
       "aliases": [
         "japan",
         "japanese",
-        "motegi",
-        "twin ring"
+        "motegi"
       ],
       "date": "2026-10-04",
       "weekend_start": "2026-10-02",
       "weekend_end": "2026-10-04",
-      "folder": "Round 17 Japan",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 16 Japan",
       "local_timezone": "Asia/Tokyo",
       "utc_offset": "+09:00",
       "sessions": {
@@ -2174,21 +2426,37 @@
       "flag": "jp.svg"
     },
     {
-      "round": 18,
+      "round": 17,
       "venue": "Indonesia",
       "official_name": "Indonesian Grand Prix",
-      "circuit": "Mandalika Circuit",
+      "circuit": "Pertamina Mandalika Circuit",
       "aliases": [
         "indonesia",
         "indonesian",
-        "mandalika",
-        "lombok",
-        "pertamina"
+        "mandalika"
       ],
       "date": "2026-10-11",
       "weekend_start": "2026-10-09",
       "weekend_end": "2026-10-11",
-      "folder": "Round 18 Indonesia",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 17 Indonesia",
       "local_timezone": "Asia/Makassar",
       "utc_offset": "+08:00",
       "sessions": {
@@ -2302,10 +2570,10 @@
       "flag": "id.svg"
     },
     {
-      "round": 19,
+      "round": 18,
       "venue": "Australia",
       "official_name": "Australian Grand Prix",
-      "circuit": "Phillip Island",
+      "circuit": "Phillip Island Grand Prix Circuit",
       "aliases": [
         "australia",
         "australian",
@@ -2315,7 +2583,25 @@
       "date": "2026-10-25",
       "weekend_start": "2026-10-23",
       "weekend_end": "2026-10-25",
-      "folder": "Round 19 Australia",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 18 Australia",
       "local_timezone": "Australia/Melbourne",
       "utc_offset": "+11:00",
       "sessions": {
@@ -2323,20 +2609,17 @@
           "moto3_fp1": {
             "local": "09:00",
             "gmt": "22:00",
-            "duration_mins": 35,
-            "gmt_day": "thursday"
+            "duration_mins": 35
           },
           "motogp_fp1": {
             "local": "09:45",
             "gmt": "22:45",
-            "duration_mins": 45,
-            "gmt_day": "thursday"
+            "duration_mins": 45
           },
           "moto2_fp1": {
             "local": "10:40",
             "gmt": "23:40",
-            "duration_mins": 35,
-            "gmt_day": "thursday"
+            "duration_mins": 35
           },
           "moto3_practice": {
             "local": "13:15",
@@ -2358,26 +2641,22 @@
           "moto3_fp2": {
             "local": "09:00",
             "gmt": "22:00",
-            "duration_mins": 30,
-            "gmt_day": "friday"
+            "duration_mins": 30
           },
           "motogp_fp2": {
             "local": "09:40",
             "gmt": "22:40",
-            "duration_mins": 30,
-            "gmt_day": "friday"
+            "duration_mins": 30
           },
           "moto2_fp2": {
             "local": "10:20",
             "gmt": "23:20",
-            "duration_mins": 30,
-            "gmt_day": "friday"
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
             "gmt": "23:50",
-            "duration_mins": 30,
-            "gmt_day": "friday"
+            "duration_mins": 30
           },
           "motogp_qualifying": {
             "local": "11:30",
@@ -2399,8 +2678,7 @@
           "motogp_warmup": {
             "local": "09:40",
             "gmt": "22:40",
-            "duration_mins": 10,
-            "gmt_day": "saturday"
+            "duration_mins": 10
           },
           "moto3_race": {
             "local": "11:00",
@@ -2437,7 +2715,7 @@
       "flag": "au.svg"
     },
     {
-      "round": 20,
+      "round": 19,
       "venue": "Malaysia",
       "official_name": "Malaysian Grand Prix",
       "circuit": "Sepang International Circuit",
@@ -2449,7 +2727,25 @@
       "date": "2026-11-01",
       "weekend_start": "2026-10-30",
       "weekend_end": "2026-11-01",
-      "folder": "Round 20 Malaysia",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 19 Malaysia",
       "local_timezone": "Asia/Kuala_Lumpur",
       "utc_offset": "+08:00",
       "sessions": {
@@ -2563,19 +2859,220 @@
       "flag": "my.svg"
     },
     {
+      "round": 20,
+      "venue": "Qatar",
+      "official_name": "Qatar Grand Prix",
+      "circuit": "Lusail International Circuit",
+      "aliases": [
+        "qatar",
+        "lusail",
+        "losail",
+        "doha"
+      ],
+      "date": "2026-11-08",
+      "weekend_start": "2026-11-06",
+      "weekend_end": "2026-11-08",
+      "status": "scheduled",
+      "status_note": "Originally round 4 (10-12 April 2026); postponed to 6-8 November because of the conflict in the Middle East.",
+      "round_aliases": [
+        4
+      ],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
+      "folder": "Round 20 Qatar",
+      "local_timezone": "Asia/Qatar",
+      "utc_offset": "+03:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "13:00",
+            "gmt": "10:00",
+            "duration_mins": 35
+          },
+          "moto2_fp1": {
+            "local": "13:50",
+            "gmt": "10:50",
+            "duration_mins": 40
+          },
+          "motogp_fp1": {
+            "local": "14:45",
+            "gmt": "11:45",
+            "duration_mins": 45
+          },
+          "moto3_practice": {
+            "local": "17:15",
+            "gmt": "14:15",
+            "duration_mins": 35
+          },
+          "moto2_practice": {
+            "local": "18:05",
+            "gmt": "15:05",
+            "duration_mins": 40
+          },
+          "motogp_practice": {
+            "local": "19:00",
+            "gmt": "16:00",
+            "duration_mins": 60
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "12:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "moto2_fp2": {
+            "local": "13:15",
+            "gmt": "10:15",
+            "duration_mins": 30
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "11:00",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "14:40",
+            "gmt": "11:40",
+            "duration_mins": 40,
+            "parts": [
+              {
+                "key": "q1",
+                "local": "14:40",
+                "duration_mins": 15
+              },
+              {
+                "key": "q2",
+                "local": "15:05",
+                "duration_mins": 15
+              }
+            ]
+          },
+          "moto3_qualifying": {
+            "local": "16:50",
+            "gmt": "13:50",
+            "duration_mins": 40,
+            "parts": [
+              {
+                "key": "q1",
+                "local": "16:50",
+                "duration_mins": 15
+              },
+              {
+                "key": "q2",
+                "local": "17:15",
+                "duration_mins": 15
+              }
+            ]
+          },
+          "moto2_qualifying": {
+            "local": "17:45",
+            "gmt": "14:45",
+            "duration_mins": 40,
+            "parts": [
+              {
+                "key": "q1",
+                "local": "17:45",
+                "duration_mins": 15
+              },
+              {
+                "key": "q2",
+                "local": "18:10",
+                "duration_mins": 15
+              }
+            ]
+          },
+          "motogp_sprint": {
+            "local": "19:00",
+            "gmt": "16:00",
+            "duration_mins": 25
+          }
+        },
+        "sunday": {
+          "motogp_warmup": {
+            "local": "14:40",
+            "gmt": "11:40",
+            "duration_mins": 10
+          },
+          "moto3_race": {
+            "local": "16:00",
+            "gmt": "13:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "17:15",
+            "gmt": "14:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "19:00",
+            "gmt": "16:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        }
+      },
+      "flag": "qa.svg"
+    },
+    {
       "round": 21,
       "venue": "Portugal",
       "official_name": "Portuguese Grand Prix",
-      "circuit": "Aut\u00f3dromo Internacional do Algarve",
+      "circuit": "Autodromo Internacional do Algarve",
       "aliases": [
         "portugal",
         "portuguese",
         "portimao",
         "algarve"
       ],
-      "date": "2026-11-15",
-      "weekend_start": "2026-11-13",
-      "weekend_end": "2026-11-15",
+      "date": "2026-11-22",
+      "weekend_start": "2026-11-20",
+      "weekend_end": "2026-11-22",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
       "folder": "Round 21 Portugal",
       "local_timezone": "Europe/Lisbon",
       "utc_offset": "+00:00",
@@ -2614,18 +3111,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "08:40",
+            "local": "09:00",
+            "gmt": "09:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "09:20",
+            "local": "09:40",
+            "gmt": "09:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "10:00",
+            "local": "10:20",
+            "gmt": "10:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -2639,13 +3136,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "15:00",
+            "local": "14:00",
+            "gmt": "14:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "15:45",
+            "local": "14:45",
+            "gmt": "14:45",
             "duration_mins": 30
           }
         },
@@ -2692,7 +3189,7 @@
     {
       "round": 22,
       "venue": "Valencia",
-      "official_name": "Valencia Grand Prix",
+      "official_name": "Valencian Community Grand Prix",
       "circuit": "Circuit Ricardo Tormo",
       "aliases": [
         "valencia",
@@ -2701,9 +3198,27 @@
         "cheste",
         "comunitat"
       ],
-      "date": "2026-11-22",
-      "weekend_start": "2026-11-20",
-      "weekend_end": "2026-11-22",
+      "date": "2026-11-29",
+      "weekend_start": "2026-11-27",
+      "weekend_end": "2026-11-29",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_standard",
+      "motogp_sessions": [
+        "fp1",
+        "practice",
+        "fp2",
+        "qualifying",
+        "sprint",
+        "warmup",
+        "race"
+      ],
       "folder": "Round 22 Valencia",
       "local_timezone": "Europe/Madrid",
       "utc_offset": "+01:00",
@@ -2742,18 +3257,18 @@
         },
         "saturday": {
           "moto3_fp2": {
-            "local": "08:40",
-            "gmt": "07:40",
+            "local": "09:00",
+            "gmt": "08:00",
             "duration_mins": 30
           },
           "motogp_fp2": {
-            "local": "09:20",
-            "gmt": "08:20",
+            "local": "09:40",
+            "gmt": "08:40",
             "duration_mins": 30
           },
           "moto2_fp2": {
-            "local": "10:00",
-            "gmt": "09:00",
+            "local": "10:20",
+            "gmt": "09:20",
             "duration_mins": 30
           },
           "moto3_qualifying": {
@@ -2767,13 +3282,13 @@
             "duration_mins": 30
           },
           "motogp_sprint": {
-            "local": "15:00",
-            "gmt": "14:00",
+            "local": "14:00",
+            "gmt": "13:00",
             "duration_mins": 25
           },
           "moto2_qualifying": {
-            "local": "15:45",
-            "gmt": "14:45",
+            "local": "14:45",
+            "gmt": "13:45",
             "duration_mins": 30
           }
         },

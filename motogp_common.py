@@ -23,6 +23,7 @@ import re
 import json
 import argparse
 import logging
+from datetime import datetime
 from enum import IntEnum
 from dataclasses import dataclass
 from pathlib import Path
@@ -430,6 +431,25 @@ class SessionType(IntEnum):
     # Post-race (MotoGP only)
     MOTOGP_CHEQUERED_FLAG = 22
     
+    # =========================================================================
+    # Appended AFTER the historical values on purpose.
+    #
+    # The integer is baked into every library folder name as "E<NN>"
+    # (yyRNNEee), so changing an existing value would orphan files that are
+    # already on disk and in Plex. Only ever add new members here.
+    #
+    # These cover the 2027 MotoGP weekend format. Session slots other than
+    # Saturday free practice are shared with the 2026 sessions above because
+    # the release names are the same ("Practice", "Qualifying", "Race"):
+    #
+    #   Friday      FP1 45m, FP2 30m, Sprint Qualifying 15m  (NEW)
+    #   Saturday    FP3 20m                                   (NEW)
+    #               GP Q1/Q2, Sprint
+    #   Sunday      Race (warm-up removed)
+    # =========================================================================
+    MOTOGP_FP3 = 23
+    MOTOGP_SPRINT_QUALIFYING = 24
+    
     # Unknown/fallback
     UNKNOWN = 99
     
@@ -466,6 +486,18 @@ class SessionType(IntEnum):
         """Get the calendar session key (e.g., 'motogp_race')."""
         return SESSION_TO_CALENDAR_KEY.get(self)
 
+    @property
+    def motogp_session_name(self) -> Optional[str]:
+        """
+        Name used by the weekend format definitions in the calendar.
+
+        MotoGP weekends are described as a list of session names, e.g.
+        ["fp1", "fp2", "sprint_qualifying", "fp3", "qualifying", "sprint",
+        "race"] for 2027. This maps the session type onto that vocabulary so the
+        grabber can tell whether a session will actually be run.
+        """
+        return SESSION_TO_MOTOGP_SESSION_NAME.get(self)
+
 # Session display names (session type only, without class)
 SESSION_DISPLAY_NAMES = {
     SessionType.MOTOGP_PRESS_CONFERENCE: "Pre-event Press Conference",
@@ -478,6 +510,8 @@ SESSION_DISPLAY_NAMES = {
     SessionType.MOTO3_FP2: "Free Practice 2",
     SessionType.MOTOGP_FP2: "Free Practice 2",
     SessionType.MOTO2_FP2: "Free Practice 2",
+    SessionType.MOTOGP_FP3: "Free Practice 3",
+    SessionType.MOTOGP_SPRINT_QUALIFYING: "Sprint Qualifying",
     SessionType.MOTO3_Q1: "Qualifying 1",
     SessionType.MOTO3_Q2: "Qualifying 2",
     SessionType.MOTOGP_Q1: "Qualifying 1",
@@ -505,6 +539,8 @@ SESSION_RACE_CLASS = {
     SessionType.MOTO3_FP2: RaceClass.MOTO3,
     SessionType.MOTOGP_FP2: RaceClass.MOTOGP,
     SessionType.MOTO2_FP2: RaceClass.MOTO2,
+    SessionType.MOTOGP_FP3: RaceClass.MOTOGP,
+    SessionType.MOTOGP_SPRINT_QUALIFYING: RaceClass.MOTOGP,
     SessionType.MOTO3_Q1: RaceClass.MOTO3,
     SessionType.MOTO3_Q2: RaceClass.MOTO3,
     SessionType.MOTOGP_Q1: RaceClass.MOTOGP,
@@ -555,6 +591,8 @@ DEFAULT_DESIRED_SESSIONS: Dict[SessionType, bool] = {
     SessionType.MOTO3_FP2: False,
     SessionType.MOTOGP_FP2: True,
     SessionType.MOTO2_FP2: False,
+    SessionType.MOTOGP_FP3: True,
+    SessionType.MOTOGP_SPRINT_QUALIFYING: True,
     SessionType.MOTO3_Q1: True,
     SessionType.MOTO3_Q2: True,
     SessionType.MOTOGP_Q1: True,
@@ -632,6 +670,8 @@ CALENDAR_KEY_TO_SESSION: Dict[str, SessionType] = {
     "moto3_qualifying": SessionType.MOTO3_Q2,
     "motogp_qualifying": SessionType.MOTOGP_Q2,
     "moto2_qualifying": SessionType.MOTO2_Q2,
+    "motogp_fp3": SessionType.MOTOGP_FP3,
+    "motogp_sprint_qualifying": SessionType.MOTOGP_SPRINT_QUALIFYING,
     "motogp_sprint": SessionType.MOTOGP_SPRINT,
     "motogp_warmup": SessionType.MOTOGP_WARMUP,
     "moto3_race": SessionType.MOTO3_RACE,
@@ -654,6 +694,8 @@ SESSION_TO_CALENDAR_KEY: Dict[SessionType, str] = {
     SessionType.MOTO3_Q2: "moto3_qualifying",
     SessionType.MOTOGP_Q1: "motogp_qualifying",
     SessionType.MOTOGP_Q2: "motogp_qualifying",
+    SessionType.MOTOGP_FP3: "motogp_fp3",
+    SessionType.MOTOGP_SPRINT_QUALIFYING: "motogp_sprint_qualifying",
     SessionType.MOTOGP_SPRINT: "motogp_sprint",
     SessionType.MOTO2_Q1: "moto2_qualifying",
     SessionType.MOTO2_Q2: "moto2_qualifying",
@@ -661,6 +703,26 @@ SESSION_TO_CALENDAR_KEY: Dict[SessionType, str] = {
     SessionType.MOTO3_RACE: "moto3_race",
     SessionType.MOTO2_RACE: "moto2_race",
     SessionType.MOTOGP_RACE: "motogp_race",
+}
+
+# Map MotoGP session types to weekend-format session names.
+# Support class sessions are absent: only the MotoGP format varies by season.
+# Note that MOTOGP_FP2 maps to "fp2" and MOTOGP_PRACTICE maps to "practice":
+# in 2026 Friday runs FP1 + a one hour Practice, from 2027 Friday runs
+# FP1 + a 30 minute FP2 + Sprint Qualifying, so the two names never collide
+# within a single weekend.
+SESSION_TO_MOTOGP_SESSION_NAME: Dict[SessionType, str] = {
+    SessionType.MOTOGP_FP1: "fp1",
+    SessionType.MOTOGP_PRACTICE: "practice",
+    SessionType.MOTOGP_FP2: "fp2",
+    SessionType.MOTOGP_FP3: "fp3",
+    SessionType.MOTOGP_Q1: "qualifying",
+    SessionType.MOTOGP_Q2: "qualifying",
+    SessionType.MOTOGP_SPRINT_QUALIFYING: "sprint_qualifying",
+    SessionType.MOTOGP_SPRINT: "sprint",
+    SessionType.MOTOGP_WARMUP: "warmup",
+    SessionType.MOTOGP_RACE: "race",
+    SessionType.MOTOGP_CHEQUERED_FLAG: "chequered_flag",
 }
 
 # Map calendar keys to their day in the weekend
@@ -674,6 +736,8 @@ CALENDAR_KEY_TO_DAY: Dict[str, str] = {
     "moto3_fp2": "saturday",
     "motogp_fp2": "saturday",
     "moto2_fp2": "saturday",
+    "motogp_fp3": "saturday",
+    "motogp_sprint_qualifying": "friday",
     "moto3_qualifying": "saturday",
     "motogp_qualifying": "saturday",
     "motogp_sprint": "saturday",
@@ -714,11 +778,22 @@ SESSION_PATTERNS: List[SessionPattern] = [
         priority=100,
     ),
     
+    # === SPRINT QUALIFYING (2027+) ===
+    # Must be tested before SPRINT, and SPRINT must exclude "qualifying",
+    # otherwise "Sprint Qualifying" would be read as the Sprint race.
+    SessionPattern(
+        session_type=SessionType.MOTOGP_SPRINT_QUALIFYING,
+        must_have=["sprint qualifying", "sprint.qualifying", "sprint quali",
+                   "sprint shootout", "sprint qualifying"],
+        must_not_have=[],
+        priority=97,
+    ),
+    
     # === SPRINT ===
     SessionPattern(
         session_type=SessionType.MOTOGP_SPRINT,
         must_have=["sprint"],
-        must_not_have=["qualifying"],
+        must_not_have=["qualifying", "quali", "qualifing", "shootout"],
         priority=95,
     ),
     
@@ -737,6 +812,15 @@ SESSION_PATTERNS: List[SessionPattern] = [
                    "free.practice.1", "free.practice.one"],
         must_not_have=[],
         priority=90,
+    ),
+    
+    # === FREE PRACTICE 3 (2027+) ===
+    SessionPattern(
+        session_type=SessionType.MOTOGP_FP3,
+        must_have=["fp3", "free practice 3", "free practice three",
+                   "free.practice.3", "free.practice.three"],
+        must_not_have=[],
+        priority=91,
     ),
     
     # === FREE PRACTICE 2 ===
@@ -856,6 +940,20 @@ def detect_race_class(text: str) -> RaceClass:
     return RaceClass.MOTOGP
 
 
+def matches_qualifying_part(text: str, part: int) -> bool:
+    """
+    Does this text refer to Q1 or Q2 specifically?
+
+    Uses word boundaries so "Qualifying 1080p" is not read as "Qualifying 1".
+    """
+    text_normalized = text.lower().replace(".", " ").replace("-", " ")
+    if part == 1:
+        pattern = r"\bq1\b|\bqualifying\s*(?:1|one)\b(?!\d)"
+    else:
+        pattern = r"\bq2\b|\bqualifying\s*(?:2|two)\b(?!\d)"
+    return re.search(pattern, text_normalized) is not None
+
+
 def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
     """Classify session type from text with explicit handling for practice sessions."""
     import logging
@@ -864,7 +962,14 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
     
     text_lower = text.lower()
     text_normalized = text_lower.replace(".", " ").replace("-", " ")
-    
+
+    # Quality tokens are removed before matching. Without this, "Qualifying
+    # 1080p" matches the "qualifying 1" pattern (and 2160p matches "2"),
+    # which made plain qualifying releases look like Q1/Q2 parts.
+    text_normalized = re.sub(
+        r"\b(2160p|1080p|1080i|720p|480p|4k|uhd)\b", " ", text_normalized
+    )
+
     logger.debug(f"=" * 50)
     logger.debug(f"CLASSIFY: '{text}'")
     logger.debug(f"NORMALIZED: '{text_normalized}'")
@@ -873,9 +978,26 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
         race_class = detect_race_class(text)
     logger.debug(f"RACE CLASS: {race_class.display_name}")
 
+    # === SPRINT QUALIFYING (2027+) ===
+    # Must be checked before the practice handling below, because the 2027
+    # session is literally called "Sprint Qualifying" and must not be
+    # classified as the Sprint race or as grand prix qualifying.
+    if re.search(r'\bsprint\b', text_normalized) and re.search(
+            r'\bqualif', text_normalized):
+        logger.debug(f">>> SPRINT QUALIFYING MATCH")
+        return SessionType.MOTOGP_SPRINT_QUALIFYING
+
     # === EXPLICIT PRACTICE SESSION HANDLING ===
     if "practice" in text_normalized:
         logger.debug(f">>> PRACTICE BLOCK ENTERED")
+
+        # FP3 (2027+) - check before FP2/FP1 so "FP3" is not read as FP2.
+        for pattern in [r'\bfp3\b', r'\bfp\s*3\b',
+                        r'\bfree\s+practice\s+3\b',
+                        r'\bfree\s+practice\s+three\b']:
+            if re.search(pattern, text_normalized):
+                logger.debug(f">>> FP3 MATCH: '{pattern}'")
+                return SessionType.MOTOGP_FP3
         
         # Check for FP2 indicators using word boundaries
         fp2_patterns = [
@@ -918,7 +1040,7 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
         # Check for generic "Free Practice" (without number)
         if re.search(r'\bfree\s+practice\b', text_normalized):
             # Make sure it's not followed by a number
-            if not re.search(r'\bfree\s+practice\s+(1|2|one|two)\b', text_normalized):
+            if not re.search(r'\bfree\s+practice\s+(1|2|3|one|two|three)\b', text_normalized):
                 logger.debug(f">>> FREE PRACTICE (generic) MATCH")
                 if race_class == RaceClass.MOTO3:
                     return SessionType.MOTO3_FP1
@@ -1154,6 +1276,189 @@ def has_session_times(calendar: dict) -> bool:
         return False
     
     return "sessions" in rounds[0]
+
+
+# =============================================================================
+# ROUND STATUS AND WEEKEND FORMAT
+# =============================================================================
+#
+# These helpers keep calendar *data* authoritative so a cancelled, postponed or
+# rescheduled round, a MotoGP-only event, or a weekend format change never
+# requires editing code again.
+
+# Statuses that mean "this round is not happening as published".
+INACTIVE_ROUND_STATUSES = {"cancelled", "canceled", "postponed", "replaced"}
+
+
+def is_round_active(round_info: dict) -> bool:
+    """Is this round still on the calendar (not cancelled/postponed/replaced)?"""
+    if round_info is None:
+        return False
+    status = str(round_info.get("status", "scheduled")).lower()
+    return status not in INACTIVE_ROUND_STATUSES
+
+
+def get_round_status(round_info: dict) -> str:
+    """Normalised round status, defaulting to 'scheduled'."""
+    if not round_info:
+        return "scheduled"
+    return str(round_info.get("status", "scheduled")).lower()
+
+
+def get_round_classes(round_info: dict, calendar: dict = None) -> List[str]:
+    """Classes racing at this round, falling back to the calendar default."""
+    if round_info and round_info.get("classes"):
+        return list(round_info["classes"])
+    if calendar and calendar.get("classes"):
+        return list(calendar["classes"])
+    return ["motogp", "moto2", "moto3"]
+
+
+def get_weekend_format(round_info: dict, calendar: dict = None) -> dict:
+    """
+    Get the weekend format definition for a round.
+
+    Looks up round_info["weekend_format"] in calendar["weekend_formats"].
+    Returns {} for old style calendars that have no formats block.
+    """
+    if not round_info or not calendar:
+        return {}
+    formats = calendar.get("weekend_formats") or {}
+    return formats.get(round_info.get("weekend_format", ""), {})
+
+
+def get_round_motogp_sessions(round_info: dict, calendar: dict = None) -> Optional[List[str]]:
+    """
+    Which MotoGP sessions this round actually runs.
+
+    Returns a list of session names such as ["fp1", "practice", "fp2",
+    "qualifying", "sprint", "warmup", "race"], or None when the calendar does
+    not declare them (meaning: assume everything the search rules find).
+    """
+    if not round_info:
+        return None
+    sessions = round_info.get("motogp_sessions")
+    if sessions is not None:
+        return list(sessions)
+
+    fmt = get_weekend_format(round_info, calendar)
+    if fmt:
+        names = []
+        for day_sessions in fmt.values():
+            if isinstance(day_sessions, list):
+                names.extend(s.get("session") for s in day_sessions if s.get("session"))
+        return names
+
+    return None
+
+
+def round_runs_session(round_info: dict, session_type: SessionType,
+                       calendar: dict = None) -> bool:
+    """
+    Does this round run the given session?
+
+    Used to stop the grabber hunting for sessions that will never exist, e.g.
+    a MotoGP warm-up from 2027 onwards.
+    """
+    if not is_round_active(round_info):
+        return False
+
+    session_class = session_type.race_class
+    if session_class is not None:
+        classes = get_round_classes(round_info, calendar)
+        if session_class.folder_key not in classes:
+            return False
+
+    if session_type == SessionType.UNKNOWN:
+        return False
+
+    motogp_sessions = get_round_motogp_sessions(round_info, calendar)
+    if motogp_sessions is None:
+        return True
+
+    if session_class != RaceClass.MOTOGP:
+        # Only the MotoGP weekend format is described; the support classes
+        # keep their usual sessions whenever they are on the bill.
+        return True
+
+    return session_type.motogp_session_name in motogp_sessions
+
+
+def get_active_rounds(calendar: dict) -> List[dict]:
+    """Rounds that are still scheduled, in championship order."""
+    if not calendar:
+        return []
+    return [r for r in calendar.get("rounds", []) if is_round_active(r)]
+
+
+def validate_calendar(calendar: dict) -> List[str]:
+    """
+    Sanity-check a calendar file. Returns a list of human readable problems.
+
+    Catches the mistakes that are easy to make when hand editing a season after
+    a cancellation or reschedule: duplicate or gappy round numbers, folders that
+    disagree with the round number, bad dates, missing assets.
+    """
+    problems: List[str] = []
+    if not calendar:
+        return ["Calendar is empty or could not be parsed"]
+
+    rounds = calendar.get("rounds", [])
+    if not rounds:
+        return ["Calendar has no rounds"]
+
+    seen_numbers = set()
+    seen_folders = set()
+    previous_date = None
+
+    for entry in rounds:
+        round_num = entry.get("round")
+        venue = entry.get("venue", "?")
+
+        if round_num is None:
+            problems.append(f"{venue}: missing 'round'")
+            continue
+
+        if round_num in seen_numbers:
+            problems.append(f"Duplicate round number {round_num} ({venue})")
+        seen_numbers.add(round_num)
+
+        # Round numbers must be unique, but gaps are legal: a cancelled round
+        # is normally removed from the calendar, and MotoGP has historically
+        # renumbered, so we only warn about the pattern, never fail on it.
+
+        folder = entry.get("folder", "")
+        if folder in seen_folders:
+            problems.append(f"{venue}: duplicate folder '{folder}'")
+        seen_folders.add(folder)
+
+        if folder and not folder.startswith(f"Round {round_num:02d}"):
+            problems.append(
+                f"{venue}: folder '{folder}' does not match round {round_num}"
+            )
+
+        date = entry.get("date")
+        if not date:
+            problems.append(f"{venue}: missing 'date'")
+        else:
+            try:
+                parsed = datetime.strptime(date, "%Y-%m-%d").date()
+                if previous_date and parsed < previous_date:
+                    problems.append(
+                        f"{venue}: date {date} is earlier than the previous round"
+                    )
+                previous_date = parsed
+            except (ValueError, TypeError):
+                problems.append(f"{venue}: invalid 'date' {date!r}")
+
+        if not entry.get("sessions"):
+            problems.append(f"{venue}: no 'sessions' block (grabber cannot schedule)")
+
+        if get_round_status(entry) in INACTIVE_ROUND_STATUSES:
+            continue
+
+    return problems
+
 
 # =============================================================================
 # BROADCASTER PREFERENCES
@@ -1395,11 +1700,8 @@ def filter_releases(
             target_is_q1 = target_session_name == "Qualifying 1"
             target_is_q2 = target_session_name == "Qualifying 2"
             
-            q1_patterns = ["q1", "qualifying 1", "qualifying.1", "qualifying one", "qualifying.one"]
-            q2_patterns = ["q2", "qualifying 2", "qualifying.2", "qualifying two", "qualifying.two"]
-            
-            has_q1 = any(p in title_normalized for p in q1_patterns)
-            has_q2 = any(p in title_normalized for p in q2_patterns)
+            has_q1 = matches_qualifying_part(title, 1)
+            has_q2 = matches_qualifying_part(title, 2)
             
             if target_is_q1 and has_q1:
                 session_match = True

@@ -336,7 +336,10 @@ def process_single_folder(
     
     year, round_num, session_type, venue, race_class = parsed
     session_name = session_type.full_display_name
-    round_text = f"Round {round_num}"
+    calendar = load_calendar(year) or {}
+    round_info = get_round_by_number(calendar, round_num) or {}
+    round_num = round_info.get("round", round_num)
+    round_text = f"Round {round_num:02d}"
     
     logger.info(f"Processing: {year} {round_text} {venue} - {session_name}")
     logger.info(f"  Class: {race_class.display_name if race_class else 'Unknown'}")
