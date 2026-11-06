@@ -12,7 +12,7 @@
   <Overview>MotoGParr watches the race calendar, searches Prowlarr, sends releases to SABnzbd, then sorts the finished download into a Plex-friendly MotoGP / Moto2 / Moto3 folder structure, applies artwork and tags, and exposes a small WebUI.&#13;&#10;&#13;&#10;Open the WebUI on port 5679 to configure Prowlarr, SABnzbd, Plex and paths. Settings are stored in /config/settings.yml, which persists across updates.&#13;&#10;&#13;&#10;Updating: this image is rebuilt by GitHub Actions on every release. Use Docker -&gt; Force Update to move to the latest release (the :latest tag only moves on a release, never on an in-progress commit).&#13;&#10;&#13;&#10;Calendars: season calendars are shipped inside the image and compared against the copy in /config at startup, so a rescheduled race (for example a postponed Qatar round) is reported or refreshed automatically. Set MOTOGPARR_CALENDAR_UPDATE=warn if you edit calendars by hand.</Overview>
   <Category>Tools: MediaApp:Video</Category>
   <WebUI>http://[IP]:[PORT:5679]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/dougalbob/motogparr/v2.7.0/unraid/motogparr.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/dougalbob/motogparr/v2.7.1/unraid/motogparr.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/dougalbob/motogparr/main/assets/icon-512x512.png</Icon>
   <ExtraParams>--restart=unless-stopped</ExtraParams>
   <PostArgs/>

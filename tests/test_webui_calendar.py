@@ -463,3 +463,42 @@ def test_the_real_2027_calendar_renders_in_running_order():
     assert fp2["start_utc"] == "2027-03-05T07:00:00Z"
     assert fp2["end_utc"] == "2027-03-05T07:30:00Z"
     assert fp2["full_name"] == "MotoGP FP2"
+
+
+def test_download_selected_accepts_a_string_season(isolated_webui, monkeypatch):
+    """
+    The Library page sends the season from a <select>, so it is a string.
+    element_number() compares it to an int and raises TypeError; the route
+    used to return 500 and the UI showed "Failed to start download" while
+    every connection test was green.
+    """
+    client, _, _ = isolated_webui
+
+    class _NoThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    # Don't actually spawn the grabber in the test.
+    monkeypatch.setattr(motogp_webui.threading, "Thread", _NoThread)
+
+    response = client.post("/download-selected", json={
+        "season": "2026",
+        "selections": [{"round": 19, "session": "MOTOGP_RACE"}],
+    })
+    assert response.status_code == 200, response.data
+    assert response.get_json()["status"] == "started"
+    assert response.get_json()["commands"] == [
+        "backfill --season 2026 --round 19 --sessions E82 --force"
+    ]
+
+
+def test_download_selected_rejects_an_invalid_season(isolated_webui):
+    client, _, _ = isolated_webui
+    response = client.post("/download-selected", json={
+        "season": "not-a-year",
+        "selections": [{"round": 19, "session": "MOTOGP_RACE"}],
+    })
+    assert response.status_code == 400
