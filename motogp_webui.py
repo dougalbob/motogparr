@@ -38,6 +38,7 @@ from motogp_common import (
     get_round_classes,
     get_weekend_format,
     round_runs_session,
+    element_number,
 )
 
 from utils.config_loader import (
@@ -1401,7 +1402,7 @@ def download_selected():
         try:
             # SessionType is an IntEnum, so we can get its value
             session_type = SessionType[session_name]
-            episode_num = f"E{int(session_type):02d}"
+            episode_num = f"E{element_number(session_type, season):02d}"
             by_round[round_num].append(episode_num)
         except (KeyError, ValueError) as e:
             # If conversion fails, skip this session

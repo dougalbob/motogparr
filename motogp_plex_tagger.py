@@ -31,6 +31,7 @@ from motogp_common import (
     detect_race_class,
     MOTOGP_LIBRARY_PATH,
     VENUE_COUNTRY_MAP,
+    element_number,
 )
 
 from utils.config_loader import (
@@ -229,7 +230,7 @@ def apply_tags_and_collection(video, year, round_num, session_type, round_info, 
 
 def _build_episode_key_from_parsed(year: int, round_num: int, session_type) -> str:
     """Build episode key for activity tracking."""
-    return f"{year}_R{round_num:02d}_E{int(session_type):02d}"
+    return f"{year}_R{round_num:02d}_E{element_number(session_type, year):02d}"
 
 def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     """Tag a single MotoGP file in Plex."""
@@ -262,7 +263,7 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
         logger.info(f"  Classified as: {session_type.display_name}")
     else:
         year, round_num, session_type = parsed
-        logger.info(f"  Parsed: {year} R{round_num:02d} E{int(session_type):02d}")
+        logger.info(f"  Parsed: {year} R{round_num:02d} E{element_number(session_type, year):02d}")
         logger.info(f"  Session: {session_type.display_name}")
     
     # Load season config using shared function
@@ -508,7 +509,7 @@ def main():
         for session in SessionType:
             if session != SessionType.UNKNOWN:
                 feature = "🏁" if session.is_feature_race else "  "
-                print(f"  {feature} E{int(session):02d}. {session.display_name}")
+                print(f"  {feature} E{element_number(session, 2027):02d}. {session.display_name}")
         print(f"     E{int(SessionType.UNKNOWN):02d}. {SessionType.UNKNOWN.display_name}")
         return
     

@@ -37,7 +37,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from motogp_common import (
     setup_logging, get_logger,
     parse_prefix, load_calendar, get_round_by_number,
-    get_config_dir, SessionType
+    get_config_dir, SessionType, element_number
 )
 from activity_emitter import emit_activity, ActivityStage, mark_complete, mark_error
 
@@ -51,7 +51,7 @@ def _folder_to_episode_key(folder_name: str) -> tuple:
         return (None, None, None, None)
     
     year, round_num, session_type = parsed
-    episode_key = f"{year}_R{round_num:02d}_E{int(session_type):02d}"
+    episode_key = f"{year}_R{round_num:02d}_E{element_number(session_type, year):02d}"
     episode_name = session_type.full_display_name
     return (episode_key, episode_name, round_num, session_type)
 

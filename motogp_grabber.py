@@ -46,6 +46,7 @@ from motogp_common import (
     SESSION_TO_CALENDAR_KEY, CALENDAR_KEY_TO_SESSION, CALENDAR_KEY_TO_DAY,
     get_config_dir, get_library_path,
     is_round_active, round_runs_session, get_round_status,
+    element_number, find_legacy_folders,
 )
 from activity_emitter import emit_activity, ActivityStage, mark_error
 
@@ -123,7 +124,7 @@ class GrabberState:
     @staticmethod
     def make_session_key(season: int, round_num: int, session_type: SessionType) -> str:
         """Create unique key for a session."""
-        return f"{season}_R{round_num:02d}_E{int(session_type):02d}"
+        return f"{season}_R{round_num:02d}_E{element_number(session_type, season):02d}"
 
     def was_searched(self, session_key: str, max_age_days: int = 7) -> bool:
         """Check if session was recently searched."""
@@ -430,6 +431,7 @@ def scan_library_for_season(season: int) -> Dict[int, Set[SessionType]]:
         return {}
 
     existing: Dict[int, Set[SessionType]] = {}
+    unreadable: List[str] = []
 
     logger.debug(f"Scanning library: {season_path}")
 
@@ -459,6 +461,23 @@ def scan_library_for_season(season: int) -> Dict[int, Set[SessionType]]:
                 if folder_year == season and folder_round == round_num:
                     existing[round_num].add(session_type)
                     logger.debug(f"Library: Round {round_num} has {session_type.full_display_name}")
+
+        unreadable.extend(find_legacy_folders(season, os.listdir(round_path)))
+
+    # A session folder whose prefix this version cannot read is not "absent" -
+    # it is present and unmanaged. Saying so turns a silent duplicate download
+    # (the grabber thinks the session is missing) into an actionable message.
+    if unreadable:
+        logger.warning(
+            f"⚠️  {len(unreadable)} session folder(s) in {season} use a numbering "
+            f"this version does not read and will be treated as missing: "
+            f"{', '.join(sorted(unreadable)[:5])}"
+            + (" ..." if len(unreadable) > 5 else "")
+        )
+        logger.warning(
+            "    If these are pre-cutover files, clear them out or re-fetch them; "
+            "see docs/CALENDAR_CHANGES.md."
+        )
 
     total_sessions = sum(len(s) for s in existing.values())
     logger.info(f"📚 Library scan: Found {total_sessions} sessions across {len(existing)} rounds")
@@ -661,7 +680,7 @@ def build_search_queries(round_info: dict, session_type: SessionType, season: in
 
 def _build_episode_key(season: int, round_num: int, session_type: SessionType) -> str:
     """Build episode key for activity tracking."""
-    return f"{season}_R{round_num:02d}_E{int(session_type):02d}"
+    return f"{season}_R{round_num:02d}_E{element_number(session_type, season):02d}"
 
 
 def search_for_session(
