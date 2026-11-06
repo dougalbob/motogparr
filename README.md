@@ -26,8 +26,10 @@ on `main` never reaches a container that is force-updated.
 Release notes are generated from merged pull requests by
 `.github/workflows/release.yml`, categorised by label via `.github/release.yml`.
 They used to be written by hand, which took an hour a release and drifted from
-what the commits did. **Label your pull requests** — an unlabelled one still
-appears, under "Other changes", but not in the category it belongs to.
+what the commits did. **Label your pull requests** — CI enforces this
+(`.github/workflows/pr-label-check.yml` fails a PR to `main` with no labels),
+so an unlabelled one still appears under "Other changes" but is caught before
+merge.
 
 Tags must be `vX.Y.Z`. `V.2.2.1` did not match the container workflow's semver
 patterns and shipped images without a `:2.2` tag; the release workflow now

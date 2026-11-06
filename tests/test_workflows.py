@@ -191,3 +191,58 @@ def test_docker_publish_tag_patterns_agree_with_the_release_tag_format():
     publish = PUBLISH.read_text()
     assert "type=semver,pattern={{version}}" in publish
     assert "type=semver,pattern={{major}}.{{minor}}" in publish
+
+
+# ---------------------------------------------------------------------------
+# PR label hygiene (release-notes defect)
+# ---------------------------------------------------------------------------
+
+LABEL_CHECK = WORKFLOWS / "pr-label-check.yml"
+
+
+def test_pr_label_check_workflow_exists_and_runs_on_pr_to_main():
+    """
+    Unlabelled PRs produce a single \"Other changes\" line. A cheap check that
+    fails when a PR to main has no labels keeps the next release body
+    categorised. This is a release-notes defect, not housekeeping.
+    """
+    assert LABEL_CHECK.is_file(), "pr-label-check.yml must exist"
+    data = load(LABEL_CHECK)
+    triggers = data.get("on") or data.get(True)
+    # Must run on pull_request targeting main.
+    assert "pull_request" in triggers, f"must trigger on pull_request: {triggers}"
+    pr_trigger = triggers["pull_request"]
+    # pr_trigger can be a dict with branches/types or a list; normalise to string.
+    assert "main" in str(pr_trigger), f"must target main: {pr_trigger}"
+    # Must have a job that actually checks labels.
+    jobs = data.get("jobs", {})
+    assert jobs, "no jobs in pr-label-check.yml"
+    # At least one job step must mention labels and fail on zero.
+    text = LABEL_CHECK.read_text()
+    assert "pull_request.labels" in text or "PR_LABELS" in text, "must read PR labels from context"
+    assert "Missing PR label" in text or "no labels" in text.lower(), "must error when labels are missing"
+
+
+def test_pr_label_check_uses_minimal_permissions():
+    data = load(LABEL_CHECK)
+    perms = data.get("permissions") or {}
+    # Must not request write; label check is read-only.
+    assert perms.get("contents") == "read", perms
+    # pull-requests: read is enough to read labels; write would be excessive.
+    assert perms.get("pull-requests") == "read", perms
+    assert perms.get("contents") != "write"
+    assert perms.get("pull-requests") != "write"
+
+
+def test_pr_label_check_does_not_need_a_checkout_or_js_action():
+    """
+    The cheapest check needs no checkout and no JavaScript action — it runs
+    with just the GitHub context and shell. Using an action would reintroduce
+    the Node 20 deprecation surface this change is removing.
+    """
+    text = LABEL_CHECK.read_text()
+    # Must not pull the repo; labels are in the event payload.
+    assert "actions/checkout" not in text, "label check should not need checkout"
+    # Ensure the workflow doesn't itself depend on a deprecated JS action.
+    # It should be pure shell + jq.
+    assert "jq" in text, "label check uses jq to count labels"
