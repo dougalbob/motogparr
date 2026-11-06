@@ -373,7 +373,8 @@ def build_calendar() -> dict:
             # 2026 names so existing search/classification rules keep working:
             #   practice  -> Friday's one-hour Practice is replaced by the
             #                30 minute FP2
-            #   sprint_qualifying -> NEW Saturday morning session before Q1
+            #   sprint_qualifying -> NEW Friday session before FP2, sets the
+            #                Sprint grid (it is not a Saturday session)
             "motogp_2027": {
                 "friday": [
                     {"session": "fp1", "label": "FP1", "duration_mins": 45,

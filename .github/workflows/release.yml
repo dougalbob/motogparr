@@ -144,7 +144,11 @@ jobs:
 
           git add "$file"
           git commit -m "Add $file" >/dev/null 2>&1 || true   # no-op when unchanged
-          git push origin "$branch" || true                    # branch may already exist from a previous run
+          # Do not swallow a push failure: if the branch does not reach the
+          # remote, the PR step below cannot open a pull request, and a green
+          # job with no PR is the exact failure this workflow exists to
+          # prevent. Pushing an existing, up-to-date branch is a no-op.
+          git push origin "$branch"
 
       - name: Open or update the release-notes pull request
         env:
@@ -168,13 +172,21 @@ jobs:
           existing=$(gh pr list --head "$branch" --base main --json number --jq '.[].number' | head -1)
           if [ -n "$existing" ]; then
             echo "Updating existing PR #$existing"
-            gh pr edit "$existing" --title "$title" --body "$body" \
-              || echo "::warning title=Could not update PR $existing::gh pr edit failed; create the PR manually from branch $branch"
+            gh pr edit "$existing" --title "$title" --body "$body"
           else
             echo "Creating new PR"
-            gh pr create --title "$title" --body "$body" --head "$branch" --base main \
-              || echo "::warning title=Could not create release-notes PR::gh pr create failed; the notes file is on branch $branch, create the PR manually"
+            gh pr create --title "$title" --body "$body" --head "$branch" --base main
           fi
+
+          # Verify the pull request actually exists. v2.6.0 and v2.5.6 both
+          # had a green job with no release-notes PR because the failure was
+          # swallowed; this check makes that impossible to miss.
+          if [ -z "$(gh pr list --head "$branch" --base main --json number --jq '.[0].number')" ]; then
+            echo "::error title=Release-notes PR missing::No pull request from $branch to main."
+            echo "The notes file is on branch $branch; open the pull request manually."
+            exit 1
+          fi
+          echo "Release-notes pull request is open for $branch"
 
       - name: Publish the release
         env:

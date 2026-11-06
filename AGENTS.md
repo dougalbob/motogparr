@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.6.0** · **Tests: 345 passing** · **Single user, self-hosted**
+**Current release: v2.6.0** · **Tests: 377 passing on this branch** · **Single user, self-hosted**
 
 ---
 
@@ -91,7 +91,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 345 passed
+.venv/bin/python -m pytest tests -q          # expect 377 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -215,12 +215,13 @@ on a live weekend with **`NOW`** (when a session is underway) or the **next
 session's start time**, and keeps past rounds focused solely on library status
 and missing-session downloads.
 
-### Issue #33 — 2027 race weekend format (in progress)
+### Issue #33 — 2027 race weekend format (code complete; live verification outstanding)
 
 The 2027 format (Friday FP1/FP2/Sprint Qualifying, Saturday FP3/Q1/Q2/Sprint, no
 Sunday warm-up) is data, not code: `weekend_formats` in the calendar, with each
 round carrying `weekend_format` and `motogp_sessions`, and `round_runs_session()`
-gating every search. That part was already in place. What was not:
+gating every search. The code work is now done on this branch; what remains is
+live confirmation (see Outstanding).
 
 **Done**
 
@@ -241,22 +242,60 @@ gating every search. That part was already in place. What was not:
   `titleSort` together (title alone would clump every same-named session), and
   reuses the `YYRREE` prefix as the sort key. On-disk and Plex names are kept
   identical so a library re-scan is a no-op rather than a silent revert.
+- **`get_session_times()` reads the day from the calendar.** It searches the
+  round's own `sessions` day blocks for the key and only falls back to
+  `CALENDAR_KEY_TO_DAY` for legacy calendars. A 2027 Friday FP2 now gets a real
+  start and end; before this it found nothing in the Saturday block and the
+  grabber skipped the session at DEBUG level. It also anchors on
+  `local` + `utc_offset` (like the WebUI), so a flyaway Friday morning lands on
+  Thursday UTC instead of 24 hours late. `CALENDAR_DAYS` is one shared tuple for
+  the grabber, the WebUI and the validator, so Thursday is not rejected in one
+  place and supported in another.
+- **Refuse-to-guess release classification.** `classify_session()` returns
+  `UNKNOWN` for an ambiguous token (`SQ`/`SPQ` without an alias, a bare `FP`) or
+  a title with no session token; it no longer falls through to the Race.
+  `filter_releases()` rejects an `UNKNOWN` title with a warning naming the full
+  title, so it cannot be filed as the Grand Prix. `classify_release()` explains
+  the refusal, and `python -m motogp_common --report-unknown --season 2027` is
+  the dry-run operator tool. The 2027 calendar carries `release_aliases`
+  (`sq`/`spq` → `sprint_qualifying`), so the vocabulary is data, not a token
+  table. A 2027 `Practice` title resolves to FP2 from the round's own session
+  list; the same title in 2026 is still `MOTOGP_PRACTICE`.
+- **The validator can see format mistakes.** `utils/validate_calendar.py` now
+  cross-checks `weekend_format` ↔ `motogp_sessions` ↔ the sessions block, in
+  both directions and per day. It rejects a typo in `weekend_format`, a stale
+  `motogp_sessions` list (e.g. `practice`/`warmup` in 2027), a session declared
+  with no times, and a MotoGP key in a day block the format does not run. It
+  accepts Thursday, and validates `release_aliases`. `calendar-check.yml` runs it
+  on every calendar PR.
+- **`config/motogp_2027.json` exists.** 22 rounds, the 2027 format, the
+  provisional timetable and the release aliases. `utils/build_calendar_2027.py`
+  regenerates it; Adelaide assets were added. The 2026 builder's stale comment
+  (which called Sprint Qualifying a Saturday session) is fixed.
+- **Release engineering.** The release-notes step no longer swallows
+  `gh pr create`/`gh pr edit` failures, the branch push is not allowed to fail
+  silently, and the step verifies the pull request exists. A green job with no
+  release-notes PR is now impossible to miss.
 
 **Outstanding**
 
-- `get_session_times()` still resolves a session's day from `CALENDAR_KEY_TO_DAY`
-  (hard-coded "saturday" for `motogp_fp2`), so a 2027 round with Friday FP2 gets
-  no end time and is skipped at DEBUG level — the grabber would never search for
-  it. This is the next fix.
-- Release-vocabulary ambiguity: `SQ`/`SPQ`/bare `FP` fall through to the Race
-  fallback, so an unrecognised title is filed as the Grand Prix. Needs a
-  refuse-to-guess rule plus a per-season alias map.
-- The validator does not cross-check `weekend_format` ↔ `motogp_sessions` ↔ the
-  sessions block; all three realistic 2027 misconfigurations currently pass.
-- No `config/motogp_2027.json` yet, so nothing exercises the format end to end.
-- Plex title/sort writing depends on the object type an "Other Videos" section
-  returns; `/diagnostics` → `plex_labels` reports what a live server actually
-  gives back. Unverified outside a real deployment.
+- **Live Plex confirmation.** `plex_labels.supports_title_edits` is still
+  unverified against a real "Other Videos" section, and no human has looked at
+  the resulting Plex titles for a real 2027 weekend. This cannot be done from the
+  sandbox; it is the first thing to check after deploy.
+- **The 2027 session times are provisional.** They follow the 2027 weekend shape
+  and the standard slot times, not a published circuit timetable. The calendar
+  validates and renders, but replace the times when the official timetable is
+  released.
+- **The 2027 calendar is provisional.** Buenos Aires and Adelaide require FIM
+  homologation and COTA is subject to contract; re-check the round list before
+  the season starts.
+- **`find_legacy_folders()` cannot detect a stale number that is valid now.**
+  This is a documented limit, not a bug to "improve" into a converter; the
+  pre-cutover media was removed rather than migrated.
+- **The enum is nearly vestigial for naming.** `int(SessionType.X)` is only a
+  fallback inside `element_number()`. Any code deriving a folder number or
+  episode key from `int(session_type)` is a bug.
 
 ---
 

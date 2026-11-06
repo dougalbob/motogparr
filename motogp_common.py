@@ -939,7 +939,43 @@ SESSION_TO_MOTOGP_SESSION_NAME: Dict[SessionType, str] = {
     SessionType.MOTOGP_CHEQUERED_FLAG: "chequered_flag",
 }
 
-# Map calendar keys to their day in the weekend
+# Reverse mapping for resolving a calendar's release_aliases (e.g. "sq" ->
+# "sprint_qualifying"). "qualifying" is the combined session and maps to Q2,
+# which is the target the grabber uses for a combined qualifying release; Q1
+# has no distinct weekend-format name of its own.
+MOTOGP_SESSION_NAME_TO_TYPE: Dict[str, SessionType] = {
+    "fp1": SessionType.MOTOGP_FP1,
+    "practice": SessionType.MOTOGP_PRACTICE,
+    "fp2": SessionType.MOTOGP_FP2,
+    "fp3": SessionType.MOTOGP_FP3,
+    "qualifying": SessionType.MOTOGP_Q2,
+    "sprint_qualifying": SessionType.MOTOGP_SPRINT_QUALIFYING,
+    "sprint": SessionType.MOTOGP_SPRINT,
+    "warmup": SessionType.MOTOGP_WARMUP,
+    "race": SessionType.MOTOGP_RACE,
+    "chequered_flag": SessionType.MOTOGP_CHEQUERED_FLAG,
+}
+
+# The days a calendar may use, in running order. Thursday is included because
+# flyaway weekends (and the occasional Thursday running) put sessions there;
+# the WebUI and the validator both read this one tuple so they cannot drift.
+CALENDAR_DAYS: Tuple[str, ...] = ("thursday", "friday", "saturday", "sunday")
+
+# Day index relative to the Friday of the weekend. Used to place a session on
+# the calendar and to reconcile a session's local day with its UTC day.
+CALENDAR_DAY_OFFSETS: Dict[str, int] = {
+    "monday": 3,
+    "tuesday": 4,
+    "wednesday": -2,
+    "thursday": -1,
+    "friday": 0,
+    "saturday": 1,
+    "sunday": 2,
+}
+
+# Map calendar keys to their day in the weekend. This is the legacy fallback
+# only: a round with a sessions block is authoritative about which day a key
+# is on (see get_session_times()).
 CALENDAR_KEY_TO_DAY: Dict[str, str] = {
     "moto3_fp1": "friday",
     "motogp_fp1": "friday",
@@ -1168,8 +1204,27 @@ def matches_qualifying_part(text: str, part: int) -> bool:
     return re.search(pattern, text_normalized) is not None
 
 
-def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
-    """Classify session type from text with explicit handling for practice sessions."""
+def classify_session(text: str, race_class: RaceClass = None,
+                     round_info: dict = None,
+                     calendar: dict = None) -> SessionType:
+    """
+    Classify session type from text with explicit handling for practice sessions.
+
+    Refuses rather than guesses. An ambiguous release token (SQ, SPQ, a bare
+    FP with no number) or a title with no session token at all returns
+    UNKNOWN; the old code fell through to MOTOGP_RACE, which filed an
+    unrecognised title as the Grand Prix - a wrong folder name and a wrong Plex
+    identity, permanently.
+
+    round_info and calendar are optional context that make an ambiguous title
+    resolvable from data instead of a hard-coded token table:
+
+      * a 2027 round runs FP1 + FP2 + Sprint Qualifying and no Practice, so a
+        "Practice"-titled release is the Friday session that replaced it (FP2);
+        the same title in a 2026 round is MOTOGP_PRACTICE;
+      * the calendar's release_aliases map teaches season-specific vocabulary
+        (2027: "sq"/"spq" -> sprint_qualifying) without a code change.
+    """
     import logging
     import re
     logger = logging.getLogger("motogp.classify")
@@ -1192,6 +1247,36 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
         race_class = detect_race_class(text)
     logger.debug(f"RACE CLASS: {race_class.display_name}")
 
+    # === SEASON RELEASE ALIASES (calendar data) ===
+    # A release group can invent a short token before the season starts. The
+    # calendar carries the mapping so the first weekend is searchable without
+    # waiting for a code release. The round still has to run the session: an
+    # alias is a hint about vocabulary, not a licence to hunt a session that
+    # is not on the timetable.
+    aliases = (calendar or {}).get("release_aliases") or {}
+    if isinstance(aliases, dict):
+        for token, session_name in aliases.items():
+            if not isinstance(token, str) or not isinstance(session_name, str):
+                continue
+            if re.search(rf"\b{re.escape(token.lower())}\b", text_normalized):
+                session_type = MOTOGP_SESSION_NAME_TO_TYPE.get(session_name)
+                if session_type is None:
+                    logger.warning(
+                        f"Calendar release alias {token!r} -> {session_name!r} "
+                        f"is not a known MotoGP session; ignoring it"
+                    )
+                    continue
+                if round_info is not None and not round_runs_session(
+                        round_info, session_type, calendar):
+                    logger.warning(
+                        f"Refusing {text!r}: alias {token!r} resolves to "
+                        f"{session_type.full_display_name}, which this round "
+                        f"does not run"
+                    )
+                    return SessionType.UNKNOWN
+                logger.debug(f">>> RELEASE ALIAS: {token} -> {session_type.name}")
+                return session_type
+
     # === SPRINT QUALIFYING (2027+) ===
     # Must be checked before the practice handling below, because the 2027
     # session is literally called "Sprint Qualifying" and must not be
@@ -1200,6 +1285,29 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
             r'\bqualif', text_normalized):
         logger.debug(f">>> SPRINT QUALIFYING MATCH")
         return SessionType.MOTOGP_SPRINT_QUALIFYING
+
+    # === BARE "FP" WITH NO NUMBER ===
+    # "FP" alone could be FP1, FP2 or FP3. Resolve it only when the round runs
+    # exactly one of them; otherwise the honest answer is "unknown".
+    if re.search(r'\bfp\b(?!\s*\d)', text_normalized):
+        candidates = []
+        if round_info is not None:
+            sessions = get_round_motogp_sessions(round_info, calendar)
+            for name, session_type in (
+                ("fp1", SessionType.MOTOGP_FP1),
+                ("fp2", SessionType.MOTOGP_FP2),
+                ("fp3", SessionType.MOTOGP_FP3),
+            ):
+                if sessions and name in sessions:
+                    candidates.append(session_type)
+        if len(candidates) == 1:
+            logger.debug(f">>> BARE FP RESOLVED: {candidates[0].name}")
+            return candidates[0]
+        logger.warning(
+            f"Refusing to classify {text!r}: 'FP' has no session number and "
+            f"the round does not narrow it to one session"
+        )
+        return SessionType.UNKNOWN
 
     # === EXPLICIT PRACTICE SESSION HANDLING ===
     if "practice" in text_normalized:
@@ -1251,26 +1359,50 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
                 else:
                     return SessionType.MOTOGP_FP1
 
-        # Check for generic "Free Practice" (without number)
+        # Check for generic "Free Practice" (without number). This is the same
+        # ambiguity as a bare "FP": it could be FP1, FP2 or FP3, so it is
+        # refused rather than silently filed as FP1.
         if re.search(r'\bfree\s+practice\b', text_normalized):
-            # Make sure it's not followed by a number
             if not re.search(r'\bfree\s+practice\s+(1|2|3|one|two|three)\b', text_normalized):
-                logger.debug(f">>> FREE PRACTICE (generic) MATCH")
-                if race_class == RaceClass.MOTO3:
-                    return SessionType.MOTO3_FP1
-                elif race_class == RaceClass.MOTO2:
-                    return SessionType.MOTO2_FP1
-                else:
-                    return SessionType.MOTOGP_FP1
+                logger.warning(
+                    f"Refusing to classify {text!r}: 'Free Practice' has no "
+                    f"session number"
+                )
+                return SessionType.UNKNOWN
 
-        # Standalone Practice - the actual Practice session
-        logger.debug(f">>> STANDALONE PRACTICE - returning Practice session")
+        # Standalone Practice - the actual Practice session.
+        # Support classes still run a Practice session in 2027. MotoGP does
+        # not: the 2027 Friday slot is FP2, so resolve against the round's own
+        # session list rather than assuming the 2026 meaning.
+        logger.debug(f">>> STANDALONE PRACTICE")
         if race_class == RaceClass.MOTO3:
             return SessionType.MOTO3_PRACTICE
         elif race_class == RaceClass.MOTO2:
             return SessionType.MOTO2_PRACTICE
-        else:
-            return SessionType.MOTOGP_PRACTICE
+
+        if round_info is not None:
+            sessions = get_round_motogp_sessions(round_info, calendar)
+            if sessions is not None:
+                if "practice" in sessions:
+                    return SessionType.MOTOGP_PRACTICE
+                # The 2027 shape: Friday FP1 + FP2 + Sprint Qualifying, no
+                # Practice. The un-numbered Practice title is the session that
+                # replaced the old Friday Practice, i.e. FP2. Require the full
+                # shape so a malformed or support-only round does not get a
+                # guess.
+                if {"fp1", "fp2", "sprint_qualifying"}.issubset(set(sessions)):
+                    logger.debug(">>> 2027 PRACTICE -> FP2")
+                    return SessionType.MOTOGP_FP2
+                logger.warning(
+                    f"Refusing to classify {text!r}: this round runs neither "
+                    f"Practice nor the 2027 Friday shape"
+                )
+                return SessionType.UNKNOWN
+
+        # No round context: keep the 2026 meaning, which is the only released
+        # calendar that has a Practice session. A caller that knows the round
+        # gets the 2027 resolution above.
+        return SessionType.MOTOGP_PRACTICE
 
     # === REGULAR SESSION PATTERN MATCHING ===
     logger.debug(f">>> PATTERN MATCHING BLOCK")
@@ -1289,29 +1421,80 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
         return _remap_session_for_class(pattern.session_type, race_class)
 
     # === FALLBACK ===
-    logger.debug(f">>> FALLBACK")
-    if "race" in text_normalized and "sprint" not in text_normalized:
-        if race_class == RaceClass.MOTO3:
-            return SessionType.MOTO3_RACE
-        elif race_class == RaceClass.MOTO2:
-            return SessionType.MOTO2_RACE
-        else:
-            return SessionType.MOTOGP_RACE
+    # No session token matched. The old code returned the Race here, so any
+    # unrecognised title ("... SQ ...", "... SPQ ...", a bare "FP") was filed
+    # as the Grand Prix. That is worse than refusing: it writes a wrong folder
+    # name and a wrong Plex identity, and the library scan then believes the
+    # Race is already present. Refuse, and let the caller log the full title.
+    logger.warning(f"Refusing to classify {text!r}: no session token found")
+    return SessionType.UNKNOWN
 
-    if any(q in text_normalized for q in ["qualifying", "qualifing", "q1", "q2"]):
-        if race_class == RaceClass.MOTO3:
-            return SessionType.MOTO3_Q2
-        elif race_class == RaceClass.MOTO2:
-            return SessionType.MOTO2_Q2
-        else:
-            return SessionType.MOTOGP_Q2
 
-    if race_class == RaceClass.MOTO3:
-        return SessionType.MOTO3_RACE
-    elif race_class == RaceClass.MOTO2:
-        return SessionType.MOTO2_RACE
-    else:
-        return SessionType.MOTOGP_RACE
+def _refusal_reason(text: str, round_info: dict = None,
+                    calendar: dict = None) -> str:
+    """Explain why classify_session() refused a title (for --report-unknown)."""
+    text_normalized = text.lower().replace(".", " ").replace("-", " ")
+    # classify_session() removes quality tokens before matching, so the reason
+    # must too: "FP 1080p" is a bare FP, not an FP followed by a number.
+    text_normalized = re.sub(
+        r"\b(2160p|1080p|1080i|720p|480p|4k|uhd)\b", " ", text_normalized
+    )
+    aliases = (calendar or {}).get("release_aliases") or {}
+    if isinstance(aliases, dict):
+        for token, session_name in aliases.items():
+            if not isinstance(token, str) or not isinstance(session_name, str):
+                continue
+            if re.search(rf"\b{re.escape(token.lower())}\b", text_normalized):
+                session_type = MOTOGP_SESSION_NAME_TO_TYPE.get(session_name)
+                if session_type is not None and round_info is not None and not round_runs_session(
+                        round_info, session_type, calendar):
+                    return (
+                        f"alias {token!r} resolves to "
+                        f"{session_type.full_display_name}, which this round does not run"
+                    )
+    if re.search(r'\b(spq|sq)\b', text_normalized):
+        return (
+            "unknown session token 'SQ' (add a release_aliases entry for this "
+            "season, or use the full session name)"
+        )
+    if re.search(r'\bfp\b(?!\s*\d)', text_normalized):
+        return "ambiguous 'FP' token with no session number"
+    if "practice" in text_normalized:
+        return "the round does not run a Practice session"
+    return "no session token in the title"
+
+
+@dataclass
+class ReleaseClassification:
+    """Result of classify_release(): the session, or why it was refused."""
+    session_type: SessionType
+    reason: Optional[str] = None
+    race_class: Optional[RaceClass] = None
+    round_num: Optional[int] = None
+    venue: Optional[str] = None
+
+
+def classify_release(title: str, calendar: dict = None,
+                     season: int = None) -> ReleaseClassification:
+    """
+    Classify a release title for a dry-run report.
+
+    Unlike classify_session() this also explains a refusal, so an operator can
+    see why a candidate was not filed instead of only seeing that it vanished.
+    """
+    race_class = detect_race_class(title)
+    round_info = identify_round(title, calendar) if calendar else None
+    session_type = classify_session(
+        title, race_class, round_info=round_info, calendar=calendar
+    )
+    return ReleaseClassification(
+        session_type=session_type,
+        reason=None if session_type != SessionType.UNKNOWN
+        else _refusal_reason(title, round_info, calendar),
+        race_class=race_class,
+        round_num=round_info.get("round") if round_info else extract_round_number(title),
+        venue=round_info.get("venue") if round_info else None,
+    )
     
 def get_session_from_element(element_num: int,
                              season: Optional[int] = None) -> Optional[SessionType]:
@@ -1558,6 +1741,22 @@ def get_round_status(round_info: dict) -> str:
     return str(round_info.get("status", "scheduled")).lower()
 
 
+def parse_utc_offset(utc_offset: Optional[str]) -> Optional[int]:
+    """
+    Parse a '+03:00' style offset into minutes east of UTC.
+
+    Returns None for a missing or malformed value so callers can fall back
+    instead of silently treating the offset as zero.
+    """
+    if not utc_offset or not isinstance(utc_offset, str):
+        return None
+    match = re.match(r"^([+-])(\d{2}):(\d{2})$", utc_offset.strip())
+    if not match:
+        return None
+    sign = -1 if match.group(1) == "-" else 1
+    return sign * (int(match.group(2)) * 60 + int(match.group(3)))
+
+
 def get_round_classes(round_info: dict, calendar: dict = None) -> List[str]:
     """Classes racing at this round, falling back to the calendar default."""
     if round_info and round_info.get("classes"):
@@ -1796,19 +1995,21 @@ def parse_release_title(title: str, calendar: dict = None) -> ReleaseInfo:
     
     # Detect race class
     info.race_class = detect_race_class(title)
-    
-    # Classify session
-    info.session_type = classify_session(title, info.race_class)
-    
-    # Try to identify round
-    if calendar:
-        round_info = identify_round(title, calendar)
-        if round_info:
-            info.round_num = round_info.get("round")
-            info.venue = round_info.get("venue")
+
+    # Identify the round first: the round's own session list is what lets an
+    # ambiguous title ("Practice", a bare "FP") be resolved from data.
+    round_info = identify_round(title, calendar) if calendar else None
+    if round_info:
+        info.round_num = round_info.get("round")
+        info.venue = round_info.get("venue")
     else:
         info.round_num = extract_round_number(title)
-    
+
+    # Classify session
+    info.session_type = classify_session(
+        title, info.race_class, round_info=round_info, calendar=calendar
+    )
+
     return info
 
 
@@ -1958,9 +2159,21 @@ def filter_releases(
         logger.debug(f"  ✓ Year matched: {season}")
         
         # SESSION MATCHING
-        detected_session = classify_session(title, detected_class)
+        detected_session = classify_session(
+            title, detected_class, round_info=round_info, calendar=calendar
+        )
         logger.debug(f"  Detected session: {detected_session.display_name} (full: {detected_session.full_display_name})")
-        
+
+        # Refuse rather than guess. An unrecognised title used to fall through
+        # to MOTOGP_RACE and was accepted as the Race target, writing a wrong
+        # folder name and a wrong Plex identity. Say so loudly and skip it.
+        if detected_session == SessionType.UNKNOWN:
+            logger.warning(
+                f"  ⚠️  REFUSED: could not identify a session in {title!r}; "
+                f"not filing it as {target_session.full_display_name}"
+            )
+            continue
+
         session_match = False
         is_combined_quali = False
         
@@ -2103,9 +2316,39 @@ def main():
     parser.add_argument('--test-inline', metavar='TITLE', help='Test single title')
     parser.add_argument('--season', type=int, help='Season year for testing')
     parser.add_argument('--list-sessions', action='store_true', help='List all session types')
-    
+    parser.add_argument(
+        '--report-unknown', action='store_true',
+        help='Dry run: read release titles from stdin (one per line) and '
+             'report the session each resolves to, or why it is refused'
+    )
+
     args = parser.parse_args()
-    
+
+    if args.report_unknown:
+        calendar = load_calendar(args.season) if args.season else None
+        if args.season and not calendar:
+            print(f"❌ No calendar for season {args.season}", file=sys.stderr)
+            return 1
+        print(f"Release classification report"
+              f"{f' for {args.season}' if args.season else ''}")
+        print("-" * 72)
+        for line in sys.stdin:
+            title = line.strip()
+            if not title:
+                continue
+            result = classify_release(title, calendar, args.season)
+            if result.session_type == SessionType.UNKNOWN:
+                print(f"REFUSED  {title}")
+                print(f"         reason: {result.reason}")
+            else:
+                round_label = (
+                    f"Round {result.round_num:02d} {result.venue}"
+                    if result.round_num else "round unknown"
+                )
+                print(f"{result.session_type.full_display_name:<24} {title}")
+                print(f"         {round_label}")
+        return 0
+
     if args.list_sessions:
         print("\nSESSION TYPES\n" + "=" * 50)
         current_class = None
@@ -2119,25 +2362,30 @@ def main():
                     print(f"\n{race_class.display_name}:")
             core = "⭐" if session.is_core_session else "  "
             feature = "🏁" if session.is_feature_race else "  "
-            print(f"  {core}{feature} E{int(session):02d} - {session.display_name}")
+            # The element number comes from SESSION_ELEMENTS, not the enum
+            # value: the two diverged when the numbering moved to blocks of
+            # ten, and printing int(session) here would repeat the mistake the
+            # folder-naming code exists to avoid.
+            print(f"  {core}{feature} E{element_number(session, 2026):02d} - {session.display_name}")
     
     elif args.test_inline:
         title = args.test_inline
         print(f"\nTitle: {title}")
-        race_class = detect_race_class(title)
-        session = classify_session(title, race_class)
+        calendar = load_calendar(args.season) if args.season else None
+        result = classify_release(title, calendar, args.season)
+        race_class = result.race_class
+        session = result.session_type
         print(f"  Class:   {race_class.display_name}")
         print(f"  Session: {session.display_name}")
         print(f"  Full:    {session.full_display_name}")
-        print(f"  Element: E{int(session):02d}")
-        
-        if args.season:
-            calendar = load_calendar(args.season)
-            if calendar:
-                round_info = identify_round(title, calendar)
-                if round_info:
-                    print(f"  Round:   {round_info['round']} - {round_info['venue']}")
-                    prefix = build_prefix(args.season, round_info['round'], session)
+        if session == SessionType.UNKNOWN:
+            print(f"  Refused: {result.reason}")
+        else:
+            print(f"  Element: E{element_number(session, args.season or 2026):02d}")
+            if result.round_num:
+                print(f"  Round:   {result.round_num} - {result.venue}")
+                if args.season:
+                    prefix = build_prefix(args.season, result.round_num, session)
                     print(f"  Prefix:  {prefix}")
     else:
         parser.print_help()

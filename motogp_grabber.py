@@ -44,6 +44,8 @@ from motogp_common import (
     DEFAULT_DESIRED_SESSIONS, CORE_SESSIONS,
     get_desired_sessions,
     SESSION_TO_CALENDAR_KEY, CALENDAR_KEY_TO_SESSION, CALENDAR_KEY_TO_DAY,
+    CALENDAR_DAY_OFFSETS,
+    parse_utc_offset,
     get_config_dir, get_library_path,
     is_round_active, round_runs_session, get_round_status,
     element_number, find_legacy_folders,
@@ -187,19 +189,32 @@ def get_session_times(round_info: dict, session_type: SessionType) -> Tuple[Opti
     if not calendar_key:
         return (None, None)
 
-    day = CALENDAR_KEY_TO_DAY.get(calendar_key)
-    if not day:
+    sessions = round_info.get("sessions", {})
+    if not isinstance(sessions, dict):
         return (None, None)
 
-    sessions = round_info.get("sessions", {})
-    day_sessions = sessions.get(day, {})
-    session_info = day_sessions.get(calendar_key)
+    # The day block in the calendar is authoritative. From 2027 FP2 moves from
+    # Saturday to Friday and the warm-up disappears, so resolving the key
+    # through CALENDAR_KEY_TO_DAY would look in the wrong block (or find
+    # nothing) and the session would be skipped at DEBUG level - silently,
+    # because "no time" and "not run" look the same to the caller. Search the
+    # day blocks that are actually present first; CALENDAR_KEY_TO_DAY is only
+    # a fallback for legacy calendars written before the sessions block.
+    day = None
+    session_info = None
+    for day_name, day_sessions in sessions.items():
+        if isinstance(day_sessions, dict) and calendar_key in day_sessions:
+            day = day_name
+            session_info = day_sessions[calendar_key]
+            break
+
+    if session_info is None:
+        day = CALENDAR_KEY_TO_DAY.get(calendar_key)
+        if not day:
+            return (None, None)
+        session_info = (sessions.get(day) or {}).get(calendar_key)
 
     if not session_info:
-        return (None, None)
-
-    gmt_time = session_info.get("gmt")
-    if not gmt_time:
         return (None, None)
 
     weekend_start = round_info.get("weekend_start")
@@ -212,28 +227,58 @@ def get_session_times(round_info: dict, session_type: SessionType) -> Tuple[Opti
         weekend_start_dt = datetime.strptime(weekend_start, "%Y-%m-%d")
         race_date_dt = datetime.strptime(race_date, "%Y-%m-%d")
 
-        if day == "friday":
-            session_date = weekend_start_dt
-        elif day == "saturday":
-            session_date = weekend_start_dt + timedelta(days=1)
-        elif day == "sunday":
-            session_date = race_date_dt
+        if day == "sunday":
+            local_date = race_date_dt
+        elif day in CALENDAR_DAY_OFFSETS:
+            local_date = weekend_start_dt + timedelta(days=CALENDAR_DAY_OFFSETS[day])
         else:
             return (None, None)
 
+        duration = session_info.get("duration_mins", 45)
+        local_time = session_info.get("local")
+        offset_mins = parse_utc_offset(round_info.get("utc_offset"))
+
+        # Prefer local + utc_offset. It is the exact instant even when the UTC
+        # time crosses midnight: Phillip Island Friday 09:45 (+11:00) is
+        # Thursday 22:45 UTC, not Friday 22:45. The stored gmt time is a
+        # cross-check: when the two disagree (a synthetic or hand-edited
+        # calendar) the stored gmt value wins, exactly as the WebUI does.
+        if local_time and offset_mins is not None:
+            try:
+                hour, minute = map(int, local_time.split(":"))
+                expected_gmt = (hour * 60 + minute - offset_mins) % 1440
+                gmt_hm = session_info.get("gmt")
+                gmt_matches = True
+                if gmt_hm:
+                    gmt_hour, gmt_minute = map(int, gmt_hm.split(":"))
+                    gmt_matches = (gmt_hour * 60 + gmt_minute) == expected_gmt
+                if gmt_matches:
+                    start_dt = datetime(
+                        local_date.year, local_date.month, local_date.day,
+                        hour, minute,
+                    ) - timedelta(minutes=offset_mins)
+                    return (start_dt, start_dt + timedelta(minutes=duration))
+            except (ValueError, TypeError):
+                pass
+
+        gmt_time = session_info.get("gmt")
+        if not gmt_time:
+            return (None, None)
+
+        # A flyaway Friday morning can land on Thursday UTC (Phillip Island),
+        # and a late Sunday race in the Americas can land on Monday UTC. The
+        # calendar records that as gmt_day; shift by the difference between
+        # the two day indexes rather than a hard-coded -1 per pair.
         gmt_day = session_info.get("gmt_day")
         if gmt_day:
-            day_offsets = {
-                "thursday": -1 if day == "friday" else 0,
-                "friday": -1 if day == "saturday" else 0,
-                "saturday": -1 if day == "sunday" else 0,
-            }
-            session_date += timedelta(days=day_offsets.get(gmt_day, 0))
+            if gmt_day not in CALENDAR_DAY_OFFSETS or day not in CALENDAR_DAY_OFFSETS:
+                return (None, None)
+            local_date += timedelta(
+                days=CALENDAR_DAY_OFFSETS[gmt_day] - CALENDAR_DAY_OFFSETS[day]
+            )
 
         hour, minute = map(int, gmt_time.split(":"))
-        start_dt = session_date.replace(hour=hour, minute=minute)
-
-        duration = session_info.get("duration_mins", 45)
+        start_dt = local_date.replace(hour=hour, minute=minute)
         return (start_dt, start_dt + timedelta(minutes=duration))
 
     except Exception as e:

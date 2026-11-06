@@ -46,6 +46,13 @@ def calendar_2027(calendar_2026):
     """2026 calendar re-stamped with the 2027 MotoGP format."""
     calendar = copy.deepcopy(calendar_2026)
     calendar["season"] = 2027
+    # The real config/motogp_2027.json teaches the 2027 release vocabulary in
+    # data. The fixture needs the same map for the alias tests to mean
+    # anything; without it, SQ is correctly refused.
+    calendar["release_aliases"] = {
+        "sq": "sprint_qualifying",
+        "spq": "sprint_qualifying",
+    }
 
     # 2027 Friday: FP1, FP2 (30m), Sprint Qualifying. No Friday "Practice".
     # 2027 Saturday: FP3 (20m), GP Q1/Q2, Sprint. Sunday: race only.
@@ -227,6 +234,71 @@ def test_2027_has_no_friday_practice_for_motogp(calendar_2027):
     )
 
 
+def test_2027_friday_fp2_has_a_start_and_end_time(calendar_2027):
+    """
+    The regression this test exists for: the 2027 fixture puts FP2 in the
+    Friday block, but get_session_times() used to resolve motogp_fp2 through
+    CALENDAR_KEY_TO_DAY ("saturday"), find nothing there, and return
+    (None, None). The grabber then logged "Could not determine end time" at
+    DEBUG and never searched for FP2 - while every session-gate test passed.
+    """
+    from motogp_grabber import get_session_times
+
+    entry = common.get_round_by_number(calendar_2027, 1)
+    start, end = get_session_times(entry, common.SessionType.MOTOGP_FP2)
+    assert start is not None, "2027 Friday FP2 must have a start time"
+    assert end is not None, "2027 Friday FP2 must have an end time"
+    assert str(start) == "2026-02-27 08:00:00"
+    assert str(end) == "2026-02-27 08:30:00"
+
+
+def test_2026_saturday_fp2_still_resolves(calendar_2026):
+    """The legacy lookup must keep working for the 2026 calendar."""
+    from motogp_grabber import get_session_times
+
+    qatar = common.get_round_by_number(calendar_2026, 20)
+    start, end = get_session_times(qatar, common.SessionType.MOTOGP_FP2)
+    assert str(start) == "2026-11-07 11:00:00"
+    assert str(end) == "2026-11-07 11:30:00"
+
+
+def test_flyaway_friday_morning_anchors_to_the_previous_utc_day(calendar_2026):
+    """
+    Phillip Island Friday 09:45 (+11:00) is Thursday 22:45 UTC, not Friday
+    22:45. The grabber used to combine the stored gmt time with the local day
+    and put the session 24 hours late; the WebUI already anchored on
+    local + utc_offset.
+    """
+    from motogp_grabber import get_session_times
+
+    australia = common.get_round_by_number(calendar_2026, 18)
+    start, end = get_session_times(australia, common.SessionType.MOTOGP_FP1)
+    assert str(start) == "2026-10-22 22:45:00"
+    assert str(end) == "2026-10-22 23:30:00"
+
+
+def test_a_thursday_session_is_supported():
+    """
+    Flyaway weekends can run on Thursday. The day list is shared with the
+    WebUI, so a Thursday block must produce a real time rather than being
+    rejected as an unknown day.
+    """
+    from motogp_grabber import get_session_times
+
+    entry = {
+        "weekend_start": "2026-02-27",
+        "date": "2026-03-01",
+        "sessions": {
+            "thursday": {
+                "motogp_fp1": {"local": "09:00", "gmt": "02:00", "duration_mins": 45},
+            }
+        },
+    }
+    start, end = get_session_times(entry, common.SessionType.MOTOGP_FP1)
+    assert str(start) == "2026-02-26 02:00:00"
+    assert str(end) == "2026-02-26 02:45:00"
+
+
 def test_support_classes_keep_their_sessions_in_2027(calendar_2027):
     """The 2027 format change only applies to MotoGP."""
     entry = common.get_round_by_number(calendar_2027, 20)
@@ -268,6 +340,125 @@ def test_quality_token_is_not_mistaken_for_a_qualifying_part():
     assert common.matches_qualifying_part("Qualifying 2160p", 2) is False
     assert common.matches_qualifying_part("Qualifying 1 1080p", 1) is True
     assert common.matches_qualifying_part("Q2 1080p", 2) is True
+
+
+# ---------------------------------------------------------------------------
+# Refuse-to-guess release classification (issue #33, P2)
+# ---------------------------------------------------------------------------
+
+def test_sq_release_resolves_through_the_calendar_alias(calendar_2027):
+    """2027 teaches the release vocabulary in data, not in a token table."""
+    entry = common.get_round_by_number(calendar_2027, 1)
+    title = "MotoGP 2027 Thailand SQ 1080p MWR"
+    assert common.classify_session(
+        title, round_info=entry, calendar=calendar_2027
+    ) is common.SessionType.MOTOGP_SPRINT_QUALIFYING
+
+
+def test_spq_release_resolves_through_the_calendar_alias(calendar_2027):
+    entry = common.get_round_by_number(calendar_2027, 1)
+    title = "MotoGP 2027 Thailand SPQ 1080p MWR"
+    assert common.classify_session(
+        title, round_info=entry, calendar=calendar_2027
+    ) is common.SessionType.MOTOGP_SPRINT_QUALIFYING
+
+
+def test_sq_release_is_refused_without_the_alias_map(calendar_2027):
+    """
+    Without the season's alias map, SQ is not a known session. The old code
+    fell through to MOTOGP_RACE; the fix refuses.
+    """
+    entry = common.get_round_by_number(calendar_2027, 1)
+    calendar = copy.deepcopy(calendar_2027)
+    calendar.pop("release_aliases", None)
+    assert common.classify_session(
+        "MotoGP 2027 Thailand SQ 1080p MWR", round_info=entry, calendar=calendar
+    ) is common.SessionType.UNKNOWN
+
+
+def test_sq_release_is_not_accepted_as_the_race(calendar_2027):
+    """
+    The regression that mattered: filter_releases() accepted an SQ title as
+    the Race target, which would have written a wrong folder name and a wrong
+    Plex identity. It must be refused for the Race, and accepted for the
+    session it actually is.
+    """
+    from motogp_common import filter_releases
+
+    entry = common.get_round_by_number(calendar_2027, 1)
+    release = {"title": "MotoGP 2027 Thailand SQ 1080p MWR",
+               "size": 1000, "link": "x"}
+
+    as_race = filter_releases(
+        [release], common.SessionType.MOTOGP_RACE, 2027, entry,
+        "1080p", ["MWR"], calendar_2027,
+    )
+    assert as_race == [], "an SQ title must not be filed as the Grand Prix"
+
+    as_sprint_quali = filter_releases(
+        [release], common.SessionType.MOTOGP_SPRINT_QUALIFYING, 2027, entry,
+        "1080p", ["MWR"], calendar_2027,
+    )
+    assert len(as_sprint_quali) == 1
+
+
+def test_bare_fp_is_refused_rather_than_guessed(calendar_2027):
+    entry = common.get_round_by_number(calendar_2027, 1)
+    assert common.classify_session(
+        "MotoGP 2027 Thailand FP 1080p MWR", round_info=entry, calendar=calendar_2027
+    ) is common.SessionType.UNKNOWN
+
+
+def test_2027_practice_title_resolves_to_fp2(calendar_2027):
+    """
+    The counter-example that must keep working: the 2027 Friday session that
+    replaced Practice is FP2, so the calendar narrows the title. The same
+    title in 2026 is still MOTOGP_PRACTICE.
+    """
+    entry = common.get_round_by_number(calendar_2027, 1)
+    assert common.classify_session(
+        "MotoGP 2027 Thailand Practice 1080p", round_info=entry, calendar=calendar_2027
+    ) is common.SessionType.MOTOGP_FP2
+
+
+def test_2026_practice_title_resolves_to_practice(calendar_2026):
+    entry = common.get_round_by_number(calendar_2026, 1)
+    assert common.classify_session(
+        "MotoGP 2026 Thailand Practice 1080p", round_info=entry, calendar=calendar_2026
+    ) is common.SessionType.MOTOGP_PRACTICE
+
+
+def test_unrecognised_title_is_refused_not_filed_as_the_race(calendar_2027):
+    entry = common.get_round_by_number(calendar_2027, 1)
+    assert common.classify_session(
+        "MotoGP 2027 Thailand 1080p MWR", round_info=entry, calendar=calendar_2027
+    ) is common.SessionType.UNKNOWN
+
+
+def test_classify_release_explains_a_refusal(calendar_2027):
+    result = common.classify_release(
+        "MotoGP 2027 Thailand FP 1080p MWR", calendar_2027, 2027
+    )
+    assert result.session_type is common.SessionType.UNKNOWN
+    assert "ambiguous 'FP'" in (result.reason or "")
+
+
+def test_report_unknown_cli_prints_the_reason(calendar_2027):
+    """The --report-unknown dry run is what an operator uses before a weekend."""
+    import subprocess
+    import sys
+    import os
+
+    env = dict(os.environ)
+    env["CONFIG_DIR"] = str(REPO_ROOT / "config")
+    proc = subprocess.run(
+        [sys.executable, "-m", "motogp_common", "--report-unknown", "--season", "2027"],
+        input="MotoGP 2027 Thailand FP 1080p MWR\n",
+        text=True, capture_output=True, env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "REFUSED" in proc.stdout
+    assert "ambiguous 'FP'" in proc.stdout
 
 
 # ---------------------------------------------------------------------------

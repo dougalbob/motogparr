@@ -29,6 +29,7 @@ from motogp_common import (
     SessionType,
     RaceClass,
     CALENDAR_KEY_TO_SESSION,
+    CALENDAR_DAYS,
     parse_prefix,
     load_calendar,
     DEFAULT_DESIRED_SESSIONS,
@@ -235,7 +236,7 @@ CALENDAR_SESSION_LABELS = {
     "chequered_flag": ("Chequered Flag", "Chequered Flag"),
 }
 
-_DAY_NAMES_IN_ORDER = ("thursday", "friday", "saturday", "sunday")
+_DAY_NAMES_IN_ORDER = CALENDAR_DAYS
 
 
 def _parse_hhmm(value: str):
