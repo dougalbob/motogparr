@@ -16,7 +16,7 @@ Images are built and published by GitHub Actions (`.github/workflows/docker-publ
 
 | What you do | What you get |
 |---|---|
-| Publish a GitHub release tagged `v2.3.0` | `:2.3.0`, `:2.3`, `:latest` + generated release notes |
+| Publish a GitHub release tagged `vX.Y.Z` | `:X.Y.Z`, `:X.Y`, `:latest` + generated release notes |
 | Merge a PR to `main` | `:edge` (unreleased, for testing) |
 | Run the workflow manually | tags for the ref you pick |
 

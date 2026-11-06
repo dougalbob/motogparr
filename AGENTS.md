@@ -1,11 +1,10 @@
 # AGENTS.md — read this first
 
-Kickoff document for any agent (or human) working on MotoGParr. It tells you what
-the app is, which document to read next, what has already been fixed, what is
-still broken, and the order to fix it in. Keep it current: when you change the
-plan or land a priority item, edit this file in the same PR.
+Kickoff document for an agentic contributor working on MotoGParr. It describes
+the system, its invariants, the current implementation status and the next
+recommended work. Keep status and plans current when code or priorities change.
 
-**Current release: v2.6.0** · **Tests: 377 passing on this branch** · **Single user, self-hosted**
+**Latest repository release: v2.7.4** · **Last verified here: 384 tests passing (2026-11-06)** · **Single user, self-hosted**
 
 ---
 
@@ -47,6 +46,7 @@ Release history: GitHub Releases (`gh release list`). Per-release notes:
 | 3 | `SANDBOX.md` | Environment gotchas |
 | 4 | `README.md` | User-facing behaviour, install, env vars |
 | 5 | `docs/CALENDAR_CHANGES.md` | The numbering rules you must not break |
+| 6 | `docs/IMPROVEMENT_PLAN.md` | Prioritised next work and reviewable PR boundaries |
 
 `aicontextual_notes/` is **historical and superseded**. Do not treat it as
 current; it described work up to v2.0 and surviving facts were folded into
@@ -91,18 +91,21 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 377 passed
+.venv/bin/python -m pytest tests -q          # last checked: 384 passed (2026-11-06)
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
 root-level `test_*.py` scratch scripts and errors out. See `SANDBOX.md`.
 
-- CI (`.github/workflows/`) must stay green: `pytest tests`, calendar validation
-  on every season, and a build of the image on every PR.
+- Keep the applicable CI workflows green: `pytest tests`, calendar validation
+  for calendar changes, and the container smoke test for application/runtime
+  changes. Check each workflow's path filters and triggers rather than assuming
+  every workflow runs on every PR.
 - Keep the style of the existing code: docstrings explain *why* a rule exists,
   quoting the failure it prevents. Comments that restate the code are not useful.
-- One concern per PR. The priority list in §6 is deliberately sliced that way.
-- Never commit `*.backup*` files. They are being removed; see §6 item 2.
+- Prefer one concern per PR. Follow the dependency-aware slices in
+  [`docs/IMPROVEMENT_PLAN.md`](docs/IMPROVEMENT_PLAN.md).
+- Never commit `*.backup*` files.
 
 ---
 
@@ -149,8 +152,10 @@ Still true, and still worth knowing:
 
 ## 6. Priority list and status
 
-Headline issues from the security/design review. Status is authoritative as of
-v2.4.1 — update it as items land.
+Historical security/design review findings and their recorded dispositions.
+The detailed issues below remain useful context, but their statuses are not a
+release ledger; verify current behaviour in code and tests. New follow-up work is
+prioritised in [`docs/IMPROVEMENT_PLAN.md`](docs/IMPROVEMENT_PLAN.md).
 
 | # | Issue | Status |
 |---|---|---|
@@ -299,179 +304,19 @@ live confirmation (see Outstanding).
 
 ---
 
-## 7. Implementation plan
+## 7. Current improvement plan
 
-Sliced into PRs that can each be reviewed and reverted on their own.
-**Order is deliberate**: item A/1 before hygiene, because auth is the only one
-that stops a live exposure; hygiene is cheap but does not reduce risk on its own.
+The pre-v2.5 implementation sequence below was completed over several releases
+and is no longer an active plan. Its incident notes and rationale remain above.
+For new work, follow [`docs/IMPROVEMENT_PLAN.md`](docs/IMPROVEMENT_PLAN.md): it
+starts with the documentation refresh completed alongside the review, then
+proposes small, dependency-aware slices for state integrity, WebUI job execution,
+integration coverage and later operational hardening.
 
-### PR 1 — Documentation baseline (this PR)
-`AGENTS.md`, `docs/ARCHITECTURE.md`, `SANDBOX.md`, plus
-`tests/test_webui_security.py`: 29 characterisation tests that turn findings
-A–D and the missing-auth claim into executable documentation. They assert the
-current *bad* behaviour, so they will fail — deliberately — the moment the fix
-lands, which is what stops the fix from being forgotten or half-done. No
-production behaviour change.
-
-### PR 2 — Auth: Cloudflare Access verification  *(item 1 + `AUTH_*` + findings A–D)*
-**DONE (v2.5.0).** Shipped as designed: `utils/auth.py` (verification),
-`utils/web_auth.py` (guard + modes + error page), `AUTH_*` in `ENV_SPEC`, the
-`/app-config` merge fix, wildcard CORS removed, `uiadminpassword` deleted, plus
-`/healthz` moved out of the guarded set. 45 new tests.
-
-The remaining sub-items below are kept as the rationale, not as outstanding work.
-
-1. **Verification module** `utils/auth.py`:
-   - Verify `Cf-Access-Jwt-Assertion` against `AUTH_ISSUER` JWKS
-     (`$AUTH_ISSUER/cdn-cgi/access/certs`, overridable via `AUTH_CERTS_URL`).
-   - Check `aud` == `AUTH_AUDIENCE`, `iss` == `AUTH_ISSUER`, expiry, and
-     signature. Cache JWKS with a TTL and refetch on unknown `kid`.
-   - Require `email` ∈ `AUTH_ALLOWED_EMAILS` (comma-separated, exact match).
-   - Deny by default when `AUTH_*` is configured but anything fails.
-2. **Enforcement**: a Flask `before_request` guard covering *all* routes rather
-   than per-route decorators, so a new route cannot be born unauthenticated.
-   Decide and document the exceptions: `/manifest.json`, `/sw.js`, icons,
-   `/assets/*`, and `utils/healthcheck.py`'s probe. Keep `EXPORTED`/static
-   allowlist explicit and tested.
-3. **`AUTH_*` into `ENV_SPEC`** (not secrets; `AUTH_ALLOWED_EMAILS` is
-   personal data — do not echo it in startup output).
-4. **Local/LAN development escape hatch**: an explicit `AUTH_MODE=cloudflare|none`
-   (default `cloudflare` when `AUTH_*` is set, `none` otherwise), so a direct
-   `docker run` on a laptop still works — but `none` must log a loud warning and
-   the docs must say the container should not be exposed without CF.
-5. **Fix finding A**: read-modify-write of `settings.yml` (load, apply only the
-   keys the client is allowed to set, write back) instead of a fixed dict.
-6. **Fix finding B**: drop `Access-Control-Allow-Origin: *`, or restrict to an
-   explicit same-origin policy. The UI is same-origin; the wildcard buys nothing.
-7. **Fix finding C**: retain `uiadminpassword` only as a secondary client-side
-   tab lock (or remove the modal entirely now that identity is server-side).
-   Do not treat it as security. If retained, compare with `hmac.compare_digest`
-   and keep it out of `get_all_settings()`.
-8. **Tests**: forged/expired/wrong-audience/wrong-issuer/unknown-kid tokens
-   rejected; allowed email accepted; non-allowlisted email denied; guard covers
-   every route (enumerate `app.url_map` and assert each rule is either
-   guarded or on the public allowlist — this is the test that stops regressions).
-
-### PR 3 — Hygiene *(items 2, 4)* — **DONE (v2.5.0)**
-- `.dockerignore` added. Measured context was 1.23 GB, of which `.git` was
-  372 MB; tests, docs and local config made up most of the rest. Now 754 MB.
-  A test now asserts the two directions that matter: development-only paths are
-  excluded, and **nothing the Dockerfile COPYs is excluded**.
-- The six tracked `*.backup*` files deleted; `*.backup*`/`*.bak`/`*.orig`
-  gitignored so they cannot come back.
-- `test_cleanup_utility.py` → `scripts/cleanup_utility.py`: renamed (it is not a
-  test — it asserts nothing and `pytest` could collect it), moved out of the root,
-  out of the image, and given a `--confirm` gate plus a "is this actually a
-  session folder" check before `rmtree`. Its library default also did not match
-  the documented layout, so it had been searching the wrong tree.
-- `test_prowlarr.py` deleted: it held a live Prowlarr API key (see §7a), had a
-  collection error, and was a scratch script.
-- `MOTOGPARR_COOKIE_SECURE` added to `ENV_SPEC` and the Unraid template. It was
-  read by the WebUI but unregistered, which is the "documented but dead" class
-  this repo already got burned by.
-
-**Correction to the original finding:** item 4 said the cleanup utility "ships in
-the image". It did not — the Dockerfile copies an explicit file list and never
-included it. The exposure was real but narrower: it was collectable by `pytest`
-and sitting in a public repo. Verifying that cost two minutes and is worth
-repeating before recording a finding as fact.
-
-### PR 4 — Correctness *(items 5, 6, finding E)* — **DONE (v2.5.0)**
-
-What shipped:
-
-- `utils/settings_schema.py` — the permitted shape of settings.yml, with
-  `unknown-key` / `wrong-type` / `bad-value` issues and "did you mean"
-  suggestions. Reported through `validate()` (so the WebUI shows it), at startup,
-  and via `python -m utils.settings_schema`. Deliberately never fatal: the app
-  has a default for everything and an outage is worse than a warning.
-  Two design rules, both enforced by tests: an empty value is *not* a type error
-  (the loader treats empty as unset), and `library_id: 16` is fine unquoted.
-- `utils/plexcheck.py` — compares the configured library path with the Plex
-  library's real `locations`, translated through `plex.path_mapping` first.
-  Distinguishes `ok` / `not_scanned` / `mapping_missing` / `unreachable` /
-  `unknown`, names the inverted-mapping case explicitly, and never guesses.
-  Uses a real path-boundary check, not `startswith`, so `/media/MotoGP2` is not
-  mistaken for `/media/MotoGP`.
-- Both surface at startup and in **Settings → Admin → 🩺 Diagnostics**, together
-  with `credential_sources()` — which reports `env` vs `settings.yml` per
-  credential (never the value), because an env var in the Unraid template
-  silently beats a key typed into the UI.
-
-**Regression found while doing this:** `get_allowed_groups()` had been defined
-*twice*, the second definition shadowing the first and returning `[]` when
-unset. `filter_releases()` rejects any release not from an allowed group, so the
-grabber would have matched **nothing** — silently, because an empty candidate
-list looks identical to "no releases published yet". Introduced by the PR 2 edit,
-caught by review, now covered by a test that also asserts the default agrees
-with the copy in `motogp_common.filter_releases()`. Lesson: a duplicated `def`
-is invisible; check for shadows before assuming a helper is what you wrote.
-
-- **`settings.yml` schema** (`utils/settings_schema.py`):
-  known sections/keys with types and defaults, mirroring `ENV_SPEC`. Unknown key
-  → warning in `validate()` and at startup, naming the key and the nearest known
-  one. Reported via `/app-config` validation so the UI can show it. Add the
-  missing documented keys from finding E to `settings.example.yaml`.
-- **Plex library-root check**: read the section's `locations` from Plex
-  (`library.section(...)` / `/library/sections`), translate through
-  `plex.path_mapping`, and compare with `library.motogp_path`. If the configured
-  library path is not inside a Plex-scanned location, say so loudly at startup
-  and in the UI — "Plex is not scanning this folder" is the actual cause of the
-  missing-sessions mystery, and it is checkable.
-
-### PR 5 — Release engineering *(items 7, 8)* — **DONE (v2.5.0)**
-
-- `.github/workflows/release.yml` — on a `v*` tag, generates notes from merged
-  PRs via the `releases/generate-notes` API (POST, JSON body — `gh api` defaults
-  to GET and would 404), publishes or updates the release, and uploads
-  `RELEASE_NOTES_v<version>.md` as an artifact. It does **not** push to `main`:
-  the notes file is an artifact, and keeping it in the repo is a follow-up PR.
-- `.github/release.yml` — label → category. Unlabelled PRs land in "Other
-  changes" so nothing is ever omitted, only uncategorised.
-- Tag format is enforced (`vX.Y.Z`) because `V.2.2.1` produced no `:2.2` tag.
-- `.github/workflows/container-smoke.yml` — builds the real image, runs it, and
-  asserts: no dev files in `/app`, `setpriv` present, `/healthz` answers, Docker
-  reports healthy, **no python process in the container runs as uid 0** (plus the
-  startup log's `Running as: 99:100` line), calendars and a non-empty
-  `settings.yml` land in `/config`, the schema check runs, and with `AUTH_*` set
-  every route except `/healthz` returns 401 including with a forged token.
-
-**This is the only place the image is exercised.** There is no Docker daemon in
-the agent sandbox, so no container change can be verified locally. The runtime
-behaviour of `entrypoint.sh` *can* be verified here by running it as root with
-`sudo` (SANDBOX.md §10) — but the image itself cannot. Push, then read the
-annotations, because job logs are unreachable from here (SANDBOX.md §11).
-
-### PR 6 — Non-root container *(item 3)* — **DONE (v2.5.0)**
-
-`entrypoint.sh` drops root → `PUID:PGID` (default 99:100) with `setpriv` and
-re-execs itself; `UMASK` is applied; it refuses to continue if still uid 0.
-`utils/permissions.py` then checks write access to `/config`, the library and the
-downloads path — only paths the app writes, so a read-only media share is fine —
-and refuses to start naming the folder, the uid, and the `chown` command.
-
-Deliberately *not* a Dockerfile `USER`: the correct uid is per-installation and
-an image with a fixed one cannot be adjusted on Unraid without a rebuild. A test
-asserts there is no `USER` line.
-
-Side effects worth knowing: `SCRIPT_DIR` is now derived from the script's own
-location, `PYTHON` is overridable via `MOTOGPARR_PYTHON`, and the WebUI uses
-`sys.executable` instead of a hard-coded `/opt/venv/bin/python3` — all three so
-the entrypoint and app can be run from a checkout, which is how the privilege
-drop was actually tested (as root, then asserting uid 99).
-
-One bug this caught before release: a missing `/config/logs` was reported as NOT
-WRITABLE, which would have refused to start *every* new install. `/config` belongs
-to the app, so its own subfolders are created; the library and downloads paths
-never are, because creating them would hide a wrong volume mapping.
-
-`.github/workflows/container-smoke.yml` asserts the drop in CI. Five attempts got
-it wrong before it worked; the traps are recorded in `SANDBOX.md` §12, and the
-one-line summary is: `docker exec` starts a *new* process as the image's user (so
-it reports root regardless), `docker top` has no `ps` to work with, and a `/proc`
-scan matches the shell running it. It works because the scan filters on `argv[0]`
-being a python interpreter and judges outside the container. It now passes, and
-each of its failure paths was verified to fail for the right reason.
+Before starting a slice, confirm it is still relevant against the current code,
+add or update regression tests, and keep each PR focused on one independently
+reviewable behaviour change. Update this plan and the architecture document in
+the same PR when implementation changes their claims.
 
 ## 7a. Incidents
 

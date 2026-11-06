@@ -1,8 +1,10 @@
 # MotoGParr — Architecture
 
-Single source of truth for how the app fits together at **v2.4.1**. Written after
-reading the code, not after reading the old session notes. Where the two
-disagreed, the code won.
+Agent-facing architecture reference, last refreshed against repository release
+**v2.7.4** on 2026-11-06. It describes the current implementation, not a promise
+that every historic note or release-specific detail remains accurate. When code
+and this document disagree, verify the code and tests, then update this document
+in the same change.
 
 Intended audience: an agent about to change something. If you are only installing
 the app, read `README.md` instead.
@@ -36,7 +38,7 @@ so stopping is honest.
 | File | Role |
 |---|---|
 | `entrypoint.sh` | Banner/version, calendar sync into `/config`, starter `settings.yml`, config + path validation, path severity gate, start and supervise both processes |
-| `motogp_webui.py` | Flask UI + JSON API, 27 routes (§5). Spawns grabber/overlay |
+| `motogp_webui.py` | Flask UI + JSON API; route inventory in §5. Spawns grabber/overlay |
 | `motogp_scheduler.py` | Sleep loop. Decides whether it is a race weekend and how often to poll |
 | `motogp_watcher.py` | Watches the downloads dir, waits for folder stability, drives sort → tag → Discord |
 | `motogp_grabber.py` | Prowlarr search, release filtering, send to SABnzbd. `backfill` / `scheduled` / `status` / `clear` |
@@ -44,7 +46,7 @@ so stopping is honest.
 | `motogp_plex_tagger.py` | Labels, genres, collections in Plex. Uses **exact path matching** |
 | `motogp_plex_tagger.py` + `motogp_overlay_utility.py` | Artwork overlay/poster generation |
 | `motogp_common.py` | Shared spine: session enum, logging, calendar access, release parsing/filtering, prefix build/parse |
-| `activity_emitter.py` | File-locked JSON event bus for the Activity tab (`ActivityStage` enum) |
+| `activity_emitter.py` | JSON event bus for the Activity tab (`ActivityStage` enum); its current lock does not protect the full transaction (§4) |
 | `grab_stats.py` | Stats derived from `grabber_state.json` |
 | `motogp_discord.py` | Webhook notifications, has its own rate-limit file |
 | `utils/config_loader.py` | **`ENV_SPEC`**, settings precedence, validation, startup report |
@@ -157,24 +159,32 @@ This is the single most common cause of "tagging stopped working".
 | `motogp_<year>.json` | Season calendars, refreshed from image | No — re-copied on start |
 | `*.bak` | Pre-refresh calendar backup | Yes |
 
-Only the activity bus uses locking. Everything else is plain read/write of a JSON
-file from two processes, so a reader can meet a truncated file. Several readers
-catch and default; new code must do the same.
+Most state is plain JSON read/write shared by separate processes. Direct writes
+can expose truncated files, and concurrent read-modify-write operations can lose
+updates. The activity emitter attempts a file lock, but its current lock is taken
+only while writing a shared temporary file, after the data was read; it does not
+serialize the full transaction. Treat cross-process state integrity as an open
+improvement, not as solved by the activity lock. See
+[`docs/IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) for the proposed migration
+sequence. New code must handle malformed/partial state visibly rather than
+silently replacing useful data with defaults.
 
 ---
 
 ## 5. WebUI surface
 
-28 routes. Nav tabs: Home, Download, Settings, Stats, Calendar, Activity; a
-bottom nav for mobile; `/logs` is reachable but not in the top nav.
+The route inventory below is descriptive, not a route-count invariant; use
+`app.url_map` and `tests/test_webui_auth.py` for the current route set. Nav tabs:
+Home, Download, Settings, Stats, Calendar, Activity; a bottom nav for mobile;
+`/logs` is reachable but not in the top nav.
 
 | Route | Method | What it does | Risk |
 |---|---|---|---|
 | `/` | GET | Dashboard | low |
 | `/library` | GET | Download/library view | low |
-| `/settings-page` | GET | Settings + admin sub-tab | low (data gated client-side only) |
+| `/settings-page` | GET | Settings + admin sub-tab | low; server-side auth applies to the route |
 | `/logs` | GET | Log viewer | **exposes log text** |
-| `/run` | POST | Spawns grabber/overlay with a client-supplied arg string | **high — unauthenticated action** |
+| `/run` | POST | Spawns grabber/overlay using a client-supplied argument string | **high — authenticated action; argument allowlisting and job concurrency need hardening** |
 | `/settings` | GET/POST | Reads/writes sessions in `webui_settings.json`; `max_grabs_per_run` is read from and written to `settings.yml` via `config_loader` | **write** |
 | `/status` | GET | Background command output | low |
 | `/api/activity-events` | GET | Activity events | low |
@@ -195,8 +205,10 @@ bottom nav for mobile; `/logs` is reachable but not in the top nav.
 | `/manifest.json`, `/sw.js` | GET | PWA — public | — |
 | `/healthz` | GET | Liveness for the Docker HEALTHCHECK — public | — |
 
-Every route in the table requires a verified Cloudflare identity except the two
-marked *public*. `app.after_request` adds `X-Content-Type-Options: nosniff`,
+Every route requires a verified Cloudflare identity except endpoints in
+`PUBLIC_ENDPOINTS` (static assets, PWA plumbing and `/healthz`). With
+`AUTH_MODE=none`, the guard is deliberately disabled and the port must only be
+reachable on a trusted network. `app.after_request` adds `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: SAMEORIGIN` and `Referrer-Policy: no-referrer`; it does **not**
 set `Access-Control-Allow-Origin` (that wildcard was removed in v2.5.0 — the UI
 is same-origin and the header let any LAN page read `/app-config`).
@@ -242,14 +254,12 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **345 tests** in `tests/`, all passing at v2.6.0. Pure unit/behavioural; no
-  Docker required.
-- `tests/test_webui_security.py` is a set of **characterisation tests that assert
-  the current insecure behaviour** (secrets returned by `/app-config`, config
-  keys dropped on save, wildcard CORS, every route reachable anonymously, the
-  route list enumerated from `url_map`). They are expected to fail when auth
-  lands — invert them in the fixing commit. Do not "fix" them by weakening the
-  assertions.
+- **384 tests** passed in the last local verification on 2026-11-06 with
+  `python -m pytest tests -q`. Treat this as a dated snapshot; rerun the suite
+  rather than assuming the count is current.
+- `tests/test_webui_security.py` now contains regression tests for the fixed
+  `/app-config` merge, CORS removal and route security behaviour. They assert
+  safe behaviour; route enumeration is in `tests/test_webui_auth.py`.
 - `tests/test_container_lifecycle.py` extracts shell blocks from `entrypoint.sh`
   and runs them against a throwaway `/config`. Good, but it is string/block
   extraction — it does not prove the image runs. Hence the smoke-test item.
@@ -260,8 +270,10 @@ next save from the UI.
   (calendar validation, duplicate JSON key rejection), `container-smoke.yml`
   (build and run the image, assert non-root + auth), `release.yml` (generate
   notes, publish, open release-notes PR), and `pr-label-check.yml` (require at
-  least one label on PRs to `main` so release notes are categorised). All run
-  on PRs; workflows use Node 24 runtimes (`actions/checkout@v5`,
+  least one label on PRs to `main` so release notes are categorised). Their
+  triggers differ: calendar checks are path-filtered, the container smoke test
+  skips documentation-only PRs, and release publishing runs on version tags or
+  manual dispatch. Workflows use Node 24 runtimes (`actions/checkout@v5`,
   `actions/setup-python@v6`, `docker/*@v4/v6/v7`, `actions/upload-artifact@v6`).
 
 Run `pytest tests`, never bare `pytest` — the root scratch scripts break
@@ -271,8 +283,9 @@ collection (`SANDBOX.md`).
 
 ## 8. Container build
 
-`python:3.11-slim`, venv at `/opt/venv` (hence the hard-coded `PYTHON_PATH` in
-the WebUI), `fonts-dejavu-core` for overlay text, `EXPOSE 5679`,
+`python:3.11-slim`, venv at `/opt/venv`, `fonts-dejavu-core` for overlay text,
+`EXPOSE 5679`. The WebUI launches child Python processes via `sys.executable`;
+the scheduler's command configuration currently names `/opt/venv/bin/python3`.
 `HEALTHCHECK` → `utils/healthcheck.py` (stdlib only; the image has no `curl`).
 
 The Dockerfile copies an explicit list of files rather than the tree — so a new
