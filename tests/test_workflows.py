@@ -90,6 +90,21 @@ def test_smoke_test_asserts_development_files_are_absent():
     assert "cleanup_utility" in text
 
 
+def test_smoke_test_checks_artwork_links_in_the_built_image():
+    """Local calendar validation cannot tell if Docker COPY preserved symlinks."""
+    text = SMOKE.read_text()
+    assert "test -L" in text
+    assert "utils.validate_calendar" in text
+    assert "assets/external/2025" in text
+
+
+def test_calendar_check_runs_when_artwork_changes():
+    """A changed image/link can break a calendar without editing its JSON."""
+    triggers = load(WORKFLOWS / "calendar-check.yml")
+    pull_request = (triggers.get("on") or triggers.get(True))["pull_request"]
+    assert "assets/**" in pull_request["paths"]
+
+
 # ---------------------------------------------------------------------------
 # Release automation (item 7)
 # ---------------------------------------------------------------------------

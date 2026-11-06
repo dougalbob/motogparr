@@ -12,6 +12,7 @@ on:
   pull_request:
     paths:
       - 'config/motogp_*.json'
+      - 'assets/**'
       - 'utils/validate_calendar.py'
       - 'motogp_common.py'
   workflow_dispatch:

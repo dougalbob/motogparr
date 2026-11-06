@@ -139,9 +139,10 @@ Outbound access is limited to GitHub/PyPI. So:
 - `gh release view <tag>` is the fastest way to read what a release actually
   claimed — useful for writing `RELEASE_NOTES_vX.Y.Z.md` and for checking
   whether a promised behaviour was ever delivered.
-- Repo size: `.git` is ~373 MB, `assets/` ~755 MB. **Avoid `git log -p`,
-  `git diff` on assets, or anything that walks history without a path filter** —
-  it is slow and floods context.
+- Repo size: `.git` is ~373 MB (the old artwork remains in history), while
+  `assets/` is ~4 MB after issue #25 removed unused art and linked placeholders.
+  **Avoid `git log -p` or anything that walks binary history without a path
+  filter** — it is slow and floods context.
 - Only one tag exists locally (`v2.4.1`). Older tags are on the remote; fetch if
   you need them.
 
