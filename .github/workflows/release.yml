@@ -135,11 +135,15 @@ jobs:
           git config user.email "${{ github.actor }}@users.noreply.github.com"
 
           git fetch origin main >/dev/null 2>&1 || true
-          if ! git rev-parse --verify "$branch" >/dev/null 2>&1; then
-            git checkout -b "$branch" origin/main
-          else
-            git checkout "$branch"
+          # Fetch the release-notes branch from a previous run. Without this,
+          # a re-run creates a new branch from origin/main and the push is
+          # rejected as non-fast-forward, which is how the v2.7.0 re-run
+          # failed after the permission was fixed.
+          if git fetch origin "$branch" >/dev/null 2>&1; then
+            git checkout -B "$branch" FETCH_HEAD
             git merge --ff-only origin/main 2>/dev/null || true
+          else
+            git checkout -B "$branch" origin/main
           fi
 
           git add "$file"

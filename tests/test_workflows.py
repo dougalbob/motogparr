@@ -192,7 +192,8 @@ def test_artifact_path_and_committed_path_are_the_same_file():
 def test_release_pr_is_idempotent_on_existing_branch_and_pr():
     """Re-runs must update the existing branch/PR instead of failing."""
     text = RELEASE.read_text()
-    assert "git rev-parse --verify" in text or "git checkout -b" in text
+    assert 'git fetch origin "$branch"' in text
+    assert 'git checkout -B "$branch"' in text
     assert "gh pr list" in text
     assert "gh pr edit" in text
     assert "gh pr create" in text
@@ -279,3 +280,15 @@ def test_release_notes_step_fails_when_no_pull_request_exists():
     assert 'gh pr create --title "$title" --body "$body" --head "$branch" --base main ||' not in text
     assert 'gh pr edit "$existing" --title "$title" --body "$body" ||' not in text
     assert 'git push origin "$branch" || true' not in text
+
+
+def test_release_notes_commit_step_handles_an_existing_branch():
+    """
+    A re-run must fetch the existing release-notes branch and build on it.
+    The v2.7.0 re-run failed because the step created a new branch from
+    origin/main and the push was rejected as non-fast-forward.
+    """
+    text = RELEASE.read_text()
+    assert 'git fetch origin "$branch"' in text
+    assert 'git checkout -B "$branch" FETCH_HEAD' in text
+    assert 'git checkout -B "$branch" origin/main' in text
