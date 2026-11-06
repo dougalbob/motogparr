@@ -19,6 +19,8 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
 # Import from motogp_common
+from utils.plexlabels import apply_labels, ensure_collection_sort
+
 from motogp_common import (
     setup_logging,
     get_logger,
@@ -195,6 +197,18 @@ def apply_tags_and_collection(video, year, round_num, session_type, round_info, 
         if not dry_run:
             video.addCollection(collection_name)
         changes_made.append(f"Collection: {collection_name}")
+
+    # The collection name already sorts correctly ("2026 Round 04" < "2026 Round
+    # 05") because the round is zero padded, so this is belt and braces: it keeps
+    # the order intact if a collection is ever renamed or grouped differently.
+    # The item's own server handle is reused rather than reconnecting per session.
+    server = getattr(video, "_server", None)
+    if server is not None:
+        collection_sort = ensure_collection_sort(
+            server, PLEX_LIBRARY, collection_name, year, round_num, dry_run
+        )
+        if collection_sort:
+            changes_made.append(collection_sort)
     
     # Add genres
     for genre in genres_to_add:
@@ -354,6 +368,14 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     
     logger.info(f"  ✅ Found in Plex: {video.title}")
     
+    # Title and sort title are written together, before the tags: the visible
+    # name has to say what the session is (FP2, not the old "Practice"), and the
+    # sort key has to keep it in running order. See utils/plexlabels.py for why
+    # doing only one of the two makes the library worse.
+    label_changes = apply_labels(video, session_type, year, round_num, dry_run)
+    for change in label_changes:
+        logger.info(f"  {change}")
+
     changes = apply_tags_and_collection(
         video, year, round_num, session_type, round_info, dry_run
     )
