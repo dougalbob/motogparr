@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.5.3** · **Tests: 287 passing on this branch** · **Single user, self-hosted**
+**Current release: v2.5.4** · **Tests: 287 passing** · **Single user, self-hosted**
 
 ---
 
@@ -83,7 +83,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 287 on this branch
+.venv/bin/python -m pytest tests -q          # expect 287 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -175,7 +175,7 @@ risk family as item 1.
 | J4 | **GitHub Actions Node 20 deprecation.** Every run warned \"Node.js 20 is deprecated… forced to run on Node.js 24\" for 7 actions. **Fixed:** bumped each to its node24 major — `actions/checkout@v5`, `actions/setup-python@v6`, `docker/setup-buildx-action@v4`, `docker/build-push-action@v7`, `docker/login-action@v4`, `docker/metadata-action@v6`, `actions/upload-artifact@v6` — keeping permissions minimal (`contents: read`, `packages: write`, plus `pull-requests: write` for release). No version-pinning test (rots); existing workflow invariant tests cover tag patterns, non-root and auth assertions. | `.github/workflows/*.yml`, `tests/test_workflows.py` |
 | L1 | **PRs to main could be merged with no labels, producing a single \"Other changes\" line in release notes.** **Fixed:** cheap CI check `.github/workflows/pr-label-check.yml` fails when a PR to main has zero labels (exempts `dependabot[bot]`), printing the categorisation map. Pure shell + `jq`, no checkout or JS action, so no Node deprecation surface. | `.github/workflows/pr-label-check.yml`, `tests/test_workflows.py` |
 
-### Issue #25 — artwork bloat (unreleased)
+### Issue #25 — artwork bloat (v2.5.4)
 
 The 23 venue placeholders for each of three classes were byte-identical copies
 of two master JPEGs: 69 posters and 69 fanarts. They are now **relative symlinks**
