@@ -118,6 +118,11 @@
             "gmt": "03:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "06:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "07:00",
@@ -127,6 +132,11 @@
             "local": "14:45",
             "gmt": "07:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "08:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -139,6 +149,11 @@
             "local": "09:40",
             "gmt": "02:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "03:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -246,6 +261,11 @@
             "gmt": "07:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "10:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "11:00",
@@ -255,6 +275,11 @@
             "local": "14:45",
             "gmt": "11:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "12:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -267,6 +292,11 @@
             "local": "09:40",
             "gmt": "06:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "07:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -377,6 +407,11 @@
             "gmt": "13:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "16:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "17:00",
@@ -386,6 +421,11 @@
             "local": "14:45",
             "gmt": "17:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "18:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -398,6 +438,11 @@
             "local": "09:40",
             "gmt": "12:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "13:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -507,6 +552,11 @@
             "gmt": "13:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "16:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "17:00",
@@ -516,6 +566,11 @@
             "local": "14:45",
             "gmt": "17:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "18:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -528,6 +583,11 @@
             "local": "09:40",
             "gmt": "12:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "13:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -638,6 +698,11 @@
             "gmt": "15:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "18:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "19:00",
@@ -647,6 +712,11 @@
             "local": "14:45",
             "gmt": "19:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "20:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -659,6 +729,11 @@
             "local": "09:40",
             "gmt": "14:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "15:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -767,6 +842,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -776,6 +856,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -788,6 +873,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -898,6 +988,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -907,6 +1002,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -919,6 +1019,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1028,6 +1133,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -1037,6 +1147,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1049,6 +1164,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1159,6 +1279,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -1168,6 +1293,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1180,6 +1310,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1289,6 +1424,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -1298,6 +1438,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1310,6 +1455,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1418,6 +1568,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -1427,6 +1582,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1439,6 +1599,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1547,6 +1712,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -1556,6 +1726,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1568,6 +1743,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1677,6 +1857,11 @@
             "gmt": "09:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "12:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "13:00",
@@ -1686,6 +1871,11 @@
             "local": "14:45",
             "gmt": "13:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "14:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1698,6 +1888,11 @@
             "local": "09:40",
             "gmt": "08:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "09:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1807,6 +2002,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -1816,6 +2016,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1828,6 +2033,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -1935,6 +2145,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -1944,6 +2159,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -1956,6 +2176,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -2064,6 +2289,11 @@
             "gmt": "08:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "11:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "12:00",
@@ -2073,6 +2303,11 @@
             "local": "14:45",
             "gmt": "12:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "13:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -2085,6 +2320,11 @@
             "local": "09:40",
             "gmt": "07:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "08:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -2195,6 +2435,11 @@
             "gmt": "09:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "12:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "13:00",
@@ -2204,6 +2449,11 @@
             "local": "14:45",
             "gmt": "13:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "14:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -2216,6 +2466,11 @@
             "local": "09:40",
             "gmt": "08:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "09:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -2324,6 +2579,11 @@
             "gmt": "01:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "04:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "05:00",
@@ -2333,6 +2593,11 @@
             "local": "14:45",
             "gmt": "05:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "06:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -2345,6 +2610,11 @@
             "local": "09:40",
             "gmt": "00:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "01:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -2453,6 +2723,11 @@
             "gmt": "02:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "05:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "06:00",
@@ -2462,6 +2737,11 @@
             "local": "14:45",
             "gmt": "06:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "07:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -2474,6 +2754,11 @@
             "local": "09:40",
             "gmt": "01:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "02:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -2582,6 +2867,11 @@
             "gmt": "02:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "05:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "06:00",
@@ -2591,6 +2881,11 @@
             "local": "14:45",
             "gmt": "06:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "07:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -2603,6 +2898,11 @@
             "local": "09:40",
             "gmt": "01:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "02:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -2711,6 +3011,11 @@
             "gmt": "00:10",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "02:45",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "03:30",
@@ -2720,6 +3025,11 @@
             "local": "14:45",
             "gmt": "04:15",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "04:40",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -2732,6 +3042,11 @@
             "local": "09:40",
             "gmt": "23:10",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "23:50",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
@@ -2840,6 +3155,11 @@
             "gmt": "09:40",
             "duration_mins": 35
           },
+          "moto3_practice": {
+            "local": "13:15",
+            "gmt": "12:15",
+            "duration_mins": 30
+          },
           "motogp_fp2": {
             "local": "14:00",
             "gmt": "13:00",
@@ -2849,6 +3169,11 @@
             "local": "14:45",
             "gmt": "13:45",
             "duration_mins": 15
+          },
+          "moto2_practice": {
+            "local": "15:10",
+            "gmt": "14:10",
+            "duration_mins": 30
           }
         },
         "saturday": {
@@ -2861,6 +3186,11 @@
             "local": "09:40",
             "gmt": "08:40",
             "duration_mins": 20
+          },
+          "moto2_fp2": {
+            "local": "10:20",
+            "gmt": "09:20",
+            "duration_mins": 30
           },
           "moto3_qualifying": {
             "local": "10:50",
