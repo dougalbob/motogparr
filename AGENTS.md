@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.5.6** · **Tests: 301 passing** · **Single user, self-hosted**
+**Current release: v2.6.0** · **Tests: 345 passing** · **Single user, self-hosted**
 
 ---
 
@@ -59,10 +59,18 @@ current; it described work up to v2.0 and surviving facts were folded into
 These come from real outages. Breaking one causes silent data problems, not
 visible errors.
 
-1. **Round numbers are permanent identifiers.** They are part of folder names,
-   filenames and Plex episode identity. Renumbering mid-season renames files and
-   Plex treats them as new items (lost watched state, possible duplicates). See
+1. **Round numbers and session numbers are permanent identifiers** — for any
+   season that still has files on disk. They are part of folder names, filenames
+   and Plex identity, so renumbering a live season renames files and Plex treats
+   them as new items (lost watched state, possible duplicates). See
    `docs/CALENDAR_CHANGES.md`.
+   Session numbers come from `SESSION_ELEMENTS`, **not** from the enum value, and
+   are allocated in blocks of ten so a new session takes a free number instead of
+   being appended after the Race. Never renumber an existing value; allocate into
+   a gap. `LEGACY_ELEMENT_SEASON` marks the last season written with the old dense
+   numbering (`SESSION_ELEMENTS_LEGACY`, read-only). A number that means different
+   sessions in the two schemes must never be resolved by guessing — the season
+   decides, and `tests/test_session_numbering.py` enforces both invariants.
 2. **Env var > `settings.yml` > default.** An env var set but *empty* counts as
    unset. Never add a non-blank default for a path in the Unraid template.
 3. **`ENV_SPEC` in `utils/config_loader.py` is the single source of truth** for
@@ -83,7 +91,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 301 passed
+.venv/bin/python -m pytest tests -q          # expect 345 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -206,6 +214,49 @@ local timezone (with `Fri`/`Sat`/`Sun` switcher pills), replaces `"days to go"`
 on a live weekend with **`NOW`** (when a session is underway) or the **next
 session's start time**, and keeps past rounds focused solely on library status
 and missing-session downloads.
+
+### Issue #33 — 2027 race weekend format (in progress)
+
+The 2027 format (Friday FP1/FP2/Sprint Qualifying, Saturday FP3/Q1/Q2/Sprint, no
+Sunday warm-up) is data, not code: `weekend_formats` in the calendar, with each
+round carrying `weekend_format` and `motogp_sessions`, and `round_runs_session()`
+gating every search. That part was already in place. What was not:
+
+**Done**
+
+- **Session numbering reworked.** `SESSION_ELEMENTS` allocates in blocks of ten
+  instead of using the enum value. The old table was dense (1-24, full), so FP3
+  and Sprint Qualifying had to be appended as 23/24 — *after* the Race — and a
+  2027 round listed out of order in every folder, title and CLI listing. Ordering
+  is now a property of the identifier, not something patched in the UI.
+- **Cutover is immediate** (`LEGACY_ELEMENT_SEASON = 2025`): 2025/2026 media is
+  deleted and re-fetched under the new scheme, so one numbering applies from 2026
+  onwards. `SESSION_ELEMENTS_LEGACY` is frozen and read-only. A number that means
+  different sessions in the two schemes is refused rather than guessed, and
+  `find_legacy_folders()` makes the library scan warn about leftovers it cannot
+  read instead of silently re-downloading them.
+- **Short canonical names.** `SessionType.full_short_name` gives `MotoGP FP2`
+  rather than `MotoGP Free Practice 2`; it is used for the on-disk folder name
+  and written to Plex as the item title. `utils/plexlabels.py` writes `title` and
+  `titleSort` together (title alone would clump every same-named session), and
+  reuses the `YYRREE` prefix as the sort key. On-disk and Plex names are kept
+  identical so a library re-scan is a no-op rather than a silent revert.
+
+**Outstanding**
+
+- `get_session_times()` still resolves a session's day from `CALENDAR_KEY_TO_DAY`
+  (hard-coded "saturday" for `motogp_fp2`), so a 2027 round with Friday FP2 gets
+  no end time and is skipped at DEBUG level — the grabber would never search for
+  it. This is the next fix.
+- Release-vocabulary ambiguity: `SQ`/`SPQ`/bare `FP` fall through to the Race
+  fallback, so an unrecognised title is filed as the Grand Prix. Needs a
+  refuse-to-guess rule plus a per-season alias map.
+- The validator does not cross-check `weekend_format` ↔ `motogp_sessions` ↔ the
+  sessions block; all three realistic 2027 misconfigurations currently pass.
+- No `config/motogp_2027.json` yet, so nothing exercises the format end to end.
+- Plex title/sort writing depends on the object type an "Other Videos" section
+  returns; `/diagnostics` → `plex_labels` reports what a live server actually
+  gives back. Unverified outside a real deployment.
 
 ---
 

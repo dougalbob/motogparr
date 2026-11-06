@@ -19,6 +19,8 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
 # Import from motogp_common
+from utils.plexlabels import apply_labels, ensure_collection_sort
+
 from motogp_common import (
     setup_logging,
     get_logger,
@@ -31,6 +33,7 @@ from motogp_common import (
     detect_race_class,
     MOTOGP_LIBRARY_PATH,
     VENUE_COUNTRY_MAP,
+    element_number,
 )
 
 from utils.config_loader import (
@@ -194,6 +197,18 @@ def apply_tags_and_collection(video, year, round_num, session_type, round_info, 
         if not dry_run:
             video.addCollection(collection_name)
         changes_made.append(f"Collection: {collection_name}")
+
+    # The collection name already sorts correctly ("2026 Round 04" < "2026 Round
+    # 05") because the round is zero padded, so this is belt and braces: it keeps
+    # the order intact if a collection is ever renamed or grouped differently.
+    # The item's own server handle is reused rather than reconnecting per session.
+    server = getattr(video, "_server", None)
+    if server is not None:
+        collection_sort = ensure_collection_sort(
+            server, PLEX_LIBRARY, collection_name, year, round_num, dry_run
+        )
+        if collection_sort:
+            changes_made.append(collection_sort)
     
     # Add genres
     for genre in genres_to_add:
@@ -229,7 +244,7 @@ def apply_tags_and_collection(video, year, round_num, session_type, round_info, 
 
 def _build_episode_key_from_parsed(year: int, round_num: int, session_type) -> str:
     """Build episode key for activity tracking."""
-    return f"{year}_R{round_num:02d}_E{int(session_type):02d}"
+    return f"{year}_R{round_num:02d}_E{element_number(session_type, year):02d}"
 
 def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     """Tag a single MotoGP file in Plex."""
@@ -262,7 +277,7 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
         logger.info(f"  Classified as: {session_type.display_name}")
     else:
         year, round_num, session_type = parsed
-        logger.info(f"  Parsed: {year} R{round_num:02d} E{int(session_type):02d}")
+        logger.info(f"  Parsed: {year} R{round_num:02d} E{element_number(session_type, year):02d}")
         logger.info(f"  Session: {session_type.display_name}")
     
     # Load season config using shared function
@@ -353,6 +368,14 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     
     logger.info(f"  ✅ Found in Plex: {video.title}")
     
+    # Title and sort title are written together, before the tags: the visible
+    # name has to say what the session is (FP2, not the old "Practice"), and the
+    # sort key has to keep it in running order. See utils/plexlabels.py for why
+    # doing only one of the two makes the library worse.
+    label_changes = apply_labels(video, session_type, year, round_num, dry_run)
+    for change in label_changes:
+        logger.info(f"  {change}")
+
     changes = apply_tags_and_collection(
         video, year, round_num, session_type, round_info, dry_run
     )
@@ -508,7 +531,7 @@ def main():
         for session in SessionType:
             if session != SessionType.UNKNOWN:
                 feature = "🏁" if session.is_feature_race else "  "
-                print(f"  {feature} E{int(session):02d}. {session.display_name}")
+                print(f"  {feature} E{element_number(session, 2027):02d}. {session.display_name}")
         print(f"     E{int(SessionType.UNKNOWN):02d}. {SessionType.UNKNOWN.display_name}")
         return
     

@@ -38,6 +38,7 @@ from motogp_common import (
     get_round_classes,
     get_weekend_format,
     round_runs_session,
+    element_number,
 )
 
 from utils.config_loader import (
@@ -56,6 +57,7 @@ from utils.config_loader import (
     get_sabnzbd_api_key,
     get_plex_url,
     get_plex_token,
+    get_plex_library_name,
 )
 
 # =============================================================================
@@ -1244,12 +1246,37 @@ def diagnostics():
     """
     from utils.config_loader import credential_sources
     from utils.plexcheck import check_from_settings
+    from utils.plexlabels import probe_section
 
     return jsonify({
         "validation": validate(),
         "credentials": credential_sources(),
         "plex_library": check_from_settings().as_dict(),
+        "plex_labels": _probe_plex_labels(probe_section),
     })
+
+
+def _probe_plex_labels(probe):
+    """
+    What does this Plex library hand back for a video item?
+
+    Session titles and sort titles are only writable if the section returns an
+    object type that supports field edits - and an "Other Videos" section is the
+    case where it may not. This is reported rather than assumed: the answer
+    cannot be known without a live server, and a diagnostic that guesses is worse
+    than one that says "unknown".
+    """
+    try:
+        from motogp_plex_tagger import get_plex_connection
+
+        plex = get_plex_connection()
+    except Exception as exc:  # noqa: BLE001 - unreachable Plex is a normal state
+        return {"note": f"Plex is not reachable: {exc}"}
+
+    try:
+        return probe(plex, get_plex_library_name())
+    except Exception as exc:  # noqa: BLE001
+        return {"note": f"Could not inspect the library: {exc}"}
 
 
 @app.route("/test-connections")
@@ -1401,7 +1428,7 @@ def download_selected():
         try:
             # SessionType is an IntEnum, so we can get its value
             session_type = SessionType[session_name]
-            episode_num = f"E{int(session_type):02d}"
+            episode_num = f"E{element_number(session_type, season):02d}"
             by_round[round_num].append(episode_num)
         except (KeyError, ValueError) as e:
             # If conversion fails, skip this session

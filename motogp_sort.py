@@ -811,7 +811,7 @@ def process_multi_session_download(
         
         round_num = round_info.get("round", 0)
         prefix = build_prefix(year, round_num, session_type)
-        session_display = session_type.full_display_name
+        session_display = session_type.full_short_name
         final_folder_name = f"{prefix} {session_display}"
         
         dest_parent = os.path.join(season_root, round_info["folder"])
@@ -876,7 +876,7 @@ def process_combined_qualifying(
         filename = os.path.basename(file_path)
         
         prefix = build_prefix(year, round_num, session_type)
-        session_display = session_type.full_display_name
+        session_display = session_type.full_short_name
         final_folder_name = f"{prefix} {session_display}"
         
         dest_parent = os.path.join(season_root, round_info["folder"])
@@ -962,7 +962,7 @@ def process_with_prefix(
     dest_parent = os.path.join(season_root, round_info["folder"])
     
     prefix = build_prefix(year, round_num, session_type)
-    session_display = session_type.full_display_name
+    session_display = session_type.full_short_name
     final_folder_name = f"{prefix} {session_display}"
     final_path = os.path.join(dest_parent, final_folder_name)
     
@@ -1037,7 +1037,7 @@ def process_without_prefix(folder_name: str, full_path: str) -> bool:
     season_root = ensure_round_folders(year, calendar)
     dest_parent = os.path.join(season_root, round_info["folder"])
     
-    session_display = session_type.full_display_name
+    session_display = session_type.full_short_name
     final_folder_name = f"{prefix} {session_display}"
     final_path = os.path.join(dest_parent, final_folder_name)
     

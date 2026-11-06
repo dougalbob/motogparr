@@ -274,23 +274,52 @@ def test_quality_token_is_not_mistaken_for_a_qualifying_part():
 # Prefixes / folder names
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("element", [21, 23, 24])
-def test_new_session_numbers_are_stable(element):
+@pytest.mark.parametrize("session", [
+    common.SessionType.MOTOGP_RACE,
+    common.SessionType.MOTOGP_FP3,
+    common.SessionType.MOTOGP_SPRINT_QUALIFYING,
+])
+def test_new_session_numbers_are_stable(session):
     """
-    Session numbers are baked into folder names as E<NN>. Appending new members
-    is safe; changing an existing one would orphan files already on disk.
+    Session numbers are baked into folder names as E<NN>, so a prefix must round
+    trip. The number itself now comes from SESSION_ELEMENTS (see
+    tests/test_session_numbering.py for the scheme and its guarantees).
     """
-    session = common.get_session_from_element(element)
     assert session is not None
     prefix = common.build_prefix(2027, 20, session)
     assert common.parse_prefix(prefix) == (2027, 20, session)
 
 
-def test_historical_session_numbers_have_not_moved():
-    assert int(common.SessionType.MOTOGP_RACE) == 21
-    assert int(common.SessionType.MOTOGP_WARMUP) == 18
-    assert int(common.SessionType.MOTOGP_SPRINT) == 15
-    assert int(common.SessionType.MOTO3_FP1) == 2
+def test_pre_cutover_folders_are_still_readable():
+    """
+    Seasons at or before the cutover were written with the dense numbering and
+    must still parse, so their contents are understood even while they are being
+    cleared out.
+    """
+    for session_type, legacy_num in common.SESSION_ELEMENTS_LEGACY.items():
+        season = common.LEGACY_ELEMENT_SEASON
+        prefix = f"{season % 100:02d}R05E{legacy_num:02d}"
+        assert common.parse_prefix(prefix) == (season, 5, session_type)
+
+
+def test_the_cutover_uses_the_spaced_numbering_from_the_next_season():
+    """2026 onwards is written with SESSION_ELEMENTS, not the dense table."""
+    season = common.LEGACY_ELEMENT_SEASON + 1
+    assert common.element_number(common.SessionType.MOTOGP_RACE, season) == 82
+    assert common.element_number(common.SessionType.MOTOGP_RACE, season - 1) == 21
+
+
+def test_ambiguous_element_without_a_season_is_refused():
+    """
+    A bare E-number can mean two different sessions. Guessing would let a
+    leftover older folder be read as a different session, so with no season the
+    answer is "unknown", not a coin flip.
+    """
+    legacy, new = common.LEGACY_ELEMENT_SEASON, common.LEGACY_ELEMENT_SEASON + 1
+    assert common.get_session_from_element(24, season=legacy) is common.SessionType.MOTOGP_SPRINT_QUALIFYING
+    assert common.get_session_from_element(24, season=new) is common.SessionType.MOTO2_PRACTICE
+    assert common.get_session_from_element(24) is None
+    assert common.element_is_ambiguous(24) is True
 
 
 def test_round_folder_names_are_zero_padded(calendar_2026):

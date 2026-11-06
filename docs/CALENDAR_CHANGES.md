@@ -219,14 +219,74 @@ What the code does with that:
   appears on Saturday, so there is no collision with the old `Practice`.
 * **Support classes are untouched** - the format only applies to MotoGP.
 
-New session numbers are **appended** to the enum (`MOTOGP_FP3 = 23`,
-`MOTOGP_SPRINT_QUALIFYING = 24`) because the number is baked into folder names
-as `E<NN>`. Never change an existing value; only add.
+### Session numbers: allocated in blocks, not appended
+
+The number in `E<NN>` is part of the identity, so it cannot simply be appended
+whenever a session appears. The old numbering was dense (1-24, no free slots),
+which forced FP3 and Sprint Qualifying onto the end as 23 and 24 - *after* the
+Race at 21. A 2027 round therefore listed FP3 and Sprint Qualifying after the
+Grand Prix in every folder and title listing, and no display change could fix
+that without renaming files.
+
+`SESSION_ELEMENTS` in `motogp_common.py` now allocates in **blocks of ten**:
+
+```
+10s FP1   20s Practice   30s FP2 / Sprint Qualifying   40s FP3
+50s Q1    60s Q2         70s Sprint   78 Warm-up   80s Races   90 Chequered
+```
+
+This is chronological for the 2026 weekend, the 2027 weekend and both support
+classes, and it leaves 50+ free slots, so a future session is a new number in a
+gap - never a renumber. `tests/test_session_numbering.py` asserts those two
+properties (chronological, collision-free with room to insert) rather than
+recording the current values, so a future format change cannot be mis-numbered
+silently.
+
+**The cutover is now, not at the 2027 boundary.** `LEGACY_ELEMENT_SEASON` marks
+the last season written with the dense numbering. 2025 and 2026 library content
+is being deleted and re-fetched under the new scheme, so there is exactly one
+numbering from 2026 onwards. `SESSION_ELEMENTS_LEGACY` is frozen and is used
+only to *read* older seasons; it never names a file, and it exists so leftovers
+are recognised rather than misparsed.
+
+Two consequences worth knowing:
+
+* The two schemes share numbers - old `E24` was Sprint Qualifying, new `E24` is
+  Moto2 Practice - and their folder names have an identical shape, so a lookup
+  with no season **refuses** rather than guessing.
+* `find_legacy_folders()` names leftovers the current scheme cannot read, and the
+  library scan warns that they will be treated as missing. It cannot detect a
+  stale number that is valid now, which is exactly why the media is removed
+  rather than converted in place.
+
+### What the user sees
+
+The on-disk name and the Plex title are deliberately the same short label:
+
+```
+26R20E22 MotoGP Practice      (2026 - the session really is called Practice)
+27R02E32 MotoGP FP2           (2027 - the Friday session is no longer Practice)
+27R02E36 MotoGP Sprint Qualifying
+```
+
+`SessionType.full_short_name` produces that label, and `utils/plexlabels.py`
+writes it to Plex as the item `title` **together with** `titleSort` (the
+`YYRREE` prefix). Both are needed: title alone would make every "MotoGP FP2" in
+the season sort together. Keeping the folder name identical to the Plex title
+means a library re-scan, which re-derives the title from the filename, is a
+no-op instead of quietly reverting to the long name.
 
 To switch a season to the 2027 format, set `"weekend_format": "motogp_2027"`
 and the matching `motogp_sessions` list on each MotoGP round, and give the
 sessions block the right keys (`motogp_fp3`, `motogp_sprint_qualifying`, no
 `motogp_warmup`). The tests already simulate this.
+
+### Not yet proven end to end
+
+The format is wired and unit-tested, but no real 2027 calendar exists yet, and
+the Plex title/sort behaviour depends on the object type an "Other Videos"
+section returns - see `/diagnostics` → `plex_labels`. Treat the first 2027
+weekend as the verification.
 
 ---
 

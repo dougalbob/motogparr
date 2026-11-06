@@ -242,7 +242,7 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **301 tests** in `tests/`, all passing at v2.5.6. Pure unit/behavioural; no
+- **345 tests** in `tests/`, all passing at v2.6.0. Pure unit/behavioural; no
   Docker required.
 - `tests/test_webui_security.py` is a set of **characterisation tests that assert
   the current insecure behaviour** (secrets returned by `/app-config`, config

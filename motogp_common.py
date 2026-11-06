@@ -27,7 +27,7 @@ from datetime import datetime
 from enum import IntEnum
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 # =============================================================================
 # CENTRALIZED LOGGING
@@ -434,24 +434,21 @@ class SessionType(IntEnum):
     MOTOGP_CHEQUERED_FLAG = 22
     
     # =========================================================================
-    # Appended AFTER the historical values on purpose.
+    # The numbers above are now HISTORICAL ONLY - they are the pre-2027
+    # numbering and are kept because they are what already-existing folders on
+    # disk were named with (see SESSION_ELEMENTS_LEGACY below).
     #
-    # The integer is baked into every library folder name as "E<NN>"
-    # (yyRNNEee), so changing an existing value would orphan files that are
-    # already on disk and in Plex. Only ever add new members here.
+    # Do NOT add members here. The number written into a folder name comes from
+    # SESSION_ELEMENTS, and this enum's int value is only consulted for seasons
+    # at or before LEGACY_ELEMENT_SEASON via legacy_element_number().
     #
-    # These cover the 2027 MotoGP weekend format. Session slots other than
-    # Saturday free practice are shared with the 2026 sessions above because
-    # the release names are the same ("Practice", "Qualifying", "Race"):
-    #
-    #   Friday      FP1 45m, FP2 30m, Sprint Qualifying 15m  (NEW)
-    #   Saturday    FP3 20m                                   (NEW)
-    #               GP Q1/Q2, Sprint
-    #   Sunday      Race (warm-up removed)
+    # These two members were appended for the 2027 weekend format and never had
+    # a pre-2027 value: 23 and 24 are only reachable through the legacy table
+    # for folders that a previous version of this app wrote in 2027.
     # =========================================================================
     MOTOGP_FP3 = 23
     MOTOGP_SPRINT_QUALIFYING = 24
-    
+
     # Unknown/fallback
     UNKNOWN = 99
     
@@ -467,6 +464,26 @@ class SessionType(IntEnum):
         if race_class:
             return f"{race_class.display_name} {self.display_name}"
         return self.display_name
+
+    @property
+    def short_name(self) -> str:
+        """Short session label (e.g. 'FP2', 'Sprint Qualifying')."""
+        return SESSION_SHORT_NAMES.get(self, "Unknown")
+
+    @property
+    def full_short_name(self) -> str:
+        """
+        Short class + short session, e.g. 'MotoGP FP2'.
+
+        This is the user-facing title in Plex. It deliberately does not use
+        display_name: from 2027 the Friday session is FP2, and a user shown
+        'Practice' would be looking at a session that no longer exists.
+        """
+        race_class = self.race_class
+        if race_class:
+            return f"{race_class.display_name} {self.short_name}"
+        return self.short_name
+
     
     @property
     def race_class(self) -> Optional[RaceClass]:
@@ -500,6 +517,165 @@ class SessionType(IntEnum):
         """
         return SESSION_TO_MOTOGP_SESSION_NAME.get(self)
 
+# =============================================================================
+# SESSION ELEMENT NUMBERS  (the "E<NN>" in yyRNNEee)
+# =============================================================================
+#
+# The element number is baked into folder names, file names and Plex identity,
+# so it is not merely a sort key - changing one orphans files. It is therefore
+# allocated in BLOCKS OF TEN with room to insert a session between two existing
+# ones without renumbering anything:
+#
+#     10s  FP1              20s  Practice        30s  FP2, Sprint Qualifying
+#     40s  FP3              50s  Q1              60s  Q2
+#     70s  Sprint           78   Warm-up         80s  Races       90  Chequered
+#
+# Two rules this table exists to satisfy:
+#
+# 1. It must be CHRONOLOGICAL for every weekend format the app understands.
+#    The old dense table could not be: it was full (1-24, no gaps), so FP3 had
+#    to be appended after the Race and a 2027 round listed FP3 and Sprint
+#    Qualifying *after* the Grand Prix in any folder/title listing. Blocks with
+#    gaps fix that at the source instead of patching the display.
+#    Verified for 2026 and 2027 MotoGP plus both support classes in
+#    tests/test_session_numbering.py.
+#
+# 2. It must leave room for a session that does not exist yet. 2027 introduced
+#    two; the answer is now a new number in a free slot, never a renumber.
+SESSION_ELEMENTS: Dict[SessionType, int] = {
+    SessionType.MOTOGP_PRESS_CONFERENCE: 1,
+
+    SessionType.MOTO3_FP1: 10,
+    SessionType.MOTOGP_FP1: 12,
+    SessionType.MOTO2_FP1: 14,
+
+    SessionType.MOTO3_PRACTICE: 20,
+    SessionType.MOTOGP_PRACTICE: 22,
+    SessionType.MOTO2_PRACTICE: 24,
+
+    SessionType.MOTO3_FP2: 30,
+    SessionType.MOTOGP_FP2: 32,
+    SessionType.MOTO2_FP2: 34,
+    SessionType.MOTOGP_SPRINT_QUALIFYING: 36,
+
+    SessionType.MOTOGP_FP3: 40,
+
+    SessionType.MOTO3_Q1: 50,
+    SessionType.MOTOGP_Q1: 52,
+    SessionType.MOTO2_Q1: 54,
+
+    SessionType.MOTO3_Q2: 60,
+    SessionType.MOTOGP_Q2: 62,
+    SessionType.MOTO2_Q2: 64,
+
+    SessionType.MOTOGP_SPRINT: 70,
+    SessionType.MOTOGP_WARMUP: 78,
+
+    SessionType.MOTO3_RACE: 80,
+    SessionType.MOTOGP_RACE: 82,
+    SessionType.MOTO2_RACE: 84,
+
+    SessionType.MOTOGP_CHEQUERED_FLAG: 90,
+}
+
+# Seasons at or before this one were written with the dense pre-2027 numbering.
+# Everything after it is written AND read with SESSION_ELEMENTS.
+#
+# Decision (issue #33): the switch is immediate, not at the 2027 boundary. The
+# 2025 and 2026 library content is being deleted and re-fetched under the new
+# scheme, so there is exactly one numbering from 2026 onwards and no mixed
+# library is ever produced.
+#
+# Why a cutover season and not "always try both": the two schemes' folder names
+# have an identical shape ("26R04E06 MotoGP Practice"), so a leftover E06 cannot
+# be disambiguated from the name alone. Guessing would read a stale Race folder
+# as a practice session - silent corruption. The season is the only information
+# that distinguishes them, so the season decides, and anything that falls on the
+# wrong side is REPORTED (find_legacy_folders) rather than quietly skipped.
+LEGACY_ELEMENT_SEASON = 2025
+
+# Frozen. Never add to this, never name a new file with it. It exists so that
+# folders written by earlier versions are still read correctly - and so that
+# leftovers are recognised as legacy rather than silently misparsed.
+SESSION_ELEMENTS_LEGACY: Dict[SessionType, int] = {
+    SessionType.MOTOGP_PRESS_CONFERENCE: 1,
+    SessionType.MOTO3_FP1: 2,
+    SessionType.MOTOGP_FP1: 3,
+    SessionType.MOTO2_FP1: 4,
+    SessionType.MOTO3_PRACTICE: 5,
+    SessionType.MOTOGP_PRACTICE: 6,
+    SessionType.MOTO2_PRACTICE: 7,
+    SessionType.MOTO3_FP2: 8,
+    SessionType.MOTOGP_FP2: 9,
+    SessionType.MOTO2_FP2: 10,
+    SessionType.MOTO3_Q1: 11,
+    SessionType.MOTO3_Q2: 12,
+    SessionType.MOTOGP_Q1: 13,
+    SessionType.MOTOGP_Q2: 14,
+    SessionType.MOTOGP_SPRINT: 15,
+    SessionType.MOTO2_Q1: 16,
+    SessionType.MOTO2_Q2: 17,
+    SessionType.MOTOGP_WARMUP: 18,
+    SessionType.MOTO3_RACE: 19,
+    SessionType.MOTO2_RACE: 20,
+    SessionType.MOTOGP_RACE: 21,
+    SessionType.MOTOGP_CHEQUERED_FLAG: 22,
+    SessionType.MOTOGP_FP3: 23,
+    SessionType.MOTOGP_SPRINT_QUALIFYING: 24,
+}
+
+
+def element_number(session_type: SessionType, season: Optional[int] = None) -> int:
+    """The number to WRITE into a folder name for this session and season."""
+    if season is not None and season <= LEGACY_ELEMENT_SEASON:
+        return SESSION_ELEMENTS_LEGACY.get(session_type, int(session_type))
+    return SESSION_ELEMENTS.get(session_type, int(session_type))
+
+
+def legacy_element_number(session_type: SessionType) -> int:
+    """The number an earlier version would have written. Read-only."""
+    return SESSION_ELEMENTS_LEGACY.get(session_type, int(session_type))
+
+
+def find_legacy_folders(season: int, session_folders: Iterable[str]) -> List[str]:
+    """
+    Session folder names inside `season` that the current scheme cannot read.
+
+    Season is a required argument, not a nicety. A stale "26R04E12 MotoGP Q2" is
+    indistinguishable by name from a modern "Moto3 FP1" at E12, so guessing from
+    the name alone would either miss stale folders or flag valid ones. The season
+    folder the file actually sits in is the only reliable signal, and it is free.
+
+    The caller is expected to say this out loud. A folder that silently never
+    matches is the failure mode this whole module exists to avoid: the session
+    looks absent, so the grabber fetches it again, and the library ends up with
+    two items that mean the same thing.
+    """
+    found = []
+    for name in session_folders:
+        match = re.match(r'\d{2}R\d{2}E\d{2}', name)
+        if not match:
+            continue
+        if parse_prefix(name) is None:
+            found.append(name)
+    return found
+
+
+def _element_tables(season: Optional[int] = None):
+    """
+    Which (elements, is_legacy) pairs apply when READING a folder.
+
+    With no season, both schemes are in play and the caller must be able to see
+    that a number is ambiguous - that is the honest answer, and it is what stops
+    an unknown-season scan from quietly picking one meaning.
+    """
+    if season is None:
+        return [(SESSION_ELEMENTS, False), (SESSION_ELEMENTS_LEGACY, True)]
+    if season <= LEGACY_ELEMENT_SEASON:
+        return [(SESSION_ELEMENTS_LEGACY, True)]
+    return [(SESSION_ELEMENTS, False)]
+
+
 # Session display names (session type only, without class)
 SESSION_DISPLAY_NAMES = {
     SessionType.MOTOGP_PRESS_CONFERENCE: "Pre-event Press Conference",
@@ -521,6 +697,42 @@ SESSION_DISPLAY_NAMES = {
     SessionType.MOTOGP_SPRINT: "Sprint",
     SessionType.MOTO2_Q1: "Qualifying 1",
     SessionType.MOTO2_Q2: "Qualifying 2",
+    SessionType.MOTOGP_WARMUP: "Warm Up",
+    SessionType.MOTO3_RACE: "Race",
+    SessionType.MOTO2_RACE: "Race",
+    SessionType.MOTOGP_RACE: "Race",
+    SessionType.MOTOGP_CHEQUERED_FLAG: "Chequered Flag",
+    SessionType.UNKNOWN: "Unknown",
+}
+
+# Short labels for what a user reads in Plex, e.g. "MotoGP FP2" rather than
+# "MotoGP Free Practice 2".
+#
+# Why not derive this from display_name: "Practice" is exactly the word that
+# causes confusion from 2027, when the Friday session is FP2 and no longer
+# called Practice. A short label keyed on the session type (not on whatever the
+# release happened to be titled) means the name always says what the session
+# actually is, in the vocabulary the rider-facing timetable uses.
+SESSION_SHORT_NAMES = {
+    SessionType.MOTOGP_PRESS_CONFERENCE: "Press Conference",
+    SessionType.MOTO3_FP1: "FP1",
+    SessionType.MOTOGP_FP1: "FP1",
+    SessionType.MOTO2_FP1: "FP1",
+    SessionType.MOTO3_PRACTICE: "Practice",
+    SessionType.MOTOGP_PRACTICE: "Practice",
+    SessionType.MOTO2_PRACTICE: "Practice",
+    SessionType.MOTO3_FP2: "FP2",
+    SessionType.MOTOGP_FP2: "FP2",
+    SessionType.MOTO2_FP2: "FP2",
+    SessionType.MOTOGP_FP3: "FP3",
+    SessionType.MOTOGP_SPRINT_QUALIFYING: "Sprint Qualifying",
+    SessionType.MOTO3_Q1: "Q1",
+    SessionType.MOTO3_Q2: "Q2",
+    SessionType.MOTOGP_Q1: "Q1",
+    SessionType.MOTOGP_Q2: "Q2",
+    SessionType.MOTOGP_SPRINT: "Sprint",
+    SessionType.MOTO2_Q1: "Q1",
+    SessionType.MOTO2_Q2: "Q2",
     SessionType.MOTOGP_WARMUP: "Warm Up",
     SessionType.MOTO3_RACE: "Race",
     SessionType.MOTO2_RACE: "Race",
@@ -1101,12 +1313,39 @@ def classify_session(text: str, race_class: RaceClass = None) -> SessionType:
     else:
         return SessionType.MOTOGP_RACE
     
-def get_session_from_element(element_num: int) -> Optional[SessionType]:
-    """Get SessionType from element number in prefix."""
-    for session_type in SessionType:
-        if int(session_type) == element_num:
-            return session_type
+def get_session_from_element(element_num: int,
+                             season: Optional[int] = None) -> Optional[SessionType]:
+    """
+    Get the SessionType for an element number.
+
+    The meaning of a number depends on which numbering scheme wrote it, so pass
+    the season whenever it is known (it is embedded in the prefix). With no
+    season, only numbers that mean the SAME session in both schemes are
+    returned: an ambiguous number must not be guessed, because reading a 2026
+    Race folder as a practice session is silent corruption, not a wrong label.
+    """
+    candidates = set()
+    for table, _is_legacy in _element_tables(season):
+        matches = [s for s, n in table.items() if n == element_num]
+        if matches:
+            candidates.add(matches[0])
+
+    if len(candidates) == 1:
+        return candidates.pop()
     return None
+
+
+def element_is_ambiguous(element_num: int, season: Optional[int] = None) -> bool:
+    """True when this number means different sessions in the two schemes."""
+    if season is not None:
+        return False
+    meanings = set()
+    for table, _is_legacy in _element_tables(None):
+        for session_type, number in table.items():
+            if number == element_num:
+                meanings.add(session_type)
+    return len(meanings) > 1
+
 
 # =============================================================================
 # PREFIX HANDLING
@@ -1115,36 +1354,48 @@ def get_session_from_element(element_num: int) -> Optional[SessionType]:
 def build_prefix(season: int, round_num: int, session_type: SessionType) -> str:
     """
     Build the YYRREE prefix for a session.
-    
+
     Format: YYRREE
         YY = 2-digit year
         RR = 2-digit round number
         EE = 2-digit session/element number
-    
-    Example: 25R06E21 = 2025, Round 6, MotoGP Race (element 21)
+
+    Example: 26R06E82 = 2026, Round 6, MotoGP Race (element 82)
+
+    The number comes from element_number(), so a season at or before
+    LEGACY_ELEMENT_SEASON keeps the dense pre-2027 value and nothing that is
+    already on disk changes. See SESSION_ELEMENTS for why the new scheme is
+    spaced in tens.
     """
     year_short = season % 100
-    element_num = int(session_type)
+    element_num = element_number(session_type, season)
     return f"{year_short:02d}R{round_num:02d}E{element_num:02d}"
 
 
 def parse_prefix(text: str) -> Optional[Tuple[int, int, SessionType]]:
-    """Parse a YYRREE prefix from text."""
+    """
+    Parse a YYRREE prefix from text.
+
+    Returns (year, round, session_type), or an EpisodeKey with .ambiguous set
+    for a number whose meaning differs between the two numbering schemes. The
+    season is read from the prefix, so in practice it always disambiguates.
+    """
     match = re.match(r'(\d{2})R(\d{2})E(\d{2})', text)
     if not match:
         return None
-    
+
     year_short = int(match.group(1))
     round_num = int(match.group(2))
     element_num = int(match.group(3))
-    
+
     year = 2000 + year_short
-    session_type = get_session_from_element(element_num)
-    
+    session_type = get_session_from_element(element_num, season=year)
+
     if session_type is None:
         return None
-    
+
     return (year, round_num, session_type)
+
 
 # =============================================================================
 # CALENDAR FUNCTIONS

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import motogp_common
 from motogp_common import SessionType
 
 
@@ -53,12 +54,14 @@ def activity_env(tmp_path, monkeypatch):
 
 
 def _episode_key(session_type):
-    return f"{YEAR}_R{ROUND_NUM:02d}_E{int(session_type):02d}"
+    element = motogp_common.element_number(session_type, YEAR)
+    return f"{YEAR}_R{ROUND_NUM:02d}_E{element:02d}"
 
 
 def _folder_name(session_type):
+    element = motogp_common.element_number(session_type, YEAR)
     return (
-        f"{YEAR % 100:02d}R{ROUND_NUM:02d}E{int(session_type):02d} "
+        f"{YEAR % 100:02d}R{ROUND_NUM:02d}E{element:02d} "
         f"{VENUE} {session_type.full_display_name}"
     )
 
