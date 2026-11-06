@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.5.0** · **Tests: 270 passing** · **Single user, self-hosted**
+**Current release: v2.5.2** · **Tests: 274 passing** · **Single user, self-hosted**
 
 ---
 
@@ -172,6 +172,8 @@ risk family as item 1.
 | J2 | **The permission hint printed container paths as host-runnable chown commands.** **Fixed:** `utils/permissions.hint()` names the container path and tells the user to chown whatever they mounted on the host; `MOTOGPARR_HOST_MAP` prints the exact host command when known; CLI and entrypoint print identical text. | `utils/permissions.py`, `utils/config_loader.py`, `unraid/motogparr.xml`, `tests/test_permissions.py`, `README.md` |
 | J3 | **Unraid TemplateURL floated on `main`, so "Apply" could silently replace a user's edited template.** **Decision (b):** pinned `TemplateURL` to the release tag (`.../v2.5.0/unraid/motogparr.xml`) and added a rot test (`tests/test_unraid_template.py`) asserting the pinned tag equals the newest tag in the repo. Trade-off: old installs don't receive template updates until the user re-points it, so **"bump TemplateURL"** is a release-checklist item on every release. | `unraid/motogparr.xml`, `tests/test_unraid_template.py` |
 | J5 | **Release notes were generated as an artifact but never reached the repo.** **Fixed:** the release workflow now commits `RELEASE_NOTES_vX.Y.Z.md` to a `release-notes/vX.Y.Z` branch and opens (or updates) a pull request to `main`, so the notes reach the repository without pushing to a protected branch directly. Adds `pull-requests: write`; idempotent on re-runs. Verification requires a real tag push (maintainer's action) — stated in the PR rather than claimed. | `.github/workflows/release.yml`, `tests/test_workflows.py` |
+| J4 | **GitHub Actions Node 20 deprecation.** Every run warned \"Node.js 20 is deprecated… forced to run on Node.js 24\" for 7 actions. **Fixed:** bumped each to its node24 major — `actions/checkout@v5`, `actions/setup-python@v6`, `docker/setup-buildx-action@v4`, `docker/build-push-action@v7`, `docker/login-action@v4`, `docker/metadata-action@v6`, `actions/upload-artifact@v6` — keeping permissions minimal (`contents: read`, `packages: write`, plus `pull-requests: write` for release). No version-pinning test (rots); existing workflow invariant tests cover tag patterns, non-root and auth assertions. | `.github/workflows/*.yml`, `tests/test_workflows.py` |
+| L1 | **PRs to main could be merged with no labels, producing a single \"Other changes\" line in release notes.** **Fixed:** cheap CI check `.github/workflows/pr-label-check.yml` fails when a PR to main has zero labels (exempts `dependabot[bot]`), printing the categorisation map. Pure shell + `jq`, no checkout or JS action, so no Node deprecation surface. | `.github/workflows/pr-label-check.yml`, `tests/test_workflows.py` |
 
 ---
 

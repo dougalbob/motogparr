@@ -242,7 +242,7 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **252 tests** in `tests/`, all passing at v2.4.1. Pure unit/behavioural; no
+- **274 tests** in `tests/`, all passing at v2.5.2. Pure unit/behavioural; no
   Docker required.
 - `tests/test_webui_security.py` is a set of **characterisation tests that assert
   the current insecure behaviour** (secrets returned by `/app-config`, config
@@ -256,8 +256,13 @@ next save from the UI.
 - `tests/test_unraid_template.py` cross-checks `unraid/motogparr.xml` against
   `ENV_SPEC`.
 - `tests/test_config_loader.py` covers precedence and the empty-means-unset rule.
-- CI: `docker-publish.yml` (tests → build → push) and `calendar-check.yml`
-  (calendar validation, duplicate JSON key rejection). Both run on PRs.
+- CI: `docker-publish.yml` (tests → build → push), `calendar-check.yml`
+  (calendar validation, duplicate JSON key rejection), `container-smoke.yml`
+  (build and run the image, assert non-root + auth), `release.yml` (generate
+  notes, publish, open release-notes PR), and `pr-label-check.yml` (require at
+  least one label on PRs to `main` so release notes are categorised). All run
+  on PRs; workflows use Node 24 runtimes (`actions/checkout@v5`,
+  `actions/setup-python@v6`, `docker/*@v4/v6/v7`, `actions/upload-artifact@v6`).
 
 Run `pytest tests`, never bare `pytest` — the root scratch scripts break
 collection (`SANDBOX.md`).

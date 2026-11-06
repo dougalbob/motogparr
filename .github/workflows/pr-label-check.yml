@@ -1,0 +1,47 @@
+name: PR label check
+
+# Cheap release-notes hygiene: a PR to main with no label lands in
+# "Other changes" under a single bland line. Labels are the only input
+# to .github/release.yml, so requiring at least one label keeps the next
+# release body categorised. See AGENTS.md §6 (label hygiene).
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    name: Require a PR label
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that the PR has a label
+        env:
+          PR_LABELS: ${{ toJson(github.event.pull_request.labels) }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          # Dependabot and other bots are excluded from the changelog
+          # (see .github/release.yml exclude.authors) so they don't need a label.
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ] || [ "$PR_AUTHOR" = "dependabot-preview[bot]" ]; then
+            echo "Author is $PR_AUTHOR — exempt from label check."
+            exit 0
+          fi
+
+          # Count labels from the event payload.
+          count=$(echo "$PR_LABELS" | jq 'length')
+          echo "PR author: $PR_AUTHOR"
+          echo "Label count: $count"
+          echo "Labels JSON: $PR_LABELS"
+
+          if [ "$count" -eq 0 ]; then
+            echo "::error title=Missing PR label::This pull request has no labels. Add at least one label so the release notes can be categorised (security, bug, enhancement, documentation, or ignore-for-release to exclude). See .github/release.yml for the full mapping."
+            echo "Labels: $PR_LABELS"
+            exit 1
+          fi
+
+          echo "PR has $count label(s) — label check passed."
