@@ -1413,9 +1413,19 @@ def download_selected():
     data = request.json
     season = data.get("season")
     selections = data.get("selections", [])
-    
+
     if not selections:
         return jsonify({"error": "No sessions selected"}), 400
+
+    # The Library page sends the season from a <select>, so it arrives as a
+    # string; the Calendar page sends an int. element_number() compares the
+    # season to an int, so a string raises TypeError and the whole request
+    # 500s - the UI then shows "Failed to start download" even though every
+    # connection test passes. Coerce once, here, so both callers work.
+    try:
+        season = int(season)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid season"}), 400
     
     # Group by round for efficiency
     by_round = {}
@@ -1431,7 +1441,7 @@ def download_selected():
             session_type = SessionType[session_name]
             episode_num = f"E{element_number(session_type, season):02d}"
             by_round[round_num].append(episode_num)
-        except (KeyError, ValueError) as e:
+        except (KeyError, ValueError, TypeError) as e:
             # If conversion fails, skip this session
             print(f"Could not convert session: {session_name} - {e}")
             continue
