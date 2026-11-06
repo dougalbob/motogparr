@@ -242,7 +242,7 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **274 tests** in `tests/`, all passing at v2.5.3. Pure unit/behavioural; no
+- **293 tests** in `tests/`, all passing at v2.5.5. Pure unit/behavioural; no
   Docker required.
 - `tests/test_webui_security.py` is a set of **characterisation tests that assert
   the current insecure behaviour** (secrets returned by `/app-config`, config
@@ -333,9 +333,15 @@ Four bugs were fixed here historically and the fixes are load-bearing:
 4. **No emits from the watcher after the tagger's `complete`.** That produced
    "moved to library" *after* "Complete"; the tagger's `complete` is final.
 
-Two known cosmetic gaps: some stages (tagging, plex) show a generic label
-because the session name is not in the event, and the SAB progress gradient may
-not render in the mobile PWA (fallback text is fine).
+Session identity is also load-bearing (issue #24). Always emit
+`session_type.full_display_name`, never the classless `display_name`, for an
+Activity title. `emit_activity()` retains the existing round and venue when a
+later stage cannot reconstruct them; the watcher only parses the folder prefix.
+`tests/test_activity_feed.py` exercises the watcher, Plex metadata and completed
+history for all three race classes.
+
+One known cosmetic gap remains: the SAB progress gradient may not render in the
+mobile PWA (fallback text is fine).
 
 ## 9. What the old notes said vs. what is true
 

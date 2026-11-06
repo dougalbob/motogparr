@@ -296,7 +296,11 @@ def tag_single_file(file_path, dry_run=False, wait_for_plex=True):
     episode_key = _build_episode_key_from_parsed(year, round_num, session_type)
     emit_activity(
         episode_key=episode_key,
-        episode_name=session_type.display_name if hasattr(session_type, 'display_name') else str(session_type),
+        episode_name=(
+            session_type.full_display_name
+            if hasattr(session_type, "full_display_name")
+            else str(session_type)
+        ),
         stage=ActivityStage.METADATA,
         details="Scanning Plex library",
         round_info={"round": round_num, "venue": venue}
