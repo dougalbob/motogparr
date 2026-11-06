@@ -194,3 +194,33 @@ def test_the_2027_release_aliases_are_valid(calendar_2027):
     assert check_round(entry, 2027, True, calendar_2027) == []
     assert calendar_2027["release_aliases"]["sq"] == "sprint_qualifying"
     assert calendar_2027["release_aliases"]["spq"] == "sprint_qualifying"
+
+
+def test_the_2027_calendar_keeps_support_class_sessions(calendar_2027):
+    """
+    The 2027 format only changes MotoGP. The support classes keep their usual
+    Friday Practice and Saturday FP2 sessions; omitting them made the grabber
+    skip Moto3/Moto2 Practice and Moto2 FP2, and the WebUI omit them.
+    """
+    for entry in calendar_2027["rounds"]:
+        sessions = entry["sessions"]
+        assert "moto3_practice" in sessions["friday"], entry["venue"]
+        assert "moto2_practice" in sessions["friday"], entry["venue"]
+        assert "moto2_fp2" in sessions["saturday"], entry["venue"]
+        assert sessions["friday"]["moto3_practice"]["duration_mins"] == 30
+        assert sessions["friday"]["moto2_practice"]["duration_mins"] == 30
+        assert sessions["saturday"]["moto2_fp2"]["duration_mins"] == 30
+
+
+def test_2027_support_classes_are_not_gated_by_the_motogp_format(calendar_2027):
+    """round_runs_session() must keep the support classes on the 2027 format."""
+    entry = calendar_2027["rounds"][0]
+    for session in (
+        common.SessionType.MOTO3_PRACTICE,
+        common.SessionType.MOTO2_PRACTICE,
+        common.SessionType.MOTO2_FP2,
+        common.SessionType.MOTO3_FP2,
+        common.SessionType.MOTO3_RACE,
+        common.SessionType.MOTO2_RACE,
+    ):
+        assert common.round_runs_session(entry, session, calendar_2027), session.name

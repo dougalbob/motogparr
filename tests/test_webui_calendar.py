@@ -448,11 +448,12 @@ def test_the_real_2027_calendar_renders_in_running_order():
     friday = [s["key"] for s in schedule["friday"]["sessions"]]
     assert friday == [
         "moto3_fp1", "motogp_fp1", "moto2_fp1",
-        "motogp_fp2", "motogp_sprint_qualifying",
+        "moto3_practice", "motogp_fp2", "motogp_sprint_qualifying",
+        "moto2_practice",
     ]
     saturday = [s["key"] for s in schedule["saturday"]["sessions"]]
     assert saturday == [
-        "moto3_fp2", "motogp_fp3", "moto3_qualifying",
+        "moto3_fp2", "motogp_fp3", "moto2_fp2", "moto3_qualifying",
         "motogp_qualifying", "motogp_sprint", "moto2_qualifying",
     ]
     sunday = [s["key"] for s in schedule["sunday"]["sessions"]]

@@ -88,12 +88,18 @@ STANDARD_SESSIONS = {
         "moto3_fp1":       {"offset": "09:00", "duration_mins": 35},
         "motogp_fp1":      {"offset": "09:45", "duration_mins": 45},
         "moto2_fp1":       {"offset": "10:40", "duration_mins": 35},
+        # The 2027 format only changes MotoGP. The support classes keep their
+        # usual Friday Practice sessions; omitting them made the grabber skip
+        # Moto3/Moto2 Practice and the WebUI omit them from the day.
+        "moto3_practice":  {"offset": "13:15", "duration_mins": 30},
         "motogp_fp2":      {"offset": "14:00", "duration_mins": 30},
         "motogp_sprint_qualifying": {"offset": "14:45", "duration_mins": 15},
+        "moto2_practice":  {"offset": "15:10", "duration_mins": 30},
     },
     "saturday": {
         "moto3_fp2":        {"offset": "09:00", "duration_mins": 30},
         "motogp_fp3":       {"offset": "09:40", "duration_mins": 20},
+        "moto2_fp2":        {"offset": "10:20", "duration_mins": 30},
         "moto3_qualifying": {"offset": "10:50", "duration_mins": 30},
         "motogp_qualifying": {"offset": "11:30", "duration_mins": 30},
         "motogp_sprint":    {"offset": "14:00", "duration_mins": 25},
