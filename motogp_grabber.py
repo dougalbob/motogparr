@@ -1586,6 +1586,20 @@ def cmd_scheduled(args):
             f"{session_type.full_display_name}"
         )
 
+        # Emit the same grabber lifecycle as the backfill path. Without this,
+        # a scheduled download's first activity event was the watcher's
+        # DOWNLOAD_COMPLETE, so the activity tab appeared to jump straight to
+        # "Sorting and renaming" and the session looked like it came from
+        # nowhere. The download itself was never broken - only the reporting.
+        episode_key = _build_episode_key(season, round_num, session_type)
+        emit_activity(
+            episode_key=episode_key,
+            episode_name=session_type.full_display_name,
+            stage=ActivityStage.SEARCHING,
+            details=f"Round {round_num} {venue}",
+            round_info={"round": round_num, "venue": venue},
+        )
+
         results = search_for_session(round_info, session_type, season, indexers, calendar)
 
         state.mark_searched(session_key)
@@ -1597,10 +1611,22 @@ def cmd_scheduled(args):
                 f"{session_type.full_display_name}"
             )
             state.mark_failed(session_key, "No results")
+            mark_error(
+                episode_key=episode_key,
+                error_message="No matching releases found",
+            )
             continue
 
         print(f"    Found {len(results)} matching releases:")
         print_search_results(results, limit=3)
+
+        emit_activity(
+            episode_key=episode_key,
+            episode_name=session_type.full_display_name,
+            stage=ActivityStage.CANDIDATES_FOUND,
+            details=f"Found {len(results)} candidates",
+            round_info={"round": round_num, "venue": venue},
+        )
 
         best = results[0]
 
@@ -1610,6 +1636,15 @@ def cmd_scheduled(args):
             grabs_this_run += 1
         else:
             print(f"\n    ⬇️  Grabbing: {best.get('title', 'Unknown')[:50]}")
+
+            emit_activity(
+                episode_key=episode_key,
+                episode_name=session_type.full_display_name,
+                stage=ActivityStage.DOWNLOADING,
+                details="Sending to SABnzbd",
+                round_info={"round": round_num, "venue": venue},
+                release_name=best.get("title", "Unknown")[:80],
+            )
 
             nzo_id = grab_release(best, item, season)
             if nzo_id is not None:
@@ -1621,6 +1656,10 @@ def cmd_scheduled(args):
                 grabs_this_run += 1
             else:
                 state.mark_failed(session_key, "Grab failed")
+                mark_error(
+                    episode_key=episode_key,
+                    error_message="SABnzbd grab failed",
+                )
 
     state.update_scheduled_check()
     state.save()
