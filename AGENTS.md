@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.5.2** · **Tests: 274 passing** · **Single user, self-hosted**
+**Current release: v2.5.3** · **Tests: 274 passing** · **Single user, self-hosted**
 
 ---
 
@@ -83,7 +83,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 252 passed
+.venv/bin/python -m pytest tests -q          # expect 274 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
