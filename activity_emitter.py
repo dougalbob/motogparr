@@ -129,7 +129,18 @@ def emit_activity(
     
     # Build event object
     stage_config = STAGE_CONFIG.get(stage, {})
-    
+
+    # The watcher can reconstruct the round from a folder prefix, but not the
+    # venue. Retain identity supplied by an earlier stage rather than making an
+    # active download lose its venue as it moves through the pipeline.
+    previous_event = data["events"].get(episode_key, {})
+    round_num = round_info.get("round") if round_info else None
+    venue = round_info.get("venue") if round_info else None
+    if round_num is None:
+        round_num = previous_event.get("round")
+    if venue is None:
+        venue = previous_event.get("venue")
+
     event = {
         "id": episode_key,
         "name": episode_name,
@@ -139,8 +150,8 @@ def emit_activity(
         "stage_label": stage_config.get("label", stage.value),
         "details": details,
         "timestamp": datetime.now().isoformat(),
-        "round": round_info.get("round") if round_info else None,
-        "venue": round_info.get("venue") if round_info else None,
+        "round": round_num,
+        "venue": venue,
         "progress": progress,
         "error_message": error_message,
         "release_name": release_name,
