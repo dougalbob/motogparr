@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.5.6** · **Tests: 345 passing** · **Single user, self-hosted**
+**Current release: v2.6.0** · **Tests: 345 passing** · **Single user, self-hosted**
 
 ---
 
