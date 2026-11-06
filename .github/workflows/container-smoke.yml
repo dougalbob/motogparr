@@ -101,6 +101,34 @@ jobs:
           done
           echo "All required files present."
 
+      - name: Shared artwork links must survive the image build
+        run: |
+          set -euo pipefail
+          # Calendar validation on the checkout cannot catch Docker COPY
+          # dereferencing a link or omitting its target. Check the real image.
+          if ! docker run --rm --entrypoint sh "$IMAGE" -c '
+            set -e
+            test ! -e /app/assets/external/2025
+            for race in motogp moto2 moto3; do
+              test -L "/app/assets/${race}_posters/poster_thailand.jpg"
+              test -s "/app/assets/${race}_posters/poster_thailand.jpg"
+              test -L "/app/assets/${race}_fanart/fanart_thailand.jpg"
+              test -s "/app/assets/${race}_fanart/fanart_thailand.jpg"
+            done
+          '; then
+            echo "::error title=Artwork source missing or not linked::Check /app/assets symlinks and the removed external/2025 tree"
+            exit 1
+          fi
+
+          for season in 2025 2026; do
+            if ! report=$(docker run --rm --entrypoint /opt/venv/bin/python3 "$IMAGE" \
+                -m utils.validate_calendar --season "$season" 2>&1); then
+              echo "::error title=Calendar artwork invalid in image::$season: $(echo "$report" | tr '\n' '|')"
+              exit 1
+            fi
+            echo "$season calendar and its artwork resolve in the image."
+          done
+
       - name: setpriv must exist, or the privilege drop cannot happen
         run: |
           docker run --rm --entrypoint sh "$IMAGE" -c 'command -v setpriv' \

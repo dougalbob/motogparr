@@ -280,10 +280,18 @@ top-level module is invisible to the image until you add a `COPY` line. The flip
 side is that nothing ships by accident: `test_cleanup_utility.py` was never in
 the image, contrary to an early review finding.
 
-`.dockerignore` (added v2.5.0) keeps the build context small: measured 1.23 GB
-before, 754 MB after, and 372 MB of the former was `.git`. What remains is almost
-entirely `assets/` (753 MB of posters and fanart), which the image genuinely
-needs — shrinking that is a separate job, not a `.dockerignore` one.
+`.dockerignore` (added v2.5.0) first reduced the measured build context from
+1.23 GB to 754 MB by excluding `.git`, tests and local config. Issue #25 reduced
+the remaining asset payload from ~753 MiB to ~4 MiB: `assets/external/2025`
+was unused and removed, and all byte-identical venue placeholders became
+relative links to `assets/motogpPoster.jpg` and `assets/motogpFanart.jpg`.
+The calendar filenames and `CLASS_ASSET_DIRS` are unchanged. The links are
+*source* artwork inside `/app/assets`; the sorter renders session text and
+writes regular JPEGs into the library. Do not link the library outputs — Plex
+may run in another container and cannot see `/app/assets`. To replace a venue's
+placeholder with custom art, **unlink it before writing** or the shared master
+will be changed for every venue. `tests/test_artwork_assets.py` checks the
+links, and the container smoke test verifies they survive `COPY assets/`.
 `tests/test_build_hygiene.py` checks both directions: development files are
 excluded, and no `COPY` source is.
 
@@ -300,8 +308,8 @@ checked, so a read-only media share is legitimate. A failure names the folder,
 the uid and the `chown` command, because the alternative symptom — settings that
 revert, downloads that never sort — does not look like permissions.
 
-`assets/` is large because artwork is baked in per class/season; treat it as an
-external-data candidate if image size becomes a problem.
+New venue artwork should replace the appropriate symlink with a real JPEG;
+keep the other links in place so unused venues do not inflate the image again.
 
 ---
 

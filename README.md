@@ -446,6 +446,21 @@ docker exec -it motogparr /opt/venv/bin/python3 /app/utils/validate_calendar.py 
 See [docs/CALENDAR_CHANGES.md](docs/CALENDAR_CHANGES.md) for what to do when
 MotoGP changes the calendar, and for the 2027 weekend format.
 
+### Venue artwork
+
+Until custom venue images are ready, the poster and fanart filenames referenced
+by each calendar are **relative links to two shared JPEGs** in `assets/`. The
+sorter uses them as source images, adds the venue and session text, and writes
+ordinary `poster.jpg`, `fanart.jpg` and `thumb.jpg` files into the library for
+Plex. Plex does not need access to the links inside the MotoGParr container.
+
+To add custom artwork in the repository, **remove the venue's link first** and
+put a real JPEG at the same path (for example,
+`assets/motogp_posters/poster_thailand.jpg`). Do not edit or copy *onto* a link:
+that would change the shared source image for every venue. Calendar filenames
+stay the same. The unused `assets/external/2025` pre-rendered artwork is no
+longer part of the image.
+
 ## Development
 
 ```bash

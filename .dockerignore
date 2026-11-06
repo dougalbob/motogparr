@@ -3,8 +3,9 @@
 # The Dockerfile copies an explicit file list, which is not the same thing as a
 # small build context. Without this file the daemon was sent everything in the
 # checkout: measured at 1.23 GB (assets 753 MB, .git 372 MB, the rest tests,
-# docs and local config). With it, 754 MB, almost all of it artwork the image
-# genuinely needs. On every build, in CI, from scratch whenever the cache missed.
+# docs and local config). With it, initially 754 MB. Issue #25 then removed
+# unused pre-rendered artwork and linked duplicate placeholders, leaving about
+# 4 MiB of assets. Do not ignore the shared masters: the venue links need them.
 #
 # Keep this in sync with Dockerfile COPY lines: ignoring something the image
 # needs produces a confusing "not found" at build time rather than here.
