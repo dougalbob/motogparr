@@ -131,6 +131,35 @@ def newest_tag() -> str:
     )[-1]
 
 
+def _is_next_version(candidate: str, base: str) -> bool:
+    """True if candidate is a plausible *next* version after base.
+
+    The bump PR is created before the tag exists, so the pinned ref will be
+    one step ahead of the newest remote tag. Accept the next patch, minor, or
+    major as valid so that PR can pass CI; a stale pin (behind) is still a
+    failure, and a wild jump (e.g. v9.9.9) is treated as not-next and fails.
+    """
+    version_re = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+    m_cand = version_re.match(candidate)
+    m_base = version_re.match(base)
+    if not m_cand or not m_base:
+        return False
+    cand = tuple(int(p) for p in m_cand.groups())
+    base_t = tuple(int(p) for p in m_base.groups())
+    # Candidate must be newer than base, but not absurdly far ahead.
+    if cand <= base_t:
+        return False
+    # Allow any newer patch within the same minor (e.g. v2.5.2 -> v2.5.3)
+    # or exactly one minor/major bump.
+    if cand[0] == base_t[0] and cand[1] == base_t[1]:
+        return cand[2] > base_t[2]
+    if cand[0] == base_t[0] and cand[1] == base_t[1] + 1 and cand[2] == 0:
+        return True
+    if cand[0] == base_t[0] + 1 and cand[1] == 0 and cand[2] == 0:
+        return True
+    return False
+
+
 def test_template_url_is_pinned_to_the_latest_release_tag(template):
     """TemplateURL must pin a release tag, never float on 'main'.
 
@@ -148,8 +177,14 @@ def test_template_url_is_pinned_to_the_latest_release_tag(template):
     )[0]
     assert ref != "main", f"TemplateURL must not float on main: {url}"
     assert ref.startswith("v"), f"TemplateURL must pin a version tag: {url}"
-    assert ref == newest_tag(), (
-        f"TemplateURL pins {ref} but the newest tag is {newest_tag()}; "
+    # During a release bump the template may pin the *next* tag before it
+    # exists remotely. Allow a pinned ref that is newer than the current
+    # newest tag so the bump PR can pass CI and the tag can be created from
+    # the merge commit (which is the intended flow — see PR #19 at 2ccff1d).
+    # Still fail if the pin is stale (behind newest).
+    newest = newest_tag()
+    assert ref == newest or _is_next_version(ref, newest), (
+        f"TemplateURL pins {ref} but the newest tag is {newest}; "
         "bump TemplateURL on every release"
     )
     # The file must exist at the path the URL advertises, or Unraid 404s.
