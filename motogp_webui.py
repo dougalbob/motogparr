@@ -13,7 +13,7 @@ import json
 import re
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import (
     Flask, render_template, request, jsonify, 
     send_from_directory, Response
@@ -27,6 +27,8 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from motogp_common import (
     SessionType,
+    RaceClass,
+    CALENDAR_KEY_TO_SESSION,
     parse_prefix,
     load_calendar,
     DEFAULT_DESIRED_SESSIONS,
@@ -46,6 +48,7 @@ from utils.config_loader import (
     update_settings,
     has_setting,
     get_max_grabs_per_run,
+    get_current_season,
     _load_yaml,
     get_prowlarr_url,
     get_prowlarr_api_key,
@@ -209,24 +212,318 @@ command_output = {
 # HELPER FUNCTIONS
 # =============================================================================
 
+#: Timetable display labels keyed by the suffix of a calendar session key
+#: (e.g. "motogp_qualifying" -> "qualifying"). Kept separate from
+#: SessionType.display_name because CALENDAR_KEY_TO_SESSION maps "*_qualifying"
+#: to the Q2 enum member ("Qualifying 2"), whereas in the timetable it
+#: represents the whole Q1+Q2 qualifying slot.
+CALENDAR_SESSION_LABELS = {
+    "fp1": ("FP1", "Free Practice 1"),
+    "practice": ("Practice", "Practice"),
+    "fp2": ("FP2", "Free Practice 2"),
+    "fp3": ("FP3", "Free Practice 3"),
+    "qualifying": ("Qualifying", "Qualifying"),
+    "q1": ("Q1", "Qualifying 1"),
+    "q2": ("Q2", "Qualifying 2"),
+    "sprint_qualifying": ("Sprint Qualifying", "Sprint Qualifying"),
+    "sprint": ("Sprint", "Sprint"),
+    "warmup": ("Warm Up", "Warm Up"),
+    "race": ("Race", "Race"),
+    "press_conference": ("Press Conference", "Pre-event Press Conference"),
+    "chequered_flag": ("Chequered Flag", "Chequered Flag"),
+}
+
+_DAY_NAMES_IN_ORDER = ("thursday", "friday", "saturday", "sunday")
+
+
+def _parse_hhmm(value: str):
+    """Parse 'HH:MM' into (hour, minute), or None on malformed input."""
+    if not value or not isinstance(value, str):
+        return None
+    parts = value.strip().split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour, minute
+
+
+def _parse_utc_offset_minutes(utc_offset: str):
+    """Parse '+03:00' / '-05:00' into signed integer minutes, or None."""
+    if not utc_offset or not isinstance(utc_offset, str):
+        return None
+    match = re.match(r"^([+-])(\d{2}):(\d{2})$", utc_offset.strip())
+    if not match:
+        return None
+    sign = -1 if match.group(1) == "-" else 1
+    return sign * (int(match.group(2)) * 60 + int(match.group(3)))
+
+
+def _session_utc_bounds(day_date, day_name: str, info: dict, offset_mins):
+    """
+    Resolve (start_utc, end_utc) for a single calendar session entry.
+
+    Calendars group sessions under track-local days ("friday", "saturday",
+    "sunday"), so a morning session in Australia (09:00 +11:00 on Friday) has
+    `"gmt": "22:00"` with no `"gmt_day"` field - combining that `"gmt"` with
+    Friday's date puts the session 24 hours late on Friday night UTC instead of
+    Thursday night UTC. Anchoring on `day_date + local + utc_offset` keeps the
+    exact instant across midnight boundaries, falling back to `gmt` only when
+    `local`/`utc_offset` are absent or disagree (synthetic test fixtures).
+    """
+    try:
+        duration = int(info.get("duration_mins") or 45)
+    except (TypeError, ValueError):
+        duration = 45
+
+    local_hm = _parse_hhmm(info.get("local"))
+    gmt_hm = _parse_hhmm(info.get("gmt"))
+
+    if local_hm is not None and offset_mins is not None:
+        expected_gmt_mins = (local_hm[0] * 60 + local_hm[1] - offset_mins) % 1440
+        gmt_matches = (
+            gmt_hm is None or (gmt_hm[0] * 60 + gmt_hm[1]) == expected_gmt_mins
+        )
+        if gmt_matches:
+            local_tz = timezone(timedelta(minutes=offset_mins))
+            local_dt = datetime(
+                day_date.year, day_date.month, day_date.day,
+                local_hm[0], local_hm[1], tzinfo=local_tz,
+            )
+            start_utc = local_dt.astimezone(timezone.utc)
+            return start_utc, start_utc + timedelta(minutes=duration)
+
+    if gmt_hm is not None:
+        target_date = day_date
+        gmt_day = str(info.get("gmt_day") or "").lower()
+        if gmt_day in _DAY_NAMES_IN_ORDER and day_name in _DAY_NAMES_IN_ORDER:
+            delta = _DAY_NAMES_IN_ORDER.index(gmt_day) - _DAY_NAMES_IN_ORDER.index(day_name)
+            target_date = day_date + timedelta(days=delta)
+        start_utc = datetime(
+            target_date.year, target_date.month, target_date.day,
+            gmt_hm[0], gmt_hm[1], tzinfo=timezone.utc,
+        )
+        return start_utc, start_utc + timedelta(minutes=duration)
+
+    return None, None
+
+
+def _describe_calendar_session_key(key: str, session_type):
+    """Return (class_key, class_label, short_name, full_label) for a calendar key."""
+    if session_type is not None and session_type.race_class is not None:
+        race_class = session_type.race_class
+        class_key = race_class.folder_key
+        class_label = race_class.display_name
+    else:
+        prefix, _, _ = key.partition("_")
+        parsed_class = RaceClass.from_string(prefix)
+        if parsed_class is not None:
+            class_key = parsed_class.folder_key
+            class_label = parsed_class.display_name
+        else:
+            class_key = prefix or "motogp"
+            class_label = prefix.upper() if prefix else "MotoGP"
+
+    slug = key.split("_", 1)[1] if "_" in key else key
+    if slug in CALENDAR_SESSION_LABELS:
+        short_name, name = CALENDAR_SESSION_LABELS[slug]
+    elif session_type is not None:
+        short_name = name = session_type.display_name
+    else:
+        short_name = name = slug.replace("_", " ").title()
+
+    return class_key, class_label, short_name, name
+
+
+def build_round_schedule(round_info: dict, calendar: dict = None) -> dict:
+    """
+    Build per-day timed session lists with exact UTC instants for the Calendar UI.
+
+    Reads directly from `round_info["sessions"][day]` rather than
+    `CALENDAR_KEY_TO_DAY`: from 2027 `motogp_fp2` moves from Saturday to Friday
+    and `motogp_warmup` is dropped, so the day structure in the JSON must win
+    without code assumptions about which day a key belongs to.
+    """
+    if not round_info or not is_round_active(round_info):
+        return {}
+
+    raw_sessions = round_info.get("sessions")
+    if not isinstance(raw_sessions, dict) or not raw_sessions:
+        return {}
+
+    race_date_str = round_info.get("date")
+    weekend_start_str = round_info.get("weekend_start")
+    if not race_date_str:
+        return {}
+
+    try:
+        race_date = datetime.strptime(race_date_str, "%Y-%m-%d").date()
+        weekend_start = (
+            datetime.strptime(weekend_start_str, "%Y-%m-%d").date()
+            if weekend_start_str
+            else race_date - timedelta(days=2)
+        )
+    except ValueError:
+        return {}
+
+    day_dates = {
+        "thursday": weekend_start - timedelta(days=1),
+        "friday": weekend_start,
+        "saturday": weekend_start + timedelta(days=1),
+        "sunday": race_date,
+    }
+    offset_mins = _parse_utc_offset_minutes(round_info.get("utc_offset"))
+    allowed_classes = set(get_round_classes(round_info, calendar))
+
+    schedule = {}
+    ordered_days = [d for d in _DAY_NAMES_IN_ORDER if d in raw_sessions]
+    ordered_days.extend(d for d in raw_sessions if d not in ordered_days)
+
+    for day_name in ordered_days:
+        day_entries = raw_sessions.get(day_name)
+        day_date = day_dates.get(day_name)
+        if not isinstance(day_entries, dict) or day_date is None:
+            continue
+
+        built_sessions = []
+        for key, info in day_entries.items():
+            if not isinstance(info, dict):
+                continue
+
+            session_type = CALENDAR_KEY_TO_SESSION.get(key)
+            if session_type is not None:
+                if not round_runs_session(round_info, session_type, calendar):
+                    continue
+            else:
+                class_prefix, _, _ = key.partition("_")
+                if class_prefix in {"motogp", "moto2", "moto3"} and class_prefix not in allowed_classes:
+                    continue
+
+            start_utc, end_utc = _session_utc_bounds(day_date, day_name, info, offset_mins)
+            if start_utc is None or end_utc is None:
+                continue
+
+            class_key, class_label, short_name, full_label = _describe_calendar_session_key(
+                key, session_type
+            )
+            duration_mins = int((end_utc - start_utc).total_seconds() // 60)
+
+            parts_out = []
+            for part in info.get("parts") or []:
+                if not isinstance(part, dict):
+                    continue
+                part_start, part_end = _session_utc_bounds(
+                    day_date, day_name, part, offset_mins
+                )
+                if part_start is None or part_end is None:
+                    continue
+                part_key = str(part.get("key") or "").lower()
+                part_short = CALENDAR_SESSION_LABELS.get(
+                    part_key, (part_key.upper() or "Part", "")
+                )[0]
+                parts_out.append({
+                    "key": part_key,
+                    "label": part_short,
+                    "start_utc": part_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end_utc": part_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "duration_mins": int((part_end - part_start).total_seconds() // 60),
+                })
+
+            entry_out = {
+                "key": key,
+                "class": class_key,
+                "class_label": class_label,
+                "short_name": short_name,
+                "name": full_label,
+                "full_name": f"{class_label} {short_name}",
+                "start_utc": start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "end_utc": end_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "local": info.get("local"),
+                "gmt": info.get("gmt"),
+                "duration_mins": duration_mins,
+            }
+            if parts_out:
+                entry_out["parts"] = parts_out
+
+            built_sessions.append(entry_out)
+
+        if built_sessions:
+            built_sessions.sort(key=lambda item: item["start_utc"])
+            schedule[day_name] = {
+                "date": day_date.strftime("%Y-%m-%d"),
+                "sessions": built_sessions,
+            }
+
+    return schedule
+
+
+def default_calendar_year(seasons: list = None) -> int:
+    """
+    Pick the season `/calendar` opens on when no `?year=` query parameter is given.
+
+    Prefers an explicit `grabber.current_season` in settings.yml/env if that
+    calendar exists, then the current calendar year, then `get_current_season()`,
+    then the newest discovered season - so dropping in next year's calendar file
+    never leaves the UI opening on an old season.
+    """
+    available = list(seasons) if seasons is not None else discover_seasons()
+    if not available:
+        return get_current_season()
+
+    if has_setting("grabber", "current_season"):
+        configured = get_current_season()
+        if configured in available:
+            return configured
+
+    now_year = datetime.now().year
+    if now_year in available:
+        return now_year
+
+    fallback = get_current_season()
+    if fallback in available:
+        return fallback
+
+    return available[-1]
+
+
 def load_calendar_data(year: int) -> dict:
     """Load calendar for a given year."""
     return load_calendar(year) or {"rounds": []}
 
 
 def get_rounds_for_season(year: int) -> list:
-    """Get list of rounds with venue names for a season."""
+    """Get list of rounds with venue names and timed schedules for a season."""
     calendar = load_calendar_data(year)
     rounds = []
     for r in calendar.get("rounds", []):
+        race_date_str = r.get("date")
+        weekend_start_str = r.get("weekend_start")
+        weekend_end_str = r.get("weekend_end") or race_date_str
+        if not weekend_start_str and race_date_str:
+            try:
+                weekend_start_str = (
+                    datetime.strptime(race_date_str, "%Y-%m-%d").date()
+                    - timedelta(days=2)
+                ).strftime("%Y-%m-%d")
+            except ValueError:
+                weekend_start_str = None
+
         rounds.append({
             "number": r.get("round"),
             "venue": r.get("venue"),
-            "date": r.get("date"),
+            "date": race_date_str,
+            "weekend_start": weekend_start_str,
+            "weekend_end": weekend_end_str,
             "status": get_round_status(r),
+            "status_note": r.get("status_note"),
             "active": is_round_active(r),
             "classes": get_round_classes(r, calendar),
             "format": get_weekend_format(r, calendar),
+            "schedule": build_round_schedule(r, calendar),
         })
     return rounds
 
@@ -1365,36 +1662,63 @@ def activity_stream():
     return Response(generate(), mimetype='text/event-stream')
 
 
-@app.route("/calendar")
-def calendar():
-    """Calendar view of race schedule."""
-    year = request.args.get("year", 2025, type=int)
-    next_race = get_next_race_info()
-    
-    # Get calendar data for all seasons
-    calendar_data = {}
-    for y in SEASONS:
-        rounds = get_rounds_for_season(y)
-        calendar_data[y] = rounds
-    
-    # Get library status for the selected year
+def _serialize_calendar_library_status(year: int) -> dict:
+    """
+    Build per-round library status payload for the Calendar modal.
+
+    `get_library_status()` stores `type` as a `SessionType(IntEnum)`. Converting
+    it to `.name` and recording `episode = int(...)` keeps `/calendar` and
+    `/calendar-data` aligned with what `POST /download-selected` expects
+    (`SessionType[session_name]`).
+    """
     library_status = {}
     lib_data = get_library_status(year)
     for r in lib_data.get("rounds", []):
+        serialized_sessions = []
+        for s in r["sessions"]:
+            raw_type = s["type"]
+            type_name = raw_type.name if hasattr(raw_type, "name") else str(raw_type)
+            episode = s.get("episode") or (int(raw_type) if isinstance(raw_type, int) else 0)
+            serialized_sessions.append({
+                "name": s["name"],
+                "exists": s["exists"],
+                "type": type_name,
+                "episode": episode,
+            })
         library_status[r["number"]] = {
             "grabbed": r["grabbed_count"],
             "total": r["desired_count"],
-            "sessions": [{"name": s["name"], "exists": s["exists"], "type": s["type"], "episode": s.get("episode", 0)} for s in r["sessions"]]
+            "sessions": serialized_sessions,
         }
-    
+    return library_status
+
+
+@app.route("/calendar")
+def calendar():
+    """Calendar view of race schedule."""
+    seasons = discover_seasons() or SEASONS
+    year = request.args.get("year", type=int)
+    if year is None:
+        year = default_calendar_year(seasons)
+    next_race = get_next_race_info()
+
+    # Get calendar data for all seasons
+    calendar_data = {}
+    for y in seasons:
+        calendar_data[y] = get_rounds_for_season(y)
+    if year not in calendar_data:
+        calendar_data[year] = get_rounds_for_season(year)
+
+    library_status = _serialize_calendar_library_status(year)
+
     # Build flag data per season
     flag_data = {}
-    for y in SEASONS:
+    for y in calendar_data:
         flag_data[y] = {}
         cal = load_calendar_data(y)
         for r in cal.get("rounds", []):
             flag_data[y][r.get("round")] = r.get("flag", "")
-    
+
     return render_template(
         "calendar.html",
         status=command_output,
@@ -1410,20 +1734,14 @@ def calendar():
 @app.route("/calendar-data")
 def calendar_data_api():
     """Get calendar and library data for a specific year."""
-    year = request.args.get("year", 2025, type=int)
-    
-    library_status = {}
-    lib_data = get_library_status(year)
-    for r in lib_data.get("rounds", []):
-        library_status[r["number"]] = {
-            "grabbed": r["grabbed_count"],
-            "total": r["desired_count"],
-            "sessions": [{"name": s["name"], "exists": s["exists"]} for s in r["sessions"]]
-        }
-    
+    seasons = discover_seasons() or SEASONS
+    year = request.args.get("year", type=int)
+    if year is None:
+        year = default_calendar_year(seasons)
+
     return jsonify({
         "year": year,
-        "library_status": library_status
+        "library_status": _serialize_calendar_library_status(year),
     })
 
 @app.route("/api/sabnzbd/queue")

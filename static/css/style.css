@@ -2488,6 +2488,353 @@ button.small { padding: 6px 10px; font-size: 11px; }
     font-size: 11px;
 }
 
+.calendar-modal-content {
+    max-width: 480px;
+}
+
+.race-status-note {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #888;
+    line-height: 1.4;
+}
+
+/* Live weekend status / future countdown inside calendar modal */
+.race-live-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 14px;
+    margin-bottom: 14px;
+    border-radius: 8px;
+    background: rgba(82, 170, 216, 0.10);
+    border: 1px solid rgba(82, 170, 216, 0.32);
+}
+
+.race-live-status.is-underway {
+    background: rgba(39, 174, 96, 0.14);
+    border-color: rgba(39, 174, 96, 0.48);
+}
+
+.live-status-main {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+}
+
+.live-status-left {
+    min-width: 0;
+}
+
+.live-next-caption {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #8abce0;
+    margin-bottom: 2px;
+}
+
+.live-now-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    background: #27ae60;
+    color: #fff;
+    flex-shrink: 0;
+    animation: pulse 2s infinite;
+}
+
+.live-session-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.live-next-time-box {
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.live-next-time {
+    font-size: 18px;
+    font-weight: 700;
+    color: #52aad8;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+}
+
+.live-status-meta {
+    font-size: 11px;
+    color: #9aa0ae;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.race-countdown-compact {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    border-radius: 8px;
+    background: rgba(82, 170, 216, 0.08);
+    border: 1px solid rgba(82, 170, 216, 0.22);
+}
+
+.countdown-compact-num {
+    font-size: 28px;
+    font-weight: 700;
+    color: #52aad8;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.countdown-compact-label {
+    font-size: 13px;
+    color: #aaa;
+}
+
+/* Per-day session timetable */
+.day-schedule-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #1d1d30;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.schedule-day-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.schedule-day-tab {
+    appearance: none;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid #26263c;
+    color: #aaa;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.schedule-day-tab:hover {
+    background: rgba(82, 170, 216, 0.12);
+    color: #fff;
+}
+
+.schedule-day-tab.active {
+    background: #52aad8;
+    border-color: #52aad8;
+    color: #081018;
+}
+
+.schedule-subheader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 2px 8px 2px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 6px;
+}
+
+.schedule-day-heading {
+    font-size: 12px;
+    font-weight: 600;
+    color: #ccc;
+}
+
+.schedule-tz-note {
+    font-size: 11px;
+    color: #7f8798;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.day-timetable {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.timetable-row {
+    display: grid;
+    grid-template-columns: 68px 58px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.025);
+    border-left: 3px solid transparent;
+}
+
+.timetable-row.row-class-motogp {
+    background: rgba(82, 170, 216, 0.07);
+    border-left-color: rgba(82, 170, 216, 0.55);
+}
+
+.timetable-row.is-now {
+    background: rgba(39, 174, 96, 0.16);
+    border-left-color: #27ae60;
+}
+
+.timetable-row.is-next {
+    border-left-color: #e5a00d;
+    background: rgba(229, 160, 13, 0.10);
+}
+
+.timetable-row.is-done {
+    opacity: 0.52;
+}
+
+.timetable-time {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.timetable-time.muted {
+    color: #777;
+    font-weight: 500;
+}
+
+.timetable-day-shift {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(229, 160, 13, 0.22);
+    color: #e5a00d;
+}
+
+.session-class-badge {
+    display: inline-block;
+    text-align: center;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
+.session-class-badge.class-motogp {
+    background: rgba(82, 170, 216, 0.22);
+    color: #7cc6ec;
+    border: 1px solid rgba(82, 170, 216, 0.4);
+}
+
+.session-class-badge.class-moto2 {
+    background: rgba(229, 160, 13, 0.16);
+    color: #e8b44c;
+    border: 1px solid rgba(229, 160, 13, 0.32);
+}
+
+.session-class-badge.class-moto3 {
+    background: rgba(163, 130, 224, 0.15);
+    color: #bfa6ee;
+    border: 1px solid rgba(163, 130, 224, 0.3);
+}
+
+.timetable-session {
+    min-width: 0;
+}
+
+.timetable-session-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #eaeaea;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.timetable-row.row-class-motogp .timetable-session-name {
+    font-weight: 600;
+    color: #fff;
+}
+
+.timetable-parts {
+    font-size: 10px;
+    color: #8f96a6;
+    font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+}
+
+.timetable-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.timetable-duration {
+    font-size: 11px;
+    color: #9aa0ae;
+    font-variant-numeric: tabular-nums;
+}
+
+.timetable-state-pill {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.timetable-state-pill.state-now {
+    background: #27ae60;
+    color: #fff;
+}
+
+.timetable-state-pill.state-next {
+    background: rgba(229, 160, 13, 0.25);
+    color: #e5a00d;
+}
+
+.timetable-done-check {
+    font-size: 11px;
+    color: #27ae60;
+    font-weight: 700;
+}
+
+@media (max-width: 480px) {
+    .race-detail-header {
+        margin-bottom: 12px;
+    }
+
+    .timetable-row {
+        grid-template-columns: 62px 54px 1fr auto;
+        gap: 6px;
+        padding: 6px 7px;
+    }
+
+    .schedule-tz-note {
+        max-width: 145px;
+    }
+}
+
 /* Settings diagnostics -------------------------------------------------- */
 .schema-issues {
     margin: 8px 0 0 0;
