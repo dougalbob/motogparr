@@ -622,3 +622,27 @@ def test_2026_calendar_json_has_status_and_format_fields(calendar_2026):
         assert entry["weekend_format"] == "motogp_standard"
         assert entry["motogp_sessions"]
     assert "motogp_2027" in calendar_2026["weekend_formats"]
+
+
+def test_backfill_session_filter_uses_element_numbers():
+    """
+    The backfill --sessions filter must compare element numbers, not enum
+    values. Moto3 FP1 is enum 2 / element 10, and Moto2 FP2 is enum 10;
+    comparing the enum value to the element number sent a Moto3 FP1 request
+    to the Moto2 FP2 search. Moto3 Practice (enum 5 / element 20) was sent to
+    the Moto2 Race search (enum 20).
+    """
+    from motogp_grabber import filter_missing_by_session_numbers
+
+    missing = [
+        {"round": 19, "session_type": common.SessionType.MOTO3_FP1},
+        {"round": 19, "session_type": common.SessionType.MOTO2_FP2},
+        {"round": 19, "session_type": common.SessionType.MOTO3_PRACTICE},
+        {"round": 19, "session_type": common.SessionType.MOTO2_RACE},
+    ]
+
+    fp1 = filter_missing_by_session_numbers(missing, [10], 2026)
+    assert [m["session_type"] for m in fp1] == [common.SessionType.MOTO3_FP1]
+
+    practice = filter_missing_by_session_numbers(missing, [20], 2026)
+    assert [m["session_type"] for m in practice] == [common.SessionType.MOTO3_PRACTICE]

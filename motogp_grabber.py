@@ -585,6 +585,24 @@ def identify_missing_sessions(
     return missing
 
 
+def filter_missing_by_session_numbers(missing: List[dict], session_nums: List[int],
+                                      season: int) -> List[dict]:
+    """
+    Keep only missing sessions whose element number is in session_nums.
+
+    The element number comes from SESSION_ELEMENTS, never from
+    int(session_type). The enum value and the element number diverged when the
+    numbering moved to blocks of ten, so comparing them directly selects the
+    wrong session: Moto3 FP1 has enum value 2 but element 10, which is Moto2
+    FP2's enum value; Moto3 Practice has enum value 5 but element 20, which is
+    Moto2 Race's enum value. That sent a Moto3 FP1 request to the Moto2 FP2
+    search and a Moto3 Practice request to the Moto2 Race search.
+    """
+    wanted = set(session_nums)
+    return [m for m in missing
+            if element_number(m["session_type"], season) in wanted]
+
+
 # =============================================================================
 # PROWLARR SEARCH
 # =============================================================================
@@ -1211,7 +1229,7 @@ def cmd_backfill(args):
                 pass
 
         if session_nums:
-            missing = [m for m in missing if int(m['session_type']) in session_nums]
+            missing = filter_missing_by_session_numbers(missing, session_nums, season)
             print(f"\n  Filtered to {len(missing)} sessions: {sessions_filter}")
 
     print_missing_summary(missing)
