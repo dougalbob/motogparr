@@ -36,6 +36,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from motogp_common import (  # noqa: E402
     CALENDAR_KEY_TO_SESSION,
+    CALENDAR_DAYS,
+    MOTOGP_SESSION_NAME_TO_TYPE,
+    RaceClass,
     has_session_times,
     CLASS_ASSET_DIRS,
     get_round_status,
@@ -46,6 +49,22 @@ from motogp_common import (  # noqa: E402
 CONFIG_DIR = REPO_ROOT / "config"
 
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+# The calendar key that carries each weekend-format session name. This is the
+# bridge between the format definition (which speaks in session names) and the
+# round's sessions block (which speaks in class-prefixed keys).
+MOTOGP_SESSION_NAME_TO_CALENDAR_KEY = {
+    "fp1": "motogp_fp1",
+    "practice": "motogp_practice",
+    "fp2": "motogp_fp2",
+    "fp3": "motogp_fp3",
+    "qualifying": "motogp_qualifying",
+    "sprint_qualifying": "motogp_sprint_qualifying",
+    "sprint": "motogp_sprint",
+    "warmup": "motogp_warmup",
+    "race": "motogp_race",
+    "chequered_flag": "motogp_chequered_flag",
+}
 
 
 def _add_minutes(hhmm: str, minutes: int) -> str:
@@ -60,7 +79,127 @@ def _offset_minutes(utc_offset: str) -> int:
     return sign * (oh * 60 + om)
 
 
-def check_round(entry: dict, season: int, require_sessions: bool = True) -> list:
+def check_round_format(entry: dict, calendar: dict) -> list:
+    """
+    Cross-check a round against the weekend format it claims to use.
+
+    The three 2027 misconfigurations this exists to catch all passed the old
+    validator with zero problems:
+
+      * a typo in weekend_format ("motogp_2028") resolves to {} and the warm-up
+        is hunted all season;
+      * a 2027 format with a stale motogp_sessions list still containing
+        "practice"/"warmup" hunts sessions that never exist;
+      * motogp_sessions declares "fp3" but the sessions block has no
+        motogp_fp3 times, so the round passes the gate and the session is
+        silently never searched.
+
+    The format is data, so the check is data-vs-data: format <-> declared
+    sessions <-> timetable, in both directions and per day.
+    """
+    problems = []
+    formats = calendar.get("weekend_formats") or {}
+    if not formats:
+        return problems
+
+    round_num = entry.get("round")
+    venue = entry.get("venue", "?")
+    label = f"Round {round_num} {venue}"
+
+    fmt_name = entry.get("weekend_format")
+    if not fmt_name:
+        problems.append(f"{label}: no weekend_format, but the calendar has weekend_formats")
+        return problems
+
+    fmt = formats.get(fmt_name)
+    if fmt is None:
+        problems.append(
+            f"{label}: weekend_format {fmt_name!r} is not in weekend_formats "
+            f"(known: {', '.join(sorted(formats))})"
+        )
+        return problems
+
+    fmt_days = {
+        day: {item.get("session") for item in (fmt.get(day) or [])
+              if isinstance(item, dict) and item.get("session")}
+        for day in CALENDAR_DAYS
+    }
+    fmt_sessions = {name for names in fmt_days.values() for name in names}
+
+    declared = entry.get("motogp_sessions")
+    if declared is None:
+        problems.append(f"{label}: no motogp_sessions, cannot check against {fmt_name!r}")
+    elif not isinstance(declared, list):
+        problems.append(f"{label}: motogp_sessions must be a list")
+    elif not all(isinstance(name, str) for name in declared):
+        problems.append(f"{label}: motogp_sessions must contain only strings")
+    else:
+        declared_set = set(declared)
+        for name in sorted(fmt_sessions - declared_set):
+            problems.append(
+                f"{label}: format {fmt_name!r} runs {name!r} but motogp_sessions "
+                f"does not list it"
+            )
+        for name in sorted(declared_set - fmt_sessions):
+            problems.append(
+                f"{label}: motogp_sessions lists {name!r} but format "
+                f"{fmt_name!r} does not run it"
+            )
+        if len(declared_set) != len(declared):
+            problems.append(f"{label}: motogp_sessions has duplicate entries")
+
+    sessions = entry.get("sessions") or {}
+    for day in CALENDAR_DAYS:
+        day_sessions = sessions.get(day) or {}
+        if not isinstance(day_sessions, dict):
+            problems.append(f"{label}: {day} sessions must be an object")
+            continue
+
+        # A MotoGP key in a day block the format does not run it on: the
+        # "stale sessions block" mistake. Support classes are not described by
+        # the MotoGP format, so they are left alone.
+        for key, info in day_sessions.items():
+            session_type = CALENDAR_KEY_TO_SESSION.get(key)
+            if session_type is None or session_type.race_class != RaceClass.MOTOGP:
+                continue
+            name = session_type.motogp_session_name
+            if name not in fmt_days[day]:
+                problems.append(
+                    f"{label}: {day} has MotoGP key {key!r} ({name}) but format "
+                    f"{fmt_name!r} does not run it on {day}"
+                )
+
+        # A session the format runs on this day with no times: the
+                # "declared but never searched" mistake.
+        for name in sorted(fmt_days[day]):
+            key = MOTOGP_SESSION_NAME_TO_CALENDAR_KEY.get(name)
+            if key and key not in day_sessions:
+                problems.append(
+                    f"{label}: format {fmt_name!r} runs {name!r} on {day} but "
+                    f"the sessions block has no {key!r} times"
+                )
+
+    # Release aliases are per-season vocabulary. Validate the shape so a typo
+    # cannot silently make a whole season's releases unclassifiable.
+    aliases = calendar.get("release_aliases")
+    if aliases is not None:
+        if not isinstance(aliases, dict):
+            problems.append("release_aliases must be an object mapping token -> session name")
+        else:
+            for token, session_name in aliases.items():
+                if not isinstance(token, str) or not token.strip():
+                    problems.append(f"release_aliases: bad token {token!r}")
+                if not isinstance(session_name, str) or session_name not in MOTOGP_SESSION_NAME_TO_TYPE:
+                    problems.append(
+                        f"release_aliases: {token!r} -> {session_name!r} is not "
+                        f"a known MotoGP session name"
+                    )
+
+    return problems
+
+
+def check_round(entry: dict, season: int, require_sessions: bool = True,
+                calendar: dict = None) -> list:
     """
     Per-round checks that validate_calendar() does not cover.
 
@@ -84,7 +223,7 @@ def check_round(entry: dict, season: int, require_sessions: bool = True) -> list
             problems.append(f"{label}: no session times, grabber cannot schedule it")
     else:
         for day, day_sessions in sessions.items():
-            if day not in {"friday", "saturday", "sunday"}:
+            if day not in CALENDAR_DAYS:
                 problems.append(f"{label}: unexpected day {day!r}")
             for key, info in (day_sessions or {}).items():
                 if key not in CALENDAR_KEY_TO_SESSION:
@@ -129,6 +268,9 @@ def check_round(entry: dict, season: int, require_sessions: bool = True) -> list
     flag = entry.get("flag")
     if flag and not (REPO_ROOT / "assets" / "flag_assets_svg" / flag).exists():
         problems.append(f"{label}: missing flag {flag}")
+
+    if calendar is not None:
+        problems.extend(check_round_format(entry, calendar))
 
     return problems
 
@@ -197,7 +339,7 @@ def main() -> int:
     problems = validate_calendar(calendar)
     requires_sessions = has_session_times(calendar)
     for entry in calendar.get("rounds", []):
-        problems.extend(check_round(entry, args.season, requires_sessions))
+        problems.extend(check_round(entry, args.season, requires_sessions, calendar))
 
     if args.library:
         problems.extend(check_library_matches(calendar, Path(args.library)))

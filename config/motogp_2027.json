@@ -1,0 +1,2922 @@
+{
+  "season": 2027,
+  "series": "MotoGP World Championship",
+  "classes": [
+    "motogp",
+    "moto2",
+    "moto3"
+  ],
+  "timezone_note": "All session times are in GMT/UTC. Local times vary by venue.",
+  "your_timezone": "GMT+0",
+  "session_times_note": "Provisional 2027 timetable: session times follow the 2027 weekend shape and the standard slot times. Replace with the published circuit timetable when it is released.",
+  "weekend_formats": {
+    "motogp_2027": {
+      "friday": [
+        {
+          "session": "fp1",
+          "label": "FP1",
+          "duration_mins": 45,
+          "note": "Same as 2026"
+        },
+        {
+          "session": "fp2",
+          "label": "FP2",
+          "duration_mins": 30,
+          "note": "Was 1 hour; no longer decides Q2 places"
+        },
+        {
+          "session": "sprint_qualifying",
+          "label": "Sprint Qualifying",
+          "duration_mins": 15,
+          "note": "NEW - sets the Sprint grid"
+        }
+      ],
+      "saturday": [
+        {
+          "session": "fp3",
+          "label": "FP3",
+          "duration_mins": 20,
+          "note": "Was 30 minutes"
+        },
+        {
+          "session": "qualifying",
+          "label": "Grand Prix Qualifying",
+          "duration_mins": 30,
+          "note": "Q1 15 mins all riders; Q2 15 mins top 12 from Q1"
+        },
+        {
+          "session": "sprint",
+          "label": "Sprint",
+          "duration_mins": 25,
+          "note": "Grid from Sprint Qualifying"
+        }
+      ],
+      "sunday": [
+        {
+          "session": "race",
+          "label": "Race",
+          "duration_mins": 50,
+          "note": "Warm-up removed; grid from Grand Prix qualifying"
+        }
+      ]
+    }
+  },
+  "release_aliases": {
+    "sq": "sprint_qualifying",
+    "spq": "sprint_qualifying"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "venue": "Thailand",
+      "official_name": "Thai Grand Prix",
+      "circuit": "Buriram International Circuit",
+      "aliases": [
+        "thailand",
+        "thai",
+        "buriram",
+        "chang"
+      ],
+      "date": "2027-03-07",
+      "weekend_start": "2027-03-05",
+      "weekend_end": "2027-03-07",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 01 Thailand",
+      "local_timezone": "Asia/Bangkok",
+      "utc_offset": "+07:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "02:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "02:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "03:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "07:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "02:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "02:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "03:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "04:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "07:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "07:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "04:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "05:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "07:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_thailand.jpg",
+          "poster": "poster_thailand.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_thailand.jpg",
+          "poster": "poster_thailand.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_thailand.jpg",
+          "poster": "poster_thailand.jpg"
+        }
+      },
+      "flag": "th.svg"
+    },
+    {
+      "round": 2,
+      "venue": "Qatar",
+      "official_name": "Qatar Grand Prix",
+      "circuit": "Lusail International Circuit",
+      "aliases": [
+        "qatar",
+        "lusail"
+      ],
+      "date": "2027-03-14",
+      "weekend_start": "2027-03-12",
+      "weekend_end": "2027-03-14",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 02 Qatar",
+      "local_timezone": "Asia/Qatar",
+      "utc_offset": "+03:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "06:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "06:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "07:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "11:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "11:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "06:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "06:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "07:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "08:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "11:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "11:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "08:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "09:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "11:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_qatar.jpg",
+          "poster": "poster_qatar.jpg"
+        }
+      },
+      "flag": "qa.svg"
+    },
+    {
+      "round": 3,
+      "venue": "Brazil",
+      "official_name": "Brazilian Grand Prix",
+      "circuit": "Ayrton Senna Circuit",
+      "aliases": [
+        "brazil",
+        "brazilian",
+        "ayrton",
+        "senna",
+        "goiania"
+      ],
+      "date": "2027-04-04",
+      "weekend_start": "2027-04-02",
+      "weekend_end": "2027-04-04",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 03 Brazil",
+      "local_timezone": "America/Sao_Paulo",
+      "utc_offset": "-03:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "12:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "12:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "13:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "17:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "17:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "12:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "13:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "14:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "17:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "17:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "14:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "15:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "17:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_brazil.jpg",
+          "poster": "poster_brazil.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_brazil.jpg",
+          "poster": "poster_brazil.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_brazil.jpg",
+          "poster": "poster_brazil.jpg"
+        }
+      },
+      "flag": "br.svg"
+    },
+    {
+      "round": 4,
+      "venue": "Argentina",
+      "official_name": "Argentine Grand Prix",
+      "circuit": "Autódromo Oscar y Juan Gálvez",
+      "aliases": [
+        "argentina",
+        "argentine",
+        "buenos aires",
+        "galvez"
+      ],
+      "date": "2027-04-11",
+      "weekend_start": "2027-04-09",
+      "weekend_end": "2027-04-11",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 04 Argentina",
+      "local_timezone": "America/Argentina/Buenos_Aires",
+      "utc_offset": "-03:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "12:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "12:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "13:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "17:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "17:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "12:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "13:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "14:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "17:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "17:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "14:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "15:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "17:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_argentina.jpg",
+          "poster": "poster_argentina.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_argentina.jpg",
+          "poster": "poster_argentina.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_argentina.jpg",
+          "poster": "poster_argentina.jpg"
+        }
+      },
+      "flag": "ar.svg"
+    },
+    {
+      "round": 5,
+      "venue": "Americas",
+      "official_name": "Grand Prix of the Americas",
+      "circuit": "Circuit of the Americas",
+      "aliases": [
+        "americas",
+        "austin",
+        "cota",
+        "texas",
+        "usa"
+      ],
+      "date": "2027-04-25",
+      "weekend_start": "2027-04-23",
+      "weekend_end": "2027-04-25",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 05 Americas",
+      "local_timezone": "America/Chicago",
+      "utc_offset": "-05:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "14:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "14:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "15:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "19:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "19:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "14:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "14:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "15:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "16:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "19:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "19:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "16:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "17:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "19:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_americas.jpg",
+          "poster": "poster_americas.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_americas.jpg",
+          "poster": "poster_americas.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_americas.jpg",
+          "poster": "poster_americas.jpg"
+        }
+      },
+      "flag": "us.svg"
+    },
+    {
+      "round": 6,
+      "venue": "Spain",
+      "official_name": "Spanish Grand Prix",
+      "circuit": "Circuito de Jerez - Angel Nieto",
+      "aliases": [
+        "spain",
+        "spanish",
+        "jerez"
+      ],
+      "date": "2027-05-09",
+      "weekend_start": "2027-05-07",
+      "weekend_end": "2027-05-09",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 06 Spain",
+      "local_timezone": "Europe/Madrid",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_jerez.jpg",
+          "poster": "poster_jerez.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_jerez.jpg",
+          "poster": "poster_jerez.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_jerez.jpg",
+          "poster": "poster_jerez.jpg"
+        }
+      },
+      "flag": "es.svg"
+    },
+    {
+      "round": 7,
+      "venue": "France",
+      "official_name": "French Grand Prix",
+      "circuit": "Circuit Bugatti (Le Mans)",
+      "aliases": [
+        "france",
+        "french",
+        "le mans",
+        "lemans",
+        "bugatti"
+      ],
+      "date": "2027-05-16",
+      "weekend_start": "2027-05-14",
+      "weekend_end": "2027-05-16",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 07 France",
+      "local_timezone": "Europe/Paris",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_france.jpg",
+          "poster": "poster_france.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_france.jpg",
+          "poster": "poster_france.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_france.jpg",
+          "poster": "poster_france.jpg"
+        }
+      },
+      "flag": "fr.svg"
+    },
+    {
+      "round": 8,
+      "venue": "Italy",
+      "official_name": "Italian Grand Prix",
+      "circuit": "Autodromo Internazionale del Mugello",
+      "aliases": [
+        "italy",
+        "italian",
+        "mugello",
+        "tuscany"
+      ],
+      "date": "2027-05-30",
+      "weekend_start": "2027-05-28",
+      "weekend_end": "2027-05-30",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 08 Italy",
+      "local_timezone": "Europe/Rome",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_mugello.jpg",
+          "poster": "poster_mugello.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_mugello.jpg",
+          "poster": "poster_mugello.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_mugello.jpg",
+          "poster": "poster_mugello.jpg"
+        }
+      },
+      "flag": "it.svg"
+    },
+    {
+      "round": 9,
+      "venue": "Catalunya",
+      "official_name": "Catalan Grand Prix",
+      "circuit": "Circuit de Barcelona-Catalunya",
+      "aliases": [
+        "catalunya",
+        "catalonia",
+        "catalan",
+        "barcelona",
+        "montmelo"
+      ],
+      "date": "2027-06-13",
+      "weekend_start": "2027-06-11",
+      "weekend_end": "2027-06-13",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 09 Catalunya",
+      "local_timezone": "Europe/Madrid",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_catalunya.jpg",
+          "poster": "poster_catalunya.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_catalunya.jpg",
+          "poster": "poster_catalunya.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_catalunya.jpg",
+          "poster": "poster_catalunya.jpg"
+        }
+      },
+      "flag": "es.svg"
+    },
+    {
+      "round": 10,
+      "venue": "Netherlands",
+      "official_name": "Dutch Grand Prix",
+      "circuit": "TT Circuit Assen",
+      "aliases": [
+        "netherlands",
+        "dutch",
+        "assen",
+        "holland"
+      ],
+      "date": "2027-06-27",
+      "weekend_start": "2027-06-25",
+      "weekend_end": "2027-06-27",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 10 Netherlands",
+      "local_timezone": "Europe/Amsterdam",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_assen.jpg",
+          "poster": "poster_assen.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_assen.jpg",
+          "poster": "poster_assen.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_assen.jpg",
+          "poster": "poster_assen.jpg"
+        }
+      },
+      "flag": "nl.svg"
+    },
+    {
+      "round": 11,
+      "venue": "Germany",
+      "official_name": "German Grand Prix",
+      "circuit": "Sachsenring",
+      "aliases": [
+        "germany",
+        "german",
+        "sachsenring"
+      ],
+      "date": "2027-07-11",
+      "weekend_start": "2027-07-09",
+      "weekend_end": "2027-07-11",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 11 Germany",
+      "local_timezone": "Europe/Berlin",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_sachsenring.jpg",
+          "poster": "poster_sachsenring.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_sachsenring.jpg",
+          "poster": "poster_sachsenring.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_sachsenring.jpg",
+          "poster": "poster_sachsenring.jpg"
+        }
+      },
+      "flag": "de.svg"
+    },
+    {
+      "round": 12,
+      "venue": "Czech Republic",
+      "official_name": "Czech Grand Prix",
+      "circuit": "Automotodrom Brno",
+      "aliases": [
+        "czech",
+        "czech republic",
+        "brno"
+      ],
+      "date": "2027-07-18",
+      "weekend_start": "2027-07-16",
+      "weekend_end": "2027-07-18",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 12 Czech Republic",
+      "local_timezone": "Europe/Prague",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_brno.jpg",
+          "poster": "poster_brno.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_brno.jpg",
+          "poster": "poster_brno.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_brno.jpg",
+          "poster": "poster_brno.jpg"
+        }
+      },
+      "flag": "cz.svg"
+    },
+    {
+      "round": 13,
+      "venue": "Great Britain",
+      "official_name": "British Grand Prix",
+      "circuit": "Silverstone Circuit",
+      "aliases": [
+        "great britain",
+        "british",
+        "silverstone",
+        "uk"
+      ],
+      "date": "2027-08-15",
+      "weekend_start": "2027-08-13",
+      "weekend_end": "2027-08-15",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 13 Great Britain",
+      "local_timezone": "Europe/London",
+      "utc_offset": "+01:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "08:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "08:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "09:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "13:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "08:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "08:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "09:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "10:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "13:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "10:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "11:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_silverstone.jpg",
+          "poster": "poster_silverstone.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_silverstone.jpg",
+          "poster": "poster_silverstone.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_silverstone.jpg",
+          "poster": "poster_silverstone.jpg"
+        }
+      },
+      "flag": "gb.svg"
+    },
+    {
+      "round": 14,
+      "venue": "Austria",
+      "official_name": "Austrian Grand Prix",
+      "circuit": "Red Bull Ring",
+      "aliases": [
+        "austria",
+        "austrian",
+        "spielberg",
+        "red bull ring"
+      ],
+      "date": "2027-08-29",
+      "weekend_start": "2027-08-27",
+      "weekend_end": "2027-08-29",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 14 Austria",
+      "local_timezone": "Europe/Vienna",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_austria.jpg",
+          "poster": "poster_austria.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_austria.jpg",
+          "poster": "poster_austria.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_austria.jpg",
+          "poster": "poster_austria.jpg"
+        }
+      },
+      "flag": "at.svg"
+    },
+    {
+      "round": 15,
+      "venue": "San Marino",
+      "official_name": "San Marino Grand Prix",
+      "circuit": "Misano World Circuit",
+      "aliases": [
+        "san marino",
+        "misano"
+      ],
+      "date": "2027-09-12",
+      "weekend_start": "2027-09-10",
+      "weekend_end": "2027-09-12",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 15 San Marino",
+      "local_timezone": "Europe/Rome",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_misano.jpg",
+          "poster": "poster_misano.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_misano.jpg",
+          "poster": "poster_misano.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_misano.jpg",
+          "poster": "poster_misano.jpg"
+        }
+      },
+      "flag": "sm.svg"
+    },
+    {
+      "round": 16,
+      "venue": "Aragon",
+      "official_name": "Aragon Grand Prix",
+      "circuit": "MotorLand Aragón",
+      "aliases": [
+        "aragon",
+        "aragón",
+        "motorland"
+      ],
+      "date": "2027-09-19",
+      "weekend_start": "2027-09-17",
+      "weekend_end": "2027-09-19",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 16 Aragon",
+      "local_timezone": "Europe/Madrid",
+      "utc_offset": "+02:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "07:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "08:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "07:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "07:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "08:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "09:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "12:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "09:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "10:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "12:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_aragon.jpg",
+          "poster": "poster_aragon.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_aragon.jpg",
+          "poster": "poster_aragon.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_aragon.jpg",
+          "poster": "poster_aragon.jpg"
+        }
+      },
+      "flag": "es.svg"
+    },
+    {
+      "round": 17,
+      "venue": "Portugal",
+      "official_name": "Portuguese Grand Prix",
+      "circuit": "Algarve International Circuit",
+      "aliases": [
+        "portugal",
+        "portuguese",
+        "portimao",
+        "portimão",
+        "algarve"
+      ],
+      "date": "2027-10-03",
+      "weekend_start": "2027-10-01",
+      "weekend_end": "2027-10-03",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 17 Portugal",
+      "local_timezone": "Europe/Lisbon",
+      "utc_offset": "+01:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "08:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "08:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "09:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "13:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "08:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "08:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "09:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "10:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "13:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "10:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "11:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_portimao.jpg",
+          "poster": "poster_portimao.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_portimao.jpg",
+          "poster": "poster_portimao.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_portimao.jpg",
+          "poster": "poster_portimao.jpg"
+        }
+      },
+      "flag": "pt.svg"
+    },
+    {
+      "round": 18,
+      "venue": "Japan",
+      "official_name": "Japanese Grand Prix",
+      "circuit": "Twin Ring Motegi",
+      "aliases": [
+        "japan",
+        "japanese",
+        "motegi"
+      ],
+      "date": "2027-10-17",
+      "weekend_start": "2027-10-15",
+      "weekend_end": "2027-10-17",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 18 Japan",
+      "local_timezone": "Asia/Tokyo",
+      "utc_offset": "+09:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "00:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "00:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "01:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "05:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "05:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "00:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "00:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "01:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "02:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "05:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "05:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "02:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "03:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "05:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_motegi.jpg",
+          "poster": "poster_motegi.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_motegi.jpg",
+          "poster": "poster_motegi.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_motegi.jpg",
+          "poster": "poster_motegi.jpg"
+        }
+      },
+      "flag": "jp.svg"
+    },
+    {
+      "round": 19,
+      "venue": "Malaysia",
+      "official_name": "Malaysian Grand Prix",
+      "circuit": "Sepang International Circuit",
+      "aliases": [
+        "malaysia",
+        "malaysian",
+        "sepang"
+      ],
+      "date": "2027-10-24",
+      "weekend_start": "2027-10-22",
+      "weekend_end": "2027-10-24",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 19 Malaysia",
+      "local_timezone": "Asia/Kuala_Lumpur",
+      "utc_offset": "+08:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "01:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "01:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "02:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "06:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "06:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "01:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "01:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "02:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "03:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "06:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "06:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "03:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "04:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "06:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_sepang.jpg",
+          "poster": "poster_sepang.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_sepang.jpg",
+          "poster": "poster_sepang.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_sepang.jpg",
+          "poster": "poster_sepang.jpg"
+        }
+      },
+      "flag": "my.svg"
+    },
+    {
+      "round": 20,
+      "venue": "Indonesia",
+      "official_name": "Indonesian Grand Prix",
+      "circuit": "Mandalika International Circuit",
+      "aliases": [
+        "indonesia",
+        "indonesian",
+        "mandalika"
+      ],
+      "date": "2027-10-31",
+      "weekend_start": "2027-10-29",
+      "weekend_end": "2027-10-31",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 20 Indonesia",
+      "local_timezone": "Asia/Makassar",
+      "utc_offset": "+08:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "01:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "01:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "02:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "06:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "06:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "01:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "01:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "02:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "03:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "06:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "06:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "03:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "04:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "06:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_mandalika.jpg",
+          "poster": "poster_mandalika.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_mandalika.jpg",
+          "poster": "poster_mandalika.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_mandalika.jpg",
+          "poster": "poster_mandalika.jpg"
+        }
+      },
+      "flag": "id.svg"
+    },
+    {
+      "round": 21,
+      "venue": "Australia",
+      "official_name": "Australian Grand Prix",
+      "circuit": "Adelaide Street Circuit",
+      "aliases": [
+        "australia",
+        "australian",
+        "adelaide"
+      ],
+      "date": "2027-11-14",
+      "weekend_start": "2027-11-12",
+      "weekend_end": "2027-11-14",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 21 Australia",
+      "local_timezone": "Australia/Adelaide",
+      "utc_offset": "+10:30",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "22:30",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "23:15",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "00:10",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "03:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "04:15",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "22:30",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "23:10",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "00:20",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "01:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "03:30",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "04:15",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "00:30",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "01:45",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "03:30",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_adelaide.jpg",
+          "poster": "poster_adelaide.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_adelaide.jpg",
+          "poster": "poster_adelaide.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_adelaide.jpg",
+          "poster": "poster_adelaide.jpg"
+        }
+      },
+      "flag": "au.svg"
+    },
+    {
+      "round": 22,
+      "venue": "Valencia",
+      "official_name": "Valencian Grand Prix",
+      "circuit": "Circuit Ricardo Tormo",
+      "aliases": [
+        "valencia",
+        "valencian",
+        "cheste"
+      ],
+      "date": "2027-11-28",
+      "weekend_start": "2027-11-26",
+      "weekend_end": "2027-11-28",
+      "status": "scheduled",
+      "status_note": null,
+      "round_aliases": [],
+      "classes": [
+        "motogp",
+        "moto2",
+        "moto3"
+      ],
+      "weekend_format": "motogp_2027",
+      "motogp_sessions": [
+        "fp1",
+        "fp2",
+        "sprint_qualifying",
+        "fp3",
+        "qualifying",
+        "sprint",
+        "race"
+      ],
+      "folder": "Round 22 Valencia",
+      "local_timezone": "Europe/Madrid",
+      "utc_offset": "+01:00",
+      "sessions": {
+        "friday": {
+          "moto3_fp1": {
+            "local": "09:00",
+            "gmt": "08:00",
+            "duration_mins": 35
+          },
+          "motogp_fp1": {
+            "local": "09:45",
+            "gmt": "08:45",
+            "duration_mins": 45
+          },
+          "moto2_fp1": {
+            "local": "10:40",
+            "gmt": "09:40",
+            "duration_mins": 35
+          },
+          "motogp_fp2": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 30
+          },
+          "motogp_sprint_qualifying": {
+            "local": "14:45",
+            "gmt": "13:45",
+            "duration_mins": 15
+          }
+        },
+        "saturday": {
+          "moto3_fp2": {
+            "local": "09:00",
+            "gmt": "08:00",
+            "duration_mins": 30
+          },
+          "motogp_fp3": {
+            "local": "09:40",
+            "gmt": "08:40",
+            "duration_mins": 20
+          },
+          "moto3_qualifying": {
+            "local": "10:50",
+            "gmt": "09:50",
+            "duration_mins": 30
+          },
+          "motogp_qualifying": {
+            "local": "11:30",
+            "gmt": "10:30",
+            "duration_mins": 30
+          },
+          "motogp_sprint": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 25
+          },
+          "moto2_qualifying": {
+            "local": "14:45",
+            "gmt": "13:45",
+            "duration_mins": 30
+          }
+        },
+        "sunday": {
+          "moto3_race": {
+            "local": "11:00",
+            "gmt": "10:00",
+            "duration_mins": 40
+          },
+          "moto2_race": {
+            "local": "12:15",
+            "gmt": "11:15",
+            "duration_mins": 45
+          },
+          "motogp_race": {
+            "local": "14:00",
+            "gmt": "13:00",
+            "duration_mins": 50
+          }
+        }
+      },
+      "search_delay_hours": 1,
+      "assets": {
+        "motogp": {
+          "fanart": "fanart_valencia.jpg",
+          "poster": "poster_valencia.jpg"
+        },
+        "moto2": {
+          "fanart": "fanart_valencia.jpg",
+          "poster": "poster_valencia.jpg"
+        },
+        "moto3": {
+          "fanart": "fanart_valencia.jpg",
+          "poster": "poster_valencia.jpg"
+        }
+      },
+      "flag": "es.svg"
+    }
+  ]
+}

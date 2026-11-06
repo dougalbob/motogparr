@@ -428,3 +428,38 @@ console.log(JSON.stringify(out));
     assert "Library Status:" in past_th["body"]
     assert "day-timetable" not in past_th["body"]
     assert past_th["footerDisplay"] == "flex"
+
+
+def test_the_real_2027_calendar_renders_in_running_order():
+    """
+    The 2027 calendar is data, not a fixture: the WebUI must render a real
+    2027 round with Friday FP2 and Sprint Qualifying, Saturday FP3, and no
+    Sunday warm-up. This is the end-to-end check that the format is wired.
+    """
+    calendar = json.loads(
+        (REPO_ROOT / "config" / "motogp_2027.json").read_text(encoding="utf-8")
+    )
+    assert calendar["season"] == 2027
+
+    entry = calendar["rounds"][0]  # Thailand, +07:00
+    schedule = motogp_webui.build_round_schedule(entry, calendar)
+    assert set(schedule) == {"friday", "saturday", "sunday"}
+
+    friday = [s["key"] for s in schedule["friday"]["sessions"]]
+    assert friday == [
+        "moto3_fp1", "motogp_fp1", "moto2_fp1",
+        "motogp_fp2", "motogp_sprint_qualifying",
+    ]
+    saturday = [s["key"] for s in schedule["saturday"]["sessions"]]
+    assert saturday == [
+        "moto3_fp2", "motogp_fp3", "moto3_qualifying",
+        "motogp_qualifying", "motogp_sprint", "moto2_qualifying",
+    ]
+    sunday = [s["key"] for s in schedule["sunday"]["sessions"]]
+    assert sunday == ["moto3_race", "moto2_race", "motogp_race"]
+    assert "motogp_warmup" not in friday + saturday + sunday
+
+    fp2 = [s for s in schedule["friday"]["sessions"] if s["key"] == "motogp_fp2"][0]
+    assert fp2["start_utc"] == "2027-03-05T07:00:00Z"
+    assert fp2["end_utc"] == "2027-03-05T07:30:00Z"
+    assert fp2["full_name"] == "MotoGP FP2"

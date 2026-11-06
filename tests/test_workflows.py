@@ -261,3 +261,21 @@ def test_pr_label_check_does_not_need_a_checkout_or_js_action():
     # Ensure the workflow doesn't itself depend on a deprecated JS action.
     # It should be pure shell + jq.
     assert "jq" in text, "label check uses jq to count labels"
+
+
+def test_release_notes_step_fails_when_no_pull_request_exists():
+    """
+    v2.6.0 and v2.5.6 both had a green release job with no release-notes PR:
+    the `gh pr create` failure was swallowed by `|| echo`, so the job stayed
+    green while the notes never reached main. The step must fail if the PR is
+    missing, and the push must not be allowed to fail silently either.
+    """
+    text = RELEASE.read_text()
+    assert "gh pr create" in text
+    assert "gh pr edit" in text
+    assert "Release-notes PR missing" in text
+    assert "exit 1" in text
+    # The exact swallows that caused the defect must be gone.
+    assert 'gh pr create --title "$title" --body "$body" --head "$branch" --base main ||' not in text
+    assert 'gh pr edit "$existing" --title "$title" --body "$body" ||' not in text
+    assert 'git push origin "$branch" || true' not in text

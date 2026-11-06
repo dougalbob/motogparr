@@ -283,10 +283,19 @@ sessions block the right keys (`motogp_fp3`, `motogp_sprint_qualifying`, no
 
 ### Not yet proven end to end
 
-The format is wired and unit-tested, but no real 2027 calendar exists yet, and
-the Plex title/sort behaviour depends on the object type an "Other Videos"
-section returns - see `/diagnostics` → `plex_labels`. Treat the first 2027
-weekend as the verification.
+A real 2027 calendar now exists (`config/motogp_2027.json`, 22 provisional
+rounds) and validates clean; the WebUI renders a 2027 round in running order.
+The session times in it are provisional and must be replaced with the published
+circuit timetable. The Plex title/sort behaviour still depends on the object type
+an "Other Videos" section returns - see `/diagnostics` → `plex_labels`. Treat the
+first 2027 weekend as the verification.
+
+Release vocabulary is data too: the 2027 calendar carries `release_aliases`
+(`sq`/`spq` → `sprint_qualifying`), so a group that shortens the session name can
+be taught without a code release. An ambiguous title (`SQ` without an alias, a
+bare `FP`) is refused rather than filed as the Race; use
+`python -m motogp_common --report-unknown --season 2027` to see how a candidate
+would be classified before the weekend.
 
 ---
 
