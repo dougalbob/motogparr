@@ -5,7 +5,7 @@ the app is, which document to read next, what has already been fixed, what is
 still broken, and the order to fix it in. Keep it current: when you change the
 plan or land a priority item, edit this file in the same PR.
 
-**Current release: v2.5.5** · **Tests: 293 passing** · **Single user, self-hosted**
+**Current release: v2.5.6** · **Tests: 301 passing** · **Single user, self-hosted**
 
 ---
 
@@ -83,7 +83,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # expect 293 passed
+.venv/bin/python -m pytest tests -q          # expect 301 passed
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -191,6 +191,21 @@ built image (no Docker daemon in the sandbox).
 **Do not write through a venue symlink** when adding custom art: that overwrites
 the shared master for every venue. Unlink it first, then install a real JPEG at
 the same filename.
+
+### Issue #30 — calendar popup per-day session times (v2.5.6)
+
+`/calendar` defaults to the current season (`default_calendar_year()`) rather
+than hard-coded 2025, and `build_round_schedule()` emits per-day session blocks
+with exact UTC timestamps derived from track-local date + `local` + `utc_offset`
+(preserving midnight-crossing flyaway times such as Phillip Island Friday morning
+landing on Thursday UTC, and reading directly from `round["sessions"][day]` so
+the 2027 format — Friday FP2 + Sprint Qualifying, Saturday FP3, no Sunday
+warm-up — works from JSON data alone). In the modal (`templates/calendar.html`),
+clicking a date opens that specific day's timetable converted to the browser's
+local timezone (with `Fri`/`Sat`/`Sun` switcher pills), replaces `"days to go"`
+on a live weekend with **`NOW`** (when a session is underway) or the **next
+session's start time**, and keeps past rounds focused solely on library status
+and missing-session downloads.
 
 ---
 

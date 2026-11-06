@@ -21,7 +21,7 @@
 
 <!-- Race Detail Modal -->
 <div class="modal-overlay" id="race-modal" onclick="closeModal(event)">
-    <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-content calendar-modal-content" onclick="event.stopPropagation()">
         <div class="modal-header">
             <h3 id="modal-title">Race Details</h3>
             <button class="modal-close" onclick="closeModal()">✕</button>
@@ -43,195 +43,595 @@
 <script>
     let currentYear = {{ year }};
     const calendarData = {{ calendar_data | tojson }};
-    const libraryStatus = {{ library_status | tojson }};
+    const libraryStatusByYear = { [currentYear]: {{ library_status | tojson }} };
     const flagData = {{ flag_data | tojson }};
-    const today = new Date();
     let calendarSelectedSessions = new Set();
     let currentRoundNum = null;
-    
+    let currentModalDay = null;
+    let modalLiveTimer = null;
+
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
                         'July', 'August', 'September', 'October', 'November', 'December'];
-    
+    const shortMonthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const shortWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayKeyOrder = ['thursday', 'friday', 'saturday', 'sunday'];
+    const dayKeyLabels = {
+        thursday: 'Thursday',
+        friday: 'Friday',
+        saturday: 'Saturday',
+        sunday: 'Sunday'
+    };
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function parseLocalYMD(ymd) {
+        if (!ymd) return null;
+        const [y, m, d] = ymd.split('-').map(Number);
+        if (!y || !m || !d) return null;
+        return new Date(y, m - 1, d);
+    }
+
+    function toLocalYMD(dateObj) {
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dateObj.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    function shiftYMD(ymd, deltaDays) {
+        const dt = parseLocalYMD(ymd);
+        if (!dt) return ymd;
+        dt.setDate(dt.getDate() + deltaDays);
+        return toLocalYMD(dt);
+    }
+
+    function formatDDMMYYYY(ymd) {
+        if (!ymd) return '';
+        return ymd.split('-').reverse().join('-');
+    }
+
+    function formatShortDayTab(dayKey, ymd) {
+        const shortDay = (dayKeyLabels[dayKey] || dayKey).slice(0, 3);
+        const dt = parseLocalYMD(ymd);
+        if (!dt) return shortDay;
+        return `${shortDay} ${dt.getDate()} ${shortMonthNames[dt.getMonth()]}`;
+    }
+
+    function formatBrowserTime(dateObj) {
+        const h = String(dateObj.getHours()).padStart(2, '0');
+        const m = String(dateObj.getMinutes()).padStart(2, '0');
+        return `${h}:${m}`;
+    }
+
+    function getBrowserTzLabel(refDate) {
+        try {
+            const sample = refDate || new Date();
+            const iana = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+            const parts = Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(sample);
+            const tzPart = parts.find(p => p.type === 'timeZoneName');
+            const shortTz = tzPart ? tzPart.value : '';
+            if (iana && shortTz && !iana.includes(shortTz)) {
+                return `${shortTz} · ${iana}`;
+            }
+            return shortTz || iana || 'Local time';
+        } catch (e) {
+            return 'Local time';
+        }
+    }
+
+    function getOrderedScheduleDays(race) {
+        const schedule = race.schedule || {};
+        const keys = dayKeyOrder.filter(k => schedule[k] && (schedule[k].sessions || []).length);
+        Object.keys(schedule).forEach(k => {
+            if (!keys.includes(k) && schedule[k] && (schedule[k].sessions || []).length) {
+                keys.push(k);
+            }
+        });
+        return keys;
+    }
+
+    function getAllRoundSessions(race) {
+        const schedule = race.schedule || {};
+        const items = [];
+        getOrderedScheduleDays(race).forEach(dayKey => {
+            const dayBlock = schedule[dayKey];
+            (dayBlock.sessions || []).forEach(s => {
+                const startDt = new Date(s.start_utc);
+                const endDt = new Date(s.end_utc);
+                const startMs = startDt.getTime();
+                const endMs = endDt.getTime();
+                if (!Number.isNaN(startMs) && !Number.isNaN(endMs)) {
+                    items.push({
+                        ...s,
+                        dayKey,
+                        trackDate: dayBlock.date,
+                        startDt,
+                        endDt,
+                        startMs,
+                        endMs
+                    });
+                }
+            });
+        });
+        items.sort((a, b) => a.startMs - b.startMs);
+        return items;
+    }
+
+    function getRoundTimingState(race, now = new Date()) {
+        const isActive = race.active !== false && (!race.status || race.status === 'scheduled');
+        if (!isActive) {
+            return {
+                isActive: false,
+                isPast: false,
+                isLiveWeekend: false,
+                isFuture: false,
+                currentSession: null,
+                nextSession: null,
+                allSessions: []
+            };
+        }
+
+        const todayYMD = toLocalYMD(now);
+        const nowMs = now.getTime();
+        const weekendStartYMD = race.weekend_start || shiftYMD(race.date, -2);
+        const weekendEndYMD = race.weekend_end || race.date;
+        const allSessions = getAllRoundSessions(race);
+
+        if (allSessions.length > 0) {
+            const firstStartMs = allSessions[0].startMs;
+            const lastEndMs = allSessions[allSessions.length - 1].endMs;
+            const isPast = nowMs >= lastEndMs;
+            const isLiveWeekend = !isPast && (
+                todayYMD >= weekendStartYMD || nowMs >= firstStartMs - 12 * 3600 * 1000
+            );
+            const isFuture = !isPast && !isLiveWeekend;
+            const currentSession = allSessions.find(s => nowMs >= s.startMs && nowMs < s.endMs) || null;
+            const nextSession = allSessions.find(s => s.startMs > nowMs) || null;
+            return {
+                isActive: true,
+                isPast,
+                isLiveWeekend,
+                isFuture,
+                currentSession,
+                nextSession,
+                allSessions
+            };
+        }
+
+        const isPast = todayYMD > weekendEndYMD;
+        const isLiveWeekend = !isPast && todayYMD >= weekendStartYMD && todayYMD <= weekendEndYMD;
+        const isFuture = !isPast && !isLiveWeekend;
+        return {
+            isActive: true,
+            isPast,
+            isLiveWeekend,
+            isFuture,
+            currentSession: null,
+            nextSession: null,
+            allSessions: []
+        };
+    }
+
+    function resolveDayKeyForDate(race, clickedDateStr) {
+        const schedule = race.schedule || {};
+        const scheduleDays = getOrderedScheduleDays(race);
+
+        if (clickedDateStr) {
+            for (const dayKey of scheduleDays) {
+                if (schedule[dayKey].date === clickedDateStr) {
+                    return dayKey;
+                }
+            }
+            if (race.date) {
+                if (clickedDateStr === race.date) return 'sunday';
+                if (clickedDateStr === shiftYMD(race.date, -1)) return 'saturday';
+                if (clickedDateStr === shiftYMD(race.date, -2)) return 'friday';
+                if (clickedDateStr === shiftYMD(race.date, -3)) return 'thursday';
+            }
+        }
+
+        if (scheduleDays.includes('sunday')) return 'sunday';
+        return scheduleDays[0] || 'sunday';
+    }
+
     function renderCalendar() {
         const grid = document.getElementById('calendar-grid');
         const races = calendarData[currentYear] || [];
-        
-        // Build race lookup by date
+        const now = new Date();
+
+        // Build lookup for every weekend date (Fri..Sun) without UTC Date string drift
         const racesByDate = {};
+        const timingByRound = {};
+
         races.forEach(race => {
-            if (race.date) {
-                racesByDate[race.date] = race;
-                // Also mark weekend days (Fri, Sat before race Sunday)
-                const raceDate = new Date(race.date);
-                for (let i = 1; i <= 2; i++) {
-                    const d = new Date(raceDate);
-                    d.setDate(d.getDate() - i);
-                    const key = d.toISOString().split('T')[0];
-                    if (!racesByDate[key]) {
-                        racesByDate[key] = { ...race, isWeekend: true };
-                    }
+            if (!race.date) return;
+            timingByRound[race.number] = getRoundTimingState(race, now);
+
+            const startYMD = race.weekend_start || shiftYMD(race.date, -2);
+            const endYMD = race.weekend_end || race.date;
+            let cursor = startYMD;
+            let guard = 0;
+            while (cursor && cursor <= endYMD && guard < 7) {
+                const isRaceSunday = cursor === race.date;
+                if (!racesByDate[cursor] || isRaceSunday) {
+                    racesByDate[cursor] = { race, isWeekend: !isRaceSunday };
                 }
+                cursor = shiftYMD(cursor, 1);
+                guard++;
             }
         });
-        
+
         let html = '';
-        
-        // Render each month
+
         for (let month = 0; month < 12; month++) {
             const firstDay = new Date(currentYear, month, 1);
             const lastDay = new Date(currentYear, month + 1, 0);
-            const startPadding = firstDay.getDay(); // 0 = Sunday
-            
+            const startPadding = firstDay.getDay();
+
             html += `<div class="calendar-month">`;
             html += `<div class="month-header">${monthNames[month]}</div>`;
             html += `<div class="month-days-header">
                 <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
             </div>`;
             html += `<div class="month-days">`;
-            
-            // Padding for first week
+
             for (let i = 0; i < startPadding; i++) {
                 html += `<span class="day empty"></span>`;
             }
-            
-            // Days of month
+
             for (let day = 1; day <= lastDay.getDate(); day++) {
                 const dateStr = `${currentYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const race = racesByDate[dateStr];
-                const dateObj = new Date(currentYear, month, day);
-                
+                const hit = racesByDate[dateStr];
+
                 let classes = ['day'];
                 let tooltip = '';
                 let onclick = '';
-                
-                if (race) {
-                    const raceDate = new Date(race.date);
-                    const isPast = raceDate < today;
-                    const isToday = dateStr === today.toISOString().split('T')[0];
-                    const isRaceWeekend = Math.abs(raceDate - dateObj) <= 2 * 24 * 60 * 60 * 1000;
-                    
-                    // Check if current weekend
-                    const weekendStart = new Date(raceDate);
-                    weekendStart.setDate(weekendStart.getDate() - 2);
-                    const isCurrentWeekend = today >= weekendStart && today <= raceDate;
-                    
+
+                if (hit) {
+                    const race = hit.race;
+                    const timing = timingByRound[race.number];
+
                     classes.push('race');
-                    if (isCurrentWeekend) {
+                    if (!timing.isActive) {
+                        classes.push('future', 'inactive');
+                    } else if (timing.isLiveWeekend) {
                         classes.push('current');
-                    } else if (isPast) {
+                    } else if (timing.isPast) {
                         classes.push('past');
                     } else {
                         classes.push('future');
                     }
-                    
-                    if (race.isWeekend) {
+
+                    if (hit.isWeekend) {
                         classes.push('weekend');
                     } else {
                         classes.push('race-day');
                     }
-                    
+
                     if (race.status && race.status !== 'scheduled') {
-                        classes.push('inactive');
                         tooltip = `Round ${race.number}: ${race.venue} (${race.status})`;
                     } else {
-                        tooltip = `Round ${race.number}: ${race.venue}`;
+                        const dayKey = resolveDayKeyForDate(race, dateStr);
+                        const dayLabel = dayKeyLabels[dayKey] || '';
+                        tooltip = `Round ${race.number}: ${race.venue}${dayLabel ? ' — ' + dayLabel : ''}`;
                     }
-                    onclick = `onclick="showRaceDetails(${race.number})"`;
+                    onclick = `onclick="showRaceDetails(${race.number}, '${dateStr}')"`;
                 }
-                
-                html += `<span class="${classes.join(' ')}" title="${tooltip}" ${onclick}>${day}</span>`;
+
+                html += `<span class="${classes.join(' ')}" title="${escapeHtml(tooltip)}" ${onclick}>${day}</span>`;
             }
-            
+
             html += `</div></div>`;
         }
-        
+
         grid.innerHTML = html;
         document.getElementById('calendar-year').textContent = `${currentYear} Season`;
     }
-    
+
     function changeYear(delta) {
-        const years = Object.keys(calendarData).map(Number).sort();
+        const years = Object.keys(calendarData).map(Number).sort((a, b) => a - b);
         const currentIndex = years.indexOf(currentYear);
         const newIndex = currentIndex + delta;
-        
+
         if (newIndex >= 0 && newIndex < years.length) {
             currentYear = years[newIndex];
-            // Fetch new library status for this year
+            renderCalendar();
+
             fetch(`/calendar-data?year=${currentYear}`)
                 .then(r => r.json())
                 .then(data => {
                     if (data.library_status) {
-                        Object.assign(libraryStatus, data.library_status);
+                        libraryStatusByYear[data.year || currentYear] = data.library_status;
                     }
-                    renderCalendar();
                 })
-                .catch(() => renderCalendar());
+                .catch(() => {});
         }
     }
-    
-    function showRaceDetails(roundNumber) {
+
+    function selectModalDay(dayKey) {
+        currentModalDay = dayKey;
+        renderModalContent();
+    }
+
+    function renderLiveOrFutureStatus(race, timing, now) {
+        if (timing.isLiveWeekend) {
+            if (timing.currentSession) {
+                const cur = timing.currentSession;
+                let activePartLabel = '';
+                if (cur.parts && cur.parts.length) {
+                    const nowMs = now.getTime();
+                    const activePart = cur.parts.find(p => {
+                        const ps = new Date(p.start_utc).getTime();
+                        const pe = new Date(p.end_utc).getTime();
+                        return nowMs >= ps && nowMs < pe;
+                    });
+                    if (activePart) {
+                        activePartLabel = ` · ${activePart.label}`;
+                    }
+                }
+                const rangeStr = `${formatBrowserTime(cur.startDt)}–${formatBrowserTime(cur.endDt)}`;
+                return `
+                    <div class="race-live-status is-underway">
+                        <div class="live-status-main">
+                            <span class="live-now-badge">● NOW</span>
+                            <span class="live-session-name">${escapeHtml(cur.full_name + activePartLabel)}</span>
+                        </div>
+                        <div class="live-status-meta">${rangeStr} (${cur.duration_mins}m)</div>
+                    </div>
+                `;
+            }
+
+            if (timing.nextSession) {
+                const next = timing.nextSession;
+                const sameLocalDay = toLocalYMD(next.startDt) === toLocalYMD(now);
+                const nextTimeText = sameLocalDay
+                    ? formatBrowserTime(next.startDt)
+                    : `${shortWeekdays[next.startDt.getDay()]} ${formatBrowserTime(next.startDt)}`;
+                return `
+                    <div class="race-live-status is-upcoming">
+                        <div class="live-status-left">
+                            <div class="live-next-caption">Next session</div>
+                            <div class="live-session-name">${escapeHtml(next.full_name)}</div>
+                        </div>
+                        <div class="live-next-time-box">
+                            <div class="live-next-time">${escapeHtml(nextTimeText)}</div>
+                            <div class="live-status-meta">${next.duration_mins}m</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="race-live-status is-upcoming">
+                    <div class="live-status-main">
+                        <span class="live-now-badge">🏁 LIVE</span>
+                        <span class="live-session-name">Race Weekend</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Future round: compact "days to go" based on Sunday race day
+        const raceLocal = parseLocalYMD(race.date);
+        const todayLocal = parseLocalYMD(toLocalYMD(now));
+        const daysUntil = raceLocal && todayLocal
+            ? Math.max(1, Math.round((raceLocal - todayLocal) / (1000 * 60 * 60 * 24)))
+            : 0;
+        const unitLabel = daysUntil === 1 ? 'day to go' : 'days to go';
+
+        return `
+            <div class="race-countdown-compact">
+                <span class="countdown-compact-num">${daysUntil}</span>
+                <span class="countdown-compact-label">${unitLabel}</span>
+            </div>
+        `;
+    }
+
+    function renderDayScheduleSection(race, timing, now) {
+        const scheduleDays = getOrderedScheduleDays(race);
+
+        if (scheduleDays.length > 0) {
+            const activeDay = scheduleDays.includes(currentModalDay)
+                ? currentModalDay
+                : scheduleDays[0];
+            const dayBlock = race.schedule[activeDay];
+            const daySessions = (dayBlock.sessions || []).map(s => {
+                const startDt = new Date(s.start_utc);
+                const endDt = new Date(s.end_utc);
+                return {
+                    ...s,
+                    startDt,
+                    endDt,
+                    startMs: startDt.getTime(),
+                    endMs: endDt.getTime()
+                };
+            });
+
+            const sampleDate = daySessions.length ? daySessions[0].startDt : now;
+            const tzLabel = getBrowserTzLabel(sampleDate);
+            const nowMs = now.getTime();
+            const nextStartMs = timing.nextSession ? timing.nextSession.startMs : null;
+            const nextKey = timing.nextSession ? timing.nextSession.key : null;
+
+            let html = `<div class="day-schedule-panel">`;
+
+            // Day switcher pills (pre-selected to clicked day)
+            html += `<div class="schedule-day-tabs" role="tablist">`;
+            scheduleDays.forEach(dKey => {
+                const isSelected = dKey === activeDay;
+                const dDate = race.schedule[dKey].date;
+                html += `<button type="button"
+                                 class="schedule-day-tab ${isSelected ? 'active' : ''}"
+                                 role="tab"
+                                 aria-selected="${isSelected ? 'true' : 'false'}"
+                                 onclick="selectModalDay('${dKey}')">${escapeHtml(formatShortDayTab(dKey, dDate))}</button>`;
+            });
+            html += `</div>`;
+
+            html += `
+                <div class="schedule-subheader">
+                    <span class="schedule-day-heading">${escapeHtml(dayKeyLabels[activeDay] || activeDay)} · ${formatDDMMYYYY(dayBlock.date)}</span>
+                    <span class="schedule-tz-note" title="Session times converted to your browser timezone">🕒 ${escapeHtml(tzLabel)}</span>
+                </div>
+            `;
+
+            html += `<div class="day-timetable">`;
+            daySessions.forEach(s => {
+                const isNow = timing.isLiveWeekend && nowMs >= s.startMs && nowMs < s.endMs;
+                const isDone = timing.isLiveWeekend && nowMs >= s.endMs;
+                const isNext = timing.isLiveWeekend && !timing.currentSession
+                    && s.key === nextKey && s.startMs === nextStartMs;
+
+                const rowClasses = ['timetable-row', `row-class-${s.class}`];
+                if (isNow) rowClasses.push('is-now');
+                else if (isNext) rowClasses.push('is-next');
+                else if (isDone) rowClasses.push('is-done');
+
+                const localDateYMD = toLocalYMD(s.startDt);
+                const dayShiftChip = localDateYMD !== dayBlock.date
+                    ? `<span class="timetable-day-shift">${shortWeekdays[s.startDt.getDay()]}</span>`
+                    : '';
+
+                const timeRangeTitle = `${formatBrowserTime(s.startDt)} – ${formatBrowserTime(s.endDt)}`;
+
+                let partsHtml = '';
+                if (s.parts && s.parts.length) {
+                    const partsText = s.parts.map(p => {
+                        const pStart = new Date(p.start_utc);
+                        return `${escapeHtml(p.label)} ${formatBrowserTime(pStart)} (${p.duration_mins}m)`;
+                    }).join(' · ');
+                    partsHtml = `<div class="timetable-parts">${partsText}</div>`;
+                }
+
+                let rightBadge = `<span class="timetable-duration">${s.duration_mins}m</span>`;
+                if (isNow) {
+                    rightBadge = `<span class="timetable-state-pill state-now">NOW</span><span class="timetable-duration">${s.duration_mins}m</span>`;
+                } else if (isNext) {
+                    rightBadge = `<span class="timetable-state-pill state-next">NEXT</span><span class="timetable-duration">${s.duration_mins}m</span>`;
+                } else if (isDone) {
+                    rightBadge = `<span class="timetable-done-check" title="Session finished">✓</span><span class="timetable-duration">${s.duration_mins}m</span>`;
+                }
+
+                html += `
+                    <div class="${rowClasses.join(' ')}" title="${escapeHtml(timeRangeTitle)}">
+                        <div class="timetable-time">
+                            ${formatBrowserTime(s.startDt)}${dayShiftChip}
+                        </div>
+                        <span class="session-class-badge class-${escapeHtml(s.class)}">${escapeHtml(s.class_label)}</span>
+                        <div class="timetable-session">
+                            <div class="timetable-session-name">${escapeHtml(s.short_name)}</div>
+                            ${partsHtml}
+                        </div>
+                        <div class="timetable-right">${rightBadge}</div>
+                    </div>
+                `;
+            });
+            html += `</div></div>`;
+            return html;
+        }
+
+        // Fallback for provisional calendars that have weekend_formats but no start times yet
+        if (race.format && Object.keys(race.format).length) {
+            const formatDays = dayKeyOrder.filter(k => Array.isArray(race.format[k]) && race.format[k].length);
+            if (!formatDays.length) return '';
+            const activeDay = formatDays.includes(currentModalDay) ? currentModalDay : formatDays[0];
+            const sessions = race.format[activeDay] || [];
+
+            let html = `<div class="day-schedule-panel">`;
+            html += `<div class="schedule-day-tabs" role="tablist">`;
+            formatDays.forEach(dKey => {
+                const isSelected = dKey === activeDay;
+                html += `<button type="button"
+                                 class="schedule-day-tab ${isSelected ? 'active' : ''}"
+                                 onclick="selectModalDay('${dKey}')">${escapeHtml((dayKeyLabels[dKey] || dKey).slice(0, 3))}</button>`;
+            });
+            html += `</div>`;
+            html += `
+                <div class="schedule-subheader">
+                    <span class="schedule-day-heading">${escapeHtml(dayKeyLabels[activeDay] || activeDay)} (MotoGP)</span>
+                    <span class="schedule-tz-note">Start times TBC</span>
+                </div>
+                <div class="day-timetable">
+            `;
+            sessions.forEach(s => {
+                html += `
+                    <div class="timetable-row row-class-motogp">
+                        <div class="timetable-time muted">TBC</div>
+                        <span class="session-class-badge class-motogp">MotoGP</span>
+                        <div class="timetable-session">
+                            <div class="timetable-session-name">${escapeHtml(s.label)}</div>
+                        </div>
+                        <div class="timetable-right">
+                            <span class="timetable-duration">${s.duration_mins}m</span>
+                        </div>
+                    </div>
+                `;
+            });
+            html += `</div></div>`;
+            return html;
+        }
+
+        return '';
+    }
+
+    function renderModalContent() {
         const races = calendarData[currentYear] || [];
-        const race = races.find(r => r.number === roundNumber);
-        
+        const race = races.find(r => r.number === currentRoundNum);
         if (!race) return;
-        
-        currentRoundNum = roundNumber;
-        calendarSelectedSessions.clear();
-        
-        const raceDate = new Date(race.date);
-        const isPast = raceDate < today;
-        const status = libraryStatus[roundNumber] || {};
-        const flag = flagData[currentYear] ? flagData[currentYear][roundNumber] : '';
-        
-        // Format date as DD-MM-YYYY
-        const formattedDate = race.date.split('-').reverse().join('-');
-        
+
+        const now = new Date();
+        const timing = getRoundTimingState(race, now);
+        const yearLibStatus = libraryStatusByYear[currentYear] || {};
+        const status = yearLibStatus[currentRoundNum] || {};
+        const flag = flagData[currentYear] ? flagData[currentYear][currentRoundNum] : '';
+
+        const startFormatted = race.weekend_start ? formatDDMMYYYY(race.weekend_start) : '';
+        const raceFormatted = formatDDMMYYYY(race.date);
+        const headerDateText = (!timing.isPast && startFormatted && startFormatted !== raceFormatted)
+            ? `${startFormatted} – ${raceFormatted}`
+            : raceFormatted;
+
         const statusLabel = race.status && race.status !== 'scheduled'
-            ? `<div class="race-status-badge race-status-${race.status}">${race.status.toUpperCase()}</div>`
+            ? `<div class="race-status-badge race-status-${escapeHtml(race.status)}">${escapeHtml(race.status.toUpperCase())}</div>`
             : '';
 
         let html = `
             <div class="race-detail-header">
                 <div class="race-detail-flag">
-                    ${flag ? `<img src="/flags/${flag}" class="modal-flag-avatar" alt="">` : ''}
+                    ${flag ? `<img src="/flags/${escapeHtml(flag)}" class="modal-flag-avatar" alt="">` : ''}
                 </div>
                 <div class="race-detail-info">
                     <div class="race-round">Round ${race.number}</div>
-                    <div class="race-venue">${race.venue}</div>
-                    <div class="race-date">${formattedDate}</div>
+                    <div class="race-venue">${escapeHtml(race.venue)}</div>
+                    <div class="race-date">${escapeHtml(headerDateText)}</div>
                     ${statusLabel}
                 </div>
             </div>
         `;
 
-        // Weekend format (differs by season and, from 2027, by class)
-        if (race.format && Object.keys(race.format).length) {
-            const dayOrder = ['friday', 'saturday', 'sunday'];
-            const otherClasses = (race.classes || []).filter(c => c !== 'motogp');
-            const formatClasses = otherClasses.length === 3 ? 'MotoGP, Moto2, Moto3' : 'MotoGP';
-            const formatNote = otherClasses.length
-                ? `<div class="race-format-note">${formatClasses}</div>` : '';
-
-            html += `<div class="race-format">
-                <div class="race-format-title">Weekend format${formatNote}</div>`;
-            dayOrder.forEach(day => {
-                const sessions = race.format[day];
-                if (!sessions) return;
-                html += `<div class="race-format-day">
-                    <span class="race-format-day-label">${day.slice(0, 3).toUpperCase()}</span>
-                    <span class="race-format-sessions">${sessions.map(s =>
-                        `${s.label} <em>${s.duration_mins}m</em>`
-                    ).join(' &middot; ')}</span>
-                </div>`;
-            });
-            html += `</div>`;
-        }
-        
-        if (isPast) {
+        if (!timing.isActive) {
+            const noteHtml = race.status_note
+                ? `<div class="race-status-note">${escapeHtml(race.status_note)}</div>`
+                : '';
+            html += `<div class="race-progress">
+                <div class="race-progress-label">This round is marked as ${escapeHtml(race.status)}.</div>
+                ${noteHtml}
+            </div>`;
+            document.getElementById('modal-footer').style.display = 'none';
+        } else if (timing.isPast) {
+            // Past events: show library status and missing-session download controls only
             const grabbed = status.grabbed || 0;
             const total = status.total || 0;
             const pct = total > 0 ? Math.round(grabbed / total * 100) : 0;
-            
+
             html += `
                 <div class="race-progress">
                     <div class="race-progress-label">Library Status: ${grabbed}/${total} sessions (${pct}%)</div>
@@ -240,60 +640,79 @@
                     </div>
                 </div>
             `;
-            
+
             if (status.sessions) {
                 const hasMissing = status.sessions.some(s => !s.exists);
-                
+                const selectedKeys = new Set(
+                    Array.from(calendarSelectedSessions).map(raw => JSON.parse(raw).key)
+                );
+
                 html += `<div class="race-sessions-list">`;
                 status.sessions.forEach(s => {
                     if (s.exists) {
-                        html += `<div class="library-session exists">✅ ${s.name}</div>`;
+                        html += `<div class="library-session exists">✅ ${escapeHtml(s.name)}</div>`;
                     } else {
-                        const sessionKey = `${currentYear}_R${String(roundNumber).padStart(2,'0')}_E${String(s.episode || 0).padStart(2,'0')}`;
+                        const sessionKey = `${currentYear}_R${String(currentRoundNum).padStart(2, '0')}_E${String(s.episode || 0).padStart(2, '0')}`;
+                        const checked = selectedKeys.has(sessionKey) ? 'checked' : '';
                         html += `
                             <div class="library-session missing">
                                 <label class="session-checkbox-label">
-                                    <input type="checkbox" 
-                                           class="session-checkbox calendar-session-cb" 
-                                           data-session-key="${sessionKey}"
-                                           data-round="${roundNumber}"
-                                           data-session="${s.type}"
-                                           data-name="${s.name}"
+                                    <input type="checkbox"
+                                           class="session-checkbox calendar-session-cb"
+                                           data-session-key="${escapeHtml(sessionKey)}"
+                                           data-round="${currentRoundNum}"
+                                           data-session="${escapeHtml(s.type || '')}"
+                                           data-name="${escapeHtml(s.name)}"
+                                           ${checked}
                                            onchange="toggleCalendarSession(this)">
                                     <span class="checkbox-custom"></span>
-                                    <span class="session-name">❌ ${s.name}</span>
+                                    <span class="session-name">❌ ${escapeHtml(s.name)}</span>
                                 </label>
                             </div>
                         `;
                     }
                 });
                 html += `</div>`;
-                
-                // Show footer if there are missing sessions
                 document.getElementById('modal-footer').style.display = hasMissing ? 'flex' : 'none';
+            } else {
+                document.getElementById('modal-footer').style.display = 'none';
             }
-        } else if (race.status && race.status !== 'scheduled') {
-            html += `<div class="race-progress">
-                <div class="race-progress-label">This round is marked as ${race.status}.</div>
-            </div>`;
-            document.getElementById('modal-footer').style.display = 'none';
         } else {
-            const daysUntil = Math.ceil((raceDate - today) / (1000 * 60 * 60 * 24));
-            html += `
-                <div class="race-countdown-detail">
-                    <div class="countdown-big">${daysUntil}</div>
-                    <div class="countdown-label">days to go</div>
-                </div>
-            `;
+            html += renderLiveOrFutureStatus(race, timing, now);
+            html += renderDayScheduleSection(race, timing, now);
             document.getElementById('modal-footer').style.display = 'none';
         }
-        
+
         document.getElementById('modal-title').textContent = race.venue;
         document.getElementById('modal-body').innerHTML = html;
-        document.getElementById('race-modal').classList.add('active');
         updateCalendarDownloadBtn();
+
+        if (modalLiveTimer) {
+            clearInterval(modalLiveTimer);
+            modalLiveTimer = null;
+        }
+        if (timing.isLiveWeekend) {
+            modalLiveTimer = setInterval(() => {
+                if (document.getElementById('race-modal').classList.contains('active')) {
+                    renderModalContent();
+                }
+            }, 30000);
+        }
     }
-    
+
+    function showRaceDetails(roundNumber, clickedDateStr) {
+        const races = calendarData[currentYear] || [];
+        const race = races.find(r => r.number === roundNumber);
+        if (!race) return;
+
+        currentRoundNum = roundNumber;
+        currentModalDay = resolveDayKeyForDate(race, clickedDateStr);
+        calendarSelectedSessions.clear();
+
+        renderModalContent();
+        document.getElementById('race-modal').classList.add('active');
+    }
+
     function toggleCalendarSession(checkbox) {
         const key = checkbox.dataset.sessionKey;
         const data = {
@@ -302,7 +721,7 @@
             session: checkbox.dataset.session,
             name: checkbox.dataset.name
         };
-        
+
         if (checkbox.checked) {
             calendarSelectedSessions.add(JSON.stringify(data));
         } else {
@@ -314,18 +733,18 @@
         }
         updateCalendarDownloadBtn();
     }
-    
+
     function updateCalendarDownloadBtn() {
         const count = calendarSelectedSessions.size;
         document.getElementById('calendar-selected-count').textContent = count;
         document.getElementById('calendar-download-btn').disabled = count === 0;
     }
-    
+
     function downloadSelectedFromCalendar() {
         if (calendarSelectedSessions.size === 0) return;
-        
+
         const selections = Array.from(calendarSelectedSessions).map(s => JSON.parse(s));
-        
+
         fetch('/download-selected', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -335,33 +754,34 @@
             })
         })
         .then(r => r.json())
-        .then(data => {
+        .then(() => {
             showToast(`Starting download of ${selections.length} sessions...`, 'success');
             closeModal();
-            
-            // Redirect to commands tab
+
             setTimeout(() => {
                 window.location.href = '/';
             }, 1500);
         })
-        .catch(err => {
+        .catch(() => {
             showToast('Failed to start download', 'error');
         });
     }
-    
+
     function closeModal(event) {
         if (!event || event.target.classList.contains('modal-overlay')) {
             document.getElementById('race-modal').classList.remove('active');
             calendarSelectedSessions.clear();
+            if (modalLiveTimer) {
+                clearInterval(modalLiveTimer);
+                modalLiveTimer = null;
+            }
         }
     }
-    
-    // Close modal on escape key
+
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeModal();
     });
-    
-    // Initial render
+
     window.addEventListener('load', renderCalendar);
 </script>
 {% endblock %}
