@@ -298,10 +298,20 @@ def test_check_mode_warns_but_passes_for_the_unreleased_bump():
 
 
 def test_the_current_tree_is_consistent_in_check_mode():
-    """The end-to-end case CI runs on this PR."""
+    """
+    The end-to-end case CI runs on every PR, including the bump PR itself.
+
+    A warning is allowed and expected: while the pin names a version whose tag
+    has not been pushed yet - which is exactly the state of the *bump* PR - the
+    unpublished-version notice fires. Asserting no warnings at all made this
+    test fail the very PR it exists to support. Failure is what must not
+    happen; the warning is how the notice reaches the maintainer.
+    """
     report = readiness.run(current_pin(), REPO_ROOT, prepare=False)
     assert report.ok, report.render()
-    assert not report.warnings, report.render()
+    assert all(
+        "not on the remote yet" in warning for warning in report.warnings
+    ), report.render()
 
 
 def test_readiness_workflow_is_read_only_and_needs_no_docker():
