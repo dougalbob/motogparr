@@ -35,6 +35,13 @@ Tags must be `vX.Y.Z`. `V.2.2.1` did not match the container workflow's semver
 patterns and shipped images without a `:2.2` tag; the release workflow now
 refuses any other format.
 
+Releasing is a sequence, and CI enforces the order: the Unraid template's pinned
+`TemplateURL` must name the tag *before* it is created, so bump it, merge, then
+tag that merge commit. `release.yml` refuses a tag whose tree pins something
+else, and waits for both `:X.Y.Z` and `:latest` to publish before reporting the
+release as done. `scripts/check_release_readiness.py --version vX.Y.Z` runs the
+same checks locally.
+
 ### One-time GHCR setup (only if a build fails with `permission_denied`)
 
 Making the *repository* public does **not** change the visibility of a package

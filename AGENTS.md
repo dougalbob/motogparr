@@ -112,6 +112,14 @@ root-level `test_*.py` scratch scripts and errors out. See `SANDBOX.md`.
 - Prefer one concern per PR. Follow the dependency-aware slices in
   [`docs/IMPROVEMENT_PLAN.md`](docs/IMPROVEMENT_PLAN.md).
 - Never commit `*.backup*` files.
+- **A release is a sequence, and it is checked.** Bump the Unraid
+  `TemplateURL` pin, merge, *then* tag that merge commit; the release job
+  refuses to publish a tag whose own tree does not pin it, and does not report
+  success until the versioned image and `:latest` both resolve. Run
+  `python scripts/check_release_readiness.py --version vX.Y.Z` before tagging
+  (`release-prep.yml` runs it on every PR to `main`). Never move a tag to
+  repair a failed check - cut a new patch version. The full checklist is in
+  `docs/IMPROVEMENT_PLAN.md` under "Release checklist".
 
 ---
 

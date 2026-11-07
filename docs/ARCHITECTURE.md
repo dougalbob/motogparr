@@ -341,8 +341,15 @@ next save from the UI.
 - CI: `docker-publish.yml` (tests → build → push), `calendar-check.yml`
   (calendar validation, duplicate JSON key rejection), `container-smoke.yml`
   (build and run the image, assert non-root + auth), `release.yml` (generate
-  notes, publish, open release-notes PR), and `pr-label-check.yml` (require at
-  least one label on PRs to `main` so release notes are categorised). Their
+  notes, publish, open release-notes PR, then wait for the versioned image and
+  `:latest` to resolve before calling the release shipped), `release-prep.yml`
+  (run `scripts/check_release_readiness.py` on every PR to `main`: tag format,
+  Unraid `TemplateURL` pin, Dockerfile `COPY` sources, tag not already
+  published), and `pr-label-check.yml` (require at least one label on PRs to
+  `main` so release notes are categorised). `release.yml` also refuses to
+  publish a tag whose own tree does not pin it, which is the v2.11.0 ordering
+  hazard made mechanical - the checklist order is in
+  `docs/IMPROVEMENT_PLAN.md`. Their
   triggers differ: calendar checks are path-filtered, the container smoke test
   skips documentation-only PRs, and release publishing runs on version tags or
   manual dispatch. Workflows use Node 24 runtimes (`actions/checkout@v5`,

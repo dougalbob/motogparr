@@ -1,0 +1,80 @@
+name: Release readiness
+
+# A release is a sequence: bump the Unraid template's pinned TemplateURL, merge,
+# tag the merged commit, publish the image, then merge the generated release
+# notes. During v2.11.0 the tag was pushed before the template bump had merged;
+# the template test caught it and a follow-up PR plus a rebuild were needed.
+#
+# Running the same check on every PR turns that into a red PR instead of a
+# half-made release. It is deliberately cheap: shell + the stdlib, no checkout
+# action beyond git, no Docker, no build.
+#
+# It reads the version from the Unraid template and checks that the tag is not
+# already published, so the only PR that passes is the one that bumps the pin to
+# a tag that does not exist yet - which is exactly the order the release needs.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Candidate tag to check, e.g. v2.12.0 (default: the Unraid pin)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    name: Can this tree be tagged?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      # The tag-existence check is part of the point of this workflow: it is
+      # what stops a release being started from a tree that was never checked.
+      # Without tags fetched, that check would only warn.
+      - name: Fetch tags so a published tag is visible
+        run: git fetch --tags --force origin
+
+      - name: Resolve the candidate version
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED}" ]; then
+            version="$REQUESTED"
+            echo "Using the version from the workflow input."
+          else
+            # The pinned TemplateURL is the version this branch intends to
+            # release; reading it means there is no second place to update.
+            version=$(sed -n 's|.*motogparr/\([^/]*\)/unraid/motogparr\.xml.*|\1|p' \
+              unraid/motogparr.xml | head -1)
+            echo "Using the version pinned in unraid/motogparr.xml."
+          fi
+          if [ -z "${version}" ]; then
+            echo "::error title=No version to check::unraid/motogparr.xml has no pinned TemplateURL."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Candidate: ${version}"
+
+      - name: Check release readiness
+        run: |
+          python scripts/check_release_readiness.py \
+            --version "${{ steps.version.outputs.version }}"
+
+      # The ordering claim is only worth anything if the checks themselves are
+      # exercised, so the suite runs here too. It is fast and already required
+      # by the other workflows; this keeps this job self-contained.
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the suite
+        run: python -m pytest tests -q

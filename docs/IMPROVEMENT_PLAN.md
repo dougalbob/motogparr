@@ -331,7 +331,7 @@ is reported without a network call, and initialization/shutdown do not show a
 false healthy status. Preserve the current process supervision semantics unless
 there is evidence for a specific change.
 
-### Candidate B — make the release sequence hard to get wrong
+### Candidate B — make the release sequence hard to get wrong (**DONE 2026-11-07**)
 
 The release flow is split across the Unraid template's pinned `TemplateURL`, a
 version tag, the container image workflow, and release notes. During v2.11.0,
@@ -352,6 +352,47 @@ merged first, tag points to that merged tree, image tags resolve to that commit,
 and release metadata refers to the same tag. Do not create/move a release tag as
 a workaround for a failed check without documenting and validating the exact
 resulting image and release state.
+
+**Delivered as Slice B (2026-11-07).** Three layers, cheapest first:
+
+* `scripts/check_release_readiness.py` is the pre-flight a maintainer can run
+  before pushing a tag. It checks the version is `vX.Y.Z` (the `V.2.2.1`
+  failure), that `unraid/motogparr.xml` pins *that* tag, that every `Dockerfile`
+  `COPY` source exists, and that the tag is not already on the remote. It
+  reports and exits non-zero; it never edits the template or creates a tag - a
+  check that repairs its own input cannot catch the mistake it exists to catch.
+  With no git remote the tag check warns rather than passing silently.
+* `.github/workflows/release-prep.yml` runs it on **every PR to main**, reading
+  the candidate version from the template pin itself, so there is no second
+  place to keep in step. Only the PR that bumps the pin to a tag that does not
+  exist yet can pass, which is exactly the order the release needs.
+* `release.yml` now gates publishing: the tagged tree must pin its own tag
+  *before* the release step, and the job does not call the release shipped
+  until `ghcr.io/<repo>:<version>` **and** `:latest` both resolve. It polls the
+  package tags (the build runs in a different workflow on the same tag push) and
+  names which one is missing. It needs `packages: read`, and cannot start or
+  repair a build. Retry safety is unchanged and still tested.
+
+`tests/test_release_readiness.py` covers each decision and the negative cases,
+the step ordering inside `release.yml`, and the readiness workflow's trigger and
+permissions.
+
+### Release checklist
+
+The order is the whole point, so it is written down here as well as enforced:
+
+1. **Bump the pin.** `unraid/motogparr.xml`'s `TemplateURL` → the candidate tag;
+   merge that PR. (`release-prep.yml` must be green on it first.)
+2. **Tag the merged commit.** `git tag vX.Y.Z <merge commit> && git push origin
+   vX.Y.Z` - tag the merge commit of step 1, never an earlier one. Never tag a
+   tree whose template pin points somewhere else; that is what forced the
+   v2.11.0 rebuild.
+3. **Confirm the image.** The release job waits for `:X.Y.Z` and `:latest`
+   (Unraid installs track `:latest`, so a versioned tag alone is not shipped).
+4. **Merge the generated notes PR** (`release-notes/vX.Y.Z`) so the notes reach
+   the repository.
+5. **Never move a tag** to repair a failed check: the published image would come
+   from a tree the pre-flight never saw. Cut a new patch version instead.
 
 ### Candidate C — explain ordinary search and processing failures end to end
 

@@ -26,6 +26,7 @@ on:
 permissions:
   contents: write     # to commit the notes file to a branch
   pull-requests: write  # to open/update the release-notes pull request
+  packages: read      # to confirm the tagged image and :latest were published
 
 concurrency:
   group: release-${{ github.ref }}
@@ -57,6 +58,23 @@ jobs:
             echo "::error title=Bad tag format::'$tag' is not vX.Y.Z."
             echo "The container workflow derives :MAJOR.MINOR and :latest from"
             echo "semver tags; 'V.2.2.1' did not, and shipped untagged images."
+            exit 1
+          fi
+
+      # Publishing is the last moment this can be caught cheaply. If the tagged
+      # tree does not pin its own tag in the Unraid template, every fresh
+      # install would fetch a different version's template - and the v2.11.0
+      # sequence (tag before the bump merged) is exactly how that happens.
+      # A release is cheap to redo before publication and expensive after.
+      - name: The tagged tree must pin its own tag in the Unraid template
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          pinned=$(sed -n 's|.*motogparr/\([^/]*\)/unraid/motogparr\.xml.*|\1|p' \
+            unraid/motogparr.xml | head -1)
+          if [ "$pinned" != "$tag" ]; then
+            echo "::error title=Template pin does not match the tag::unraid/motogparr.xml pins '$pinned' but you are releasing '$tag'."
+            echo "Merge a PR that bumps TemplateURL to $tag, then tag that merge commit."
+            echo "See scripts/check_release_readiness.py - it runs on every PR to main."
             exit 1
           fi
 
@@ -213,6 +231,47 @@ jobs:
           name: release-notes-${{ steps.version.outputs.version }}
           path: RELEASE_NOTES_v*.md
           retention-days: 30
+
+      # The image is the artefact users actually run, so "the release shipped"
+      # means the versioned tag and :latest exist - not that this job is green.
+      # The build runs in a *different* workflow (docker-publish.yml) on the
+      # same tag push, so it is polled here rather than assumed. This cannot
+      # start a build, and it cannot repair one: it reports exactly which tag
+      # is missing so the maintainer knows whether to wait or to investigate.
+      - name: Confirm the container image was published for this tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          version="${{ steps.version.outputs.version }}"
+          repo="${{ github.repository }}"
+          owner="${repo%%/*}"
+          package="${repo##*/}"
+
+          check() {
+            gh api "users/${owner}/packages/container/${package}/versions" \
+              --jq '.[].metadata.container.tags[]' 2>/dev/null | grep -qx "$1"
+          }
+
+          # The image build starts on the same tag push, so it is normally
+          # still running. Give it a bounded wait rather than failing at once.
+          for attempt in $(seq 1 40); do
+            if check "$version" && check "latest"; then
+              echo "Published: :${version} and :latest both resolve."
+              exit 0
+            fi
+            sleep 15
+          done
+
+          if check "$version"; then
+            echo "::error title=:latest was not moved::ghcr.io/${repo}:${version} exists but :latest does not."
+            echo "Unraid installs track :latest by default, so they would not receive this release."
+          else
+            echo "::error title=Image missing::ghcr.io/${repo}:${version} was not published within 10 minutes."
+            echo "Check the 'Build and publish' workflow run for tag ${{ steps.version.outputs.tag }}."
+          fi
+          echo "The release notes are published; the image is the missing half."
+          exit 1
 
       # The release body and the in-repo file are both the generated notes.
       # No hand-written companion is concatenated: a second file would be a
