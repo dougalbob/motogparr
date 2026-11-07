@@ -444,7 +444,7 @@ def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None
                 logger.debug(f"  {session_type.full_display_name}: Could not determine end time, skipping")
                 continue
 
-            search_after = end_time + timedelta(hours=delay)
+            search_after = end_time + timedelta(minutes=delay * 60)
 
             logger.debug(
                 f"  {session_type.full_display_name}: Ended {end_time}, "

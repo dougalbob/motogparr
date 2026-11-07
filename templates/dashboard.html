@@ -149,7 +149,7 @@
 <div class="card">
     <h2>Quick Status</h2>
     {% if status.timestamp %}<div class="timestamp">Last activity: {{ status.timestamp }}</div>{% endif %}
-    <div class="output" id="output">{{ status.output or 'No recent activity.' }}</div>
+    <div class="output" id="output">{{ (status.output.splitlines()[-quick_status_log_lines:] | join("\n")) if status.output else 'No recent activity.' }}</div>
 </div>
 {% endblock %}
 

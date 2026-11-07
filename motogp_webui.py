@@ -68,6 +68,7 @@ from utils.config_loader import (
     get_required_quality,
     get_allowed_groups,
     get_search_delay_hours,
+    get_int,
 )
 from utils import home_summary
 from utils.json_store import atomic_write_json, file_lock, read_json, write_json
@@ -1207,6 +1208,7 @@ def index():
         next_race=next_race,
         calendar_data=calendar_data,
         home=get_home_summary(settings),
+        quick_status_log_lines=get_int("webui", "quick_status_log_lines", 100),
         active_tab="home"
     )
 
@@ -1233,6 +1235,7 @@ def library():
         next_race=next_race,
         calendar_data=calendar_data,
         flag_data=flag_data,
+        current_year=default_calendar_year(SEASONS),
         active_tab="download"
     )
 
@@ -1241,6 +1244,8 @@ def library():
 def settings_page():
     settings = load_webui_settings()
     settings["max_grabs_per_run"] = get_max_grabs_per_run()
+    settings["search_delay_minutes"] = get_search_delay_hours() * 60
+    settings["quick_status_log_lines"] = get_int("webui", "quick_status_log_lines", 100)
     session_defaults = {k: v["default"] for k, v in SESSION_TYPES.items()}
     next_race = get_next_race_info()
     calendar_data = {str(year): get_rounds_for_season(year) for year in SEASONS}
@@ -1327,6 +1332,8 @@ def settings_route():
         return jsonify({"status": "saved"})
     settings = load_webui_settings()
     settings["max_grabs_per_run"] = get_max_grabs_per_run()
+    settings["search_delay_minutes"] = get_search_delay_hours() * 60
+    settings["quick_status_log_lines"] = get_int("webui", "quick_status_log_lines", 100)
     return jsonify(settings)
 
 
@@ -1467,6 +1474,7 @@ def mismatch_page():
         "mismatches.html",
         status=command_output,
         next_race=get_next_race_info(),
+        current_year=default_calendar_year(SEASONS),
         active_tab="download",
         entries=entries,
     )
@@ -1777,7 +1785,8 @@ APP_CONFIG_NESTED = {
     "plex": {"path_mapping": ("container", "plex")},
 }
 APP_CONFIG_SCALARS = ("timezone",)
-APP_CONFIG_GRABBER = ("max_grabs_per_run", "allowed_groups", "required_quality")
+APP_CONFIG_GRABBER = ("max_grabs_per_run", "allowed_groups", "required_quality", "search_delay_minutes")
+APP_CONFIG_WEBUI = ("quick_status_log_lines",)
 
 
 def _build_app_config_updates(payload: dict) -> dict:
@@ -1815,6 +1824,11 @@ def _build_app_config_updates(payload: dict) -> dict:
         grabber_updates["max_grabs_per_run"] = payload["max_grabs_per_run"]
     if grabber_updates:
         updates["grabber"] = grabber_updates
+    webui = payload.get("webui")
+    if isinstance(webui, dict):
+        webui_updates = {k: webui[k] for k in APP_CONFIG_WEBUI if k in webui}
+        if webui_updates:
+            updates["webui"] = webui_updates
 
     return updates
 
@@ -1947,7 +1961,7 @@ def stream_logs():
             # Send last 100 lines initially
             with open(LOG_FILE, 'r') as f:
                 lines = f.readlines()
-                for line in lines[-100:]:
+                for line in lines[-max(1, min(get_int("webui", "quick_status_log_lines", 100), 2000)):]:
                     yield f"data: {line.rstrip()}\n\n"
             
             # Then tail the file
