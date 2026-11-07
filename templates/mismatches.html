@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2 class="section-heading">🚫 Release Mismatches</h2>
+
+    <p class="help-text" style="margin-bottom: 20px;">
+        Releases that were downloaded, put in the library, and turned out to be the
+        wrong session. Each one is excluded from future searches for that session,
+        so requesting a replacement picks something else instead of the same wrong
+        release. The recorded release name and the matcher's reasoning are here so
+        the patterns can be corrected at the source.
+    </p>
+
+    {% if not entries %}
+    <div class="mismatch-empty">
+        <p>✅ Nothing has been marked as a mismatch.</p>
+        <p class="help-text">
+            If a session in Plex is the wrong release, open
+            <a href="/library">Download</a>, find the session, and press the 🚫 button
+            on it.
+        </p>
+    </div>
+    {% else %}
+    <div class="mismatch-table">
+        {% for entry in entries %}
+        <div class="mismatch-row" data-entry-id="{{ entry.id }}">
+            <div class="mismatch-row-head">
+                <div>
+                    <span class="mismatch-round">Round {{ entry.round }} {{ entry.venue or '' }}</span>
+                    <span class="mismatch-session-name">{{ entry.session_label or entry.session }}</span>
+                    {% if entry.scope == 'global' %}
+                    <span class="mismatch-scope-badge" title="Excluded for every session">all sessions</span>
+                    {% endif %}
+                </div>
+                <button class="unblock-btn" title="Unblock this release"
+                        onclick="unblockEntry('{{ entry.id }}')">↺ Unblock</button>
+            </div>
+
+            <div class="mismatch-title">{{ entry.title }}</div>
+
+            <div class="mismatch-row-meta">
+                Season {{ entry.season }}
+                &middot; marked {{ (entry.recorded_at or '')[:16].replace('T', ' ') }}
+                {% if entry.grabbed_at %}&middot; grabbed {{ entry.grabbed_at[:16].replace('T', ' ') }}{% endif %}
+                {% if entry.source %}&middot; via {{ entry.source }}{% endif %}
+            </div>
+
+            {% if entry.reason %}
+            <div class="mismatch-reason">📝 {{ entry.reason }}</div>
+            {% endif %}
+
+            {% if entry.analysis and entry.analysis.checks %}
+            <details class="mismatch-details">
+                <summary>Why the matcher accepted it</summary>
+                <div class="mismatch-checks">
+                    {% for check in entry.analysis.checks %}
+                    <div class="mismatch-check {{ 'pass' if check.passed else 'fail' }}">
+                        <span class="mismatch-check-icon">{{ '✓' if check.passed else '✕' }}</span>
+                        <span class="mismatch-check-name">{{ check.name }}</span>
+                        <span class="mismatch-check-detail">{{ check.detail or '' }}</span>
+                    </div>
+                    {% endfor %}
+                    {% if entry.analysis.score is not none and entry.analysis.score is defined %}
+                    <div class="mismatch-check score">
+                        <span class="mismatch-check-icon">★</span>
+                        <span class="mismatch-check-name">score</span>
+                        <span class="mismatch-check-detail">{{ entry.analysis.score }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </details>
+            {% endif %}
+
+            {% if entry.library_action %}
+            <div class="mismatch-row-meta">
+                {% if entry.library_action.ok %}
+                📦 Old folder moved to <code>{{ entry.library_action.to }}</code>
+                {% else %}
+                ⚠️ Folder not moved: {{ entry.library_action.reason }}
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function escapeHtml(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function unblockEntry(id) {
+        if (!confirm('Unblock this release? The matcher may choose it again.')) return;
+        fetch(`/api/release-mismatch/${encodeURIComponent(id)}`, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    showToast(data.error, 'error');
+                    return;
+                }
+                const row = document.querySelector(`.mismatch-row[data-entry-id="${id}"]`);
+                if (row) row.remove();
+                showToast('Release unblocked', 'success');
+            })
+            .catch(() => showToast('Could not unblock the release', 'error'));
+    }
+</script>
+{% endblock %}

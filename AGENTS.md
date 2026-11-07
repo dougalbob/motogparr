@@ -4,7 +4,7 @@ Kickoff document for an agentic contributor working on MotoGParr. It describes
 the system, its invariants, the current implementation status and the next
 recommended work. Keep status and plans current when code or priorities change.
 
-**Latest repository release: v2.7.4** · **Last verified here: 384 tests passing (2026-11-06)** · **Single user, self-hosted**
+**Latest repository release: v2.7.4** · **Last verified here: 423 tests passing (2026-11-07)** · **Single user, self-hosted**
 
 ---
 
@@ -84,6 +84,12 @@ visible errors.
    start, or a loud warning, over doing nothing.
 5. **One user.** Do not build user accounts, roles, sign-up, or a household
    registry. Identity is Cloudflare Access' job; see §5.
+6. **A marked mismatch blocks a release, it does not delete media.** The block
+   is what makes "download it again" behave differently; the folder is *moved*
+   to `<library>/.mismatched/`. Never turn the mismatch path into a delete, and
+   never widen the title match beyond the normalised exact comparison - a fuzzy
+   block silently discards good releases and the symptom is a session that
+   never downloads. See §6b.
 
 ---
 
@@ -91,7 +97,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # last checked: 384 passed (2026-11-06)
+.venv/bin/python -m pytest tests -q          # last checked: 423 passed (2026-11-07)
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -303,6 +309,47 @@ live confirmation (see Outstanding).
   episode key from `int(session_type)` is a bug.
 
 ---
+
+### 6b. Release mismatches (2026-11-07)
+
+`filter_releases()` is deterministic: a release the rules wrongly accept is
+picked again on every retry, so "delete it and download it again" could not fix
+a bad match. This is now a first-class correction path, not a code change:
+
+- **Record** — `utils/release_mismatches.py` owns
+  `/config/release_mismatches.json` (sidecar lock, atomic replace, reload while
+  held). Entries are session-scoped by default and globally scoped on request.
+  `filter_releases(excluded_titles=...)` drops them before scoring, so the next
+  `backfill --force` selects the next candidate. The grabber reads the store
+  itself (`_blocked_titles`), so a scheduled run is covered too.
+- **Explain** — `motogp_common.explain_release()` runs the *real* filter over one
+  title and returns each check with the value that matched. It shares the
+  implementation with `filter_releases()` (`_filter_releases_impl`), because a
+  second description of the rules would drift and then explain the wrong thing.
+  This is the material for a pattern fix: the dialog's "Copy report" emits it.
+- **Replace** — the dialog moves the existing folder to
+  `<library>/.mismatched/<season>/` (dot-prefixed so Plex ignores it) and starts
+  the ordinary `backfill --season S --round R --sessions E<element> --force`
+  job. There is deliberately no second download implementation, and no delete.
+- **Sort safety** — `motogp_sort._clear_existing_session_folder()` moves an
+  existing session folder aside before a replacement is moved in. Without it
+  `shutil.move(src, dst)` nests the new folder inside the old one and Plex keeps
+  showing the wrong file with nothing visibly failing.
+
+`tests/test_release_mismatch.py` covers the exclusion, its scope and
+normalisation, concurrent writers, the quarantine guards (prefix boundary,
+symlink refusal, stay-inside-the-library check), the sorter behaviour, the
+explanation, and the rendered dialog/Download-tab badge through node.
+
+**Known limit:** the block list is keyed on the indexer's title. If the same
+wrong content is re-uploaded under a new name, it is a new candidate again -
+that is a pattern problem, which is why the dialog shows the evidence.
+
+**Trap:** `/release-mismatch*` is in `sw.js`'s network-bypass list. Those
+responses must never come from the service-worker cache - a cached `blocked: []`
+makes the dialog claim a release would still be picked when it would not.
+Templates are cached by Jinja with debug off, so restart the app after editing
+them (or you will debug HTML that is no longer on disk).
 
 ## 7. Current improvement plan
 

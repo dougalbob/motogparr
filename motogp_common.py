@@ -25,7 +25,7 @@ import argparse
 import logging
 from datetime import datetime
 from enum import IntEnum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -1959,6 +1959,57 @@ class ReleaseInfo:
     broadcaster: Optional[str] = None
 
 
+@dataclass
+class ReleaseAnalysis:
+    """
+    One candidate's verdict from the matcher, with the evidence for it.
+
+    Produced by ``explain_release()`` and, for every candidate, by the
+    implementation behind ``filter_releases()``. It exists so that "why was this
+    release chosen?" has an answer produced by the *same* code that chose it.
+    A hand-written description of the rules would drift the first time a rule
+    changed, and then confidently explain the wrong thing.
+
+    ``checks`` is an ordered list of ``{"name", "passed", "detail"}``. Checks
+    after the first failure are absent, because they were never reached - which
+    is what makes the list readable as a narrative.
+    """
+
+    title: str
+    accepted: bool
+    reason: str = ""
+    checks: List[dict] = field(default_factory=list)
+    score: Optional[int] = None
+    refused: bool = False
+    classification: Optional[str] = None
+    release: Optional[dict] = None
+
+    def as_dict(self, calendar: dict = None) -> dict:
+        """JSON-safe form for the WebUI. Pass the calendar for venue resolution."""
+        parsed = parse_release_title(self.title, calendar) if self.title else None
+        return {
+            "title": self.title,
+            "accepted": self.accepted,
+            "reason": self.reason,
+            "checks": list(self.checks),
+            "score": self.score,
+            "refused": self.refused,
+            "classification": self.classification,
+            "parsed": None if parsed is None else {
+                "year": parsed.year,
+                "round": parsed.round_num,
+                "venue": parsed.venue,
+                "session": parsed.session_type.name,
+                "session_name": parsed.session_type.full_display_name,
+                "class": parsed.race_class.name if parsed.race_class else None,
+                "quality": parsed.quality,
+                "group": parsed.group,
+                "broadcaster": parsed.broadcaster,
+            },
+            "candidate": self.release or {},
+        }
+
+
 def parse_release_title(title: str, calendar: dict = None) -> ReleaseInfo:
     """Parse a release title to extract metadata."""
     info = ReleaseInfo(title=title)
@@ -2013,29 +2064,47 @@ def parse_release_title(title: str, calendar: dict = None) -> ReleaseInfo:
     return info
 
 
-def filter_releases(
+def _filter_releases_impl(
     releases: List[dict],
     target_session: SessionType,
     season: int,
     round_info: dict,
     required_quality: str = "1080p",
     allowed_groups: List[str] = None,
-    calendar: dict = None
-) -> List[dict]:
-    """Filter and score releases for a target session."""
+    calendar: dict = None,
+    excluded_titles: Optional[Iterable[str]] = None,
+) -> Tuple[List[dict], List["ReleaseAnalysis"]]:
+    """
+    The body of filter_releases(), with a per-candidate explanation.
+
+    Split out so that ``explain_release()`` can answer "why was this release
+    chosen?" from the same rules the matcher actually runs, instead of from a
+    second description of them that will drift. Returns ``(accepted, analyses)``;
+    ``filter_releases()`` discards the analyses, and the WebUI shows them.
+    """
     if allowed_groups is None:
         allowed_groups = ["VERUM", "MWR", "BILLIE"]
-    
+
+    # Mismatches the user has marked. Compared on a normalised title (case,
+    # dots and separators removed) but never fuzzier than that: a looser match
+    # would block a good release because it resembles a bad one, and the
+    # symptom - a session that simply never downloads - is undiagnosable.
+    blocked_norm = {
+        re.sub(r"\s+", " ", str(t).casefold().replace(".", " ").replace("-", " ")).strip()
+        for t in (excluded_titles or ())
+        if str(t).strip()
+    }
     venue = round_info.get("venue", "").lower()
     aliases = [a.lower() for a in round_info.get("aliases", [])]
     all_locations = [venue] + aliases
     round_num = round_info.get("round", 0)
-    
+
     target_class = target_session.race_class
     target_session_name = target_session.display_name
-    
+
     scored = []
-    
+    analyses: List["ReleaseAnalysis"] = []
+
     # Terms to exclude globally
     excluded_terms = [
         "full event", "full.event", "fullevent",
@@ -2043,10 +2112,10 @@ def filter_releases(
         "complete weekend", "complete.weekend",
         "all sessions", "all.sessions",
     ]
-    
+
     # Get logger
     logger = logging.getLogger("motogp.filter")
-    
+
     logger.debug(f"=" * 60)
     logger.debug(f"FILTER_RELEASES DEBUG")
     logger.debug(f"=" * 60)
@@ -2060,37 +2129,79 @@ def filter_releases(
     logger.debug(f"Required quality: {required_quality}")
     logger.debug(f"Allowed groups: {allowed_groups}")
     logger.debug(f"Total candidates: {len(releases)}")
+    logger.debug(f"Blocked (marked mismatch): {len(blocked_norm)} title(s)")
     logger.debug(f"-" * 60)
-    
+
     for idx, release in enumerate(releases):
         title = release.get('title', '')
         title_lower = title.lower()
         title_normalized = title_lower.replace('.', ' ').replace('-', ' ')
-        
+        norm_key = re.sub(r"\s+", " ", title_normalized).strip()
+
+        checks: List[dict] = []
+        score = 100
+
         logger.debug(f"")
         logger.debug(f"[{idx+1}/{len(releases)}] Evaluating: {title}")
-        
+
+        if norm_key in blocked_norm:
+            logger.warning(
+                f"  🚫 EXCLUDED (marked as a mismatch): {title}"
+            )
+            analyses.append(ReleaseAnalysis(
+                title=title,
+                accepted=False,
+                reason="marked as a mismatch - it will not be selected again",
+                checks=[{"name": "marked_mismatch", "passed": False,
+                         "detail": "excluded by the user"}],
+                score=None,
+                release=release,
+            ))
+            continue
+
         # GLOBAL EXCLUSIONS
         excluded_match = None
         for term in excluded_terms:
             if term in title_normalized:
                 excluded_match = term
                 break
-        
+
         if excluded_match:
             logger.debug(f"  ❌ REJECTED: Contains excluded term '{excluded_match}'")
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False,
+                reason=f"title contains the excluded term {excluded_match!r}",
+                checks=[{"name": "global_exclusion", "passed": False,
+                         "detail": excluded_match}],
+                release=release,
+            ))
             continue
-        
+        checks.append({"name": "global_exclusion", "passed": True,
+                       "detail": "no full-weekend/combined marker"})
+
         # Must match class
         detected_class = detect_race_class(title)
         logger.debug(f"  Detected class: {detected_class.display_name}")
-        
+
         if detected_class != target_class:
             logger.debug(f"  ❌ REJECTED: Class mismatch (want {target_class.display_name}, got {detected_class.display_name})")
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False,
+                reason=(
+                    f"class mismatch: the title reads as "
+                    f"{detected_class.display_name}, target is "
+                    f"{target_class.display_name}"
+                ),
+                checks=checks + [{"name": "class", "passed": False,
+                                  "detail": detected_class.display_name}],
+                release=release,
+            ))
             continue
-        
+
         logger.debug(f"  ✓ Class matches: {detected_class.display_name}")
-        
+        checks.append({"name": "class", "passed": True,
+                       "detail": detected_class.display_name})
+
         # Must match location or round number
         location_match = False
         matched_location = None
@@ -2099,8 +2210,9 @@ def filter_releases(
                 location_match = True
                 matched_location = loc
                 break
-        
+
         round_match = False
+        matched_round_pattern = None
         if not location_match:
             round_patterns = [
                 f"round{round_num:02d}",
@@ -2114,28 +2226,51 @@ def filter_releases(
             for p in round_patterns:
                 if p in title_lower or p in title_normalized:
                     round_match = True
+                    matched_round_pattern = p
                     logger.debug(f"  ✓ Round pattern matched: '{p}'")
                     break
-        
+
         if location_match:
             logger.debug(f"  ✓ Location matched: '{matched_location}'")
+            checks.append({"name": "round", "passed": True,
+                           "detail": f"venue/alias {matched_location!r} in title"})
         elif round_match:
             logger.debug(f"  ✓ Round number matched")
+            checks.append({"name": "round", "passed": True,
+                           "detail": f"round pattern {matched_round_pattern!r} in title"})
         else:
             logger.debug(f"  ❌ REJECTED: No location/round match")
             logger.debug(f"     Title lower: {title_lower}")
             logger.debug(f"     Looking for locations: {all_locations}")
             logger.debug(f"     Looking for round patterns: round{round_num}, r{round_num}, etc.")
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False,
+                reason=(
+                    f"no venue/alias ({', '.join(all_locations)}) or round "
+                    f"pattern for Round {round_num} in the title"
+                ),
+                checks=checks + [{"name": "round", "passed": False,
+                                  "detail": f"looked for {all_locations}"}],
+                release=release,
+            ))
             continue
-        
+
         # Must have required quality
         quality_base = required_quality.lower().rstrip('pi')
         if quality_base not in title_lower:
             logger.debug(f"  ❌ REJECTED: Missing quality '{quality_base}'")
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False,
+                reason=f"missing required quality {quality_base!r}",
+                checks=checks + [{"name": "quality", "passed": False,
+                                  "detail": f"wanted {quality_base}"}],
+                release=release,
+            ))
             continue
-        
+
         logger.debug(f"  ✓ Quality matched: {quality_base}")
-        
+        checks.append({"name": "quality", "passed": True, "detail": quality_base})
+
         # Must be from allowed release group
         group_match = False
         matched_group = None
@@ -2144,20 +2279,36 @@ def filter_releases(
                 group_match = True
                 matched_group = g
                 break
-        
+
         if not group_match:
             logger.debug(f"  ❌ REJECTED: No allowed group found (looking for {allowed_groups})")
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False,
+                reason=f"no allowed release group in the title (allowed: {', '.join(allowed_groups)})",
+                checks=checks + [{"name": "group", "passed": False,
+                                  "detail": ", ".join(allowed_groups)}],
+                release=release,
+            ))
             continue
-        
+
         logger.debug(f"  ✓ Group matched: {matched_group}")
-        
+        checks.append({"name": "group", "passed": True, "detail": matched_group})
+
         # Must match year
         if str(season) not in title:
             logger.debug(f"  ❌ REJECTED: Year {season} not found in title")
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False,
+                reason=f"year {season} is not in the title",
+                checks=checks + [{"name": "year", "passed": False,
+                                  "detail": str(season)}],
+                release=release,
+            ))
             continue
-        
+
         logger.debug(f"  ✓ Year matched: {season}")
-        
+        checks.append({"name": "year", "passed": True, "detail": str(season)})
+
         # SESSION MATCHING
         detected_session = classify_session(
             title, detected_class, round_info=round_info, calendar=calendar
@@ -2172,21 +2323,32 @@ def filter_releases(
                 f"  ⚠️  REFUSED: could not identify a session in {title!r}; "
                 f"not filing it as {target_session.full_display_name}"
             )
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False, refused=True,
+                reason=(
+                    f"the session could not be identified (refused rather than "
+                    f"filed as {target_session.full_display_name})"
+                ),
+                checks=checks + [{"name": "session", "passed": False,
+                                  "detail": "unidentified - refused"}],
+                release=release,
+                classification=_refusal_reason(title, round_info, calendar),
+            ))
             continue
 
         session_match = False
         is_combined_quali = False
-        
+
         if detected_session == target_session:
             session_match = True
             logger.debug(f"  ✓ Session exact match")
         elif target_session_name in ["Qualifying 1", "Qualifying 2"]:
             target_is_q1 = target_session_name == "Qualifying 1"
             target_is_q2 = target_session_name == "Qualifying 2"
-            
+
             has_q1 = matches_qualifying_part(title, 1)
             has_q2 = matches_qualifying_part(title, 2)
-            
+
             if target_is_q1 and has_q1:
                 session_match = True
                 logger.debug(f"  ✓ Q1 pattern matched")
@@ -2202,23 +2364,35 @@ def filter_releases(
         else:
             # For non-qualifying sessions, check if detected matches target
             logger.debug(f"  Comparing: detected={detected_session.name} vs target={target_session.name}")
-        
+
         if not session_match:
             logger.debug(f"  ❌ REJECTED: Session mismatch")
             logger.debug(f"     Want: {target_session.full_display_name} ({target_session.name})")
             logger.debug(f"     Got:  {detected_session.full_display_name} ({detected_session.name})")
+            analyses.append(ReleaseAnalysis(
+                title=title, accepted=False,
+                reason=(
+                    f"session mismatch: the title resolves to "
+                    f"{detected_session.full_display_name}, target is "
+                    f"{target_session.full_display_name}"
+                ),
+                checks=checks + [{
+                    "name": "session", "passed": False,
+                    "detail": f"classifier said {detected_session.full_display_name}",
+                }],
+                release=release,
+            ))
             continue
-        
+
         # PASSED ALL FILTERS!
         logger.debug(f"  ✅ ACCEPTED!")
-        
+
         # Scoring
-        score = 100
         if detected_session == target_session:
             score += 25
         elif is_combined_quali:
             score += 10
-        
+
         broadcaster_score = 0
         for broadcaster, bonus in PREFERRED_BROADCASTERS.items():
             if broadcaster in title_normalized:
@@ -2226,7 +2400,7 @@ def filter_releases(
                 release['_broadcaster'] = broadcaster
                 break
         score += broadcaster_score
-        
+
         if "verum" in title_lower:
             score += 20
             release['_group'] = 'VERUM'
@@ -2236,26 +2410,103 @@ def filter_releases(
         elif "billie" in title_lower:
             score += 40
             release['_group'] = 'BILLIE'
-        
+
         if "1080p" in title_lower:
             score += 10
         elif "2160p" in title_lower:
             score += 5
-        
+
         release['_score'] = score
         release['_broadcaster_score'] = broadcaster_score
         scored.append(release)
-        
+
+        checks.append({"name": "session", "passed": True,
+                       "detail": detected_session.full_display_name})
+        if is_combined_quali:
+            checks.append({"name": "combined_qualifying", "passed": True,
+                           "detail": "one release covers Q1 and Q2"})
+        analyses.append(ReleaseAnalysis(
+            title=title, accepted=True, reason="passed every filter",
+            checks=checks, score=score, release=release,
+        ))
+
         logger.debug(f"  Score: {score}")
-    
+
     logger.debug(f"")
     logger.debug(f"=" * 60)
     logger.debug(f"FILTER SUMMARY: {len(scored)}/{len(releases)} releases passed")
     logger.debug(f"=" * 60)
-    
+
     scored.sort(key=lambda x: x.get('_score', 0), reverse=True)
-    
+
+    return scored, analyses
+
+
+def filter_releases(
+    releases: List[dict],
+    target_session: SessionType,
+    season: int,
+    round_info: dict,
+    required_quality: str = "1080p",
+    allowed_groups: List[str] = None,
+    calendar: dict = None,
+    excluded_titles: Optional[Iterable[str]] = None,
+) -> List[dict]:
+    """
+    Filter and score releases for a target session.
+
+    ``excluded_titles`` names releases the user has marked as a mismatch (see
+    utils/release_mismatches.py). They are dropped before scoring, so a
+    replacement request for the same session cannot pick the same wrong
+    release again - which is the whole point of tracking them. The exclusion is
+    logged at WARNING rather than DEBUG: a user who marked a release needs to
+    see that the mark took effect, and "the release I blocked was considered and
+    skipped" is otherwise indistinguishable from "it was never indexed".
+    """
+    scored, _ = _filter_releases_impl(
+        releases, target_session, season, round_info,
+        required_quality, allowed_groups, calendar,
+        excluded_titles=excluded_titles,
+    )
     return scored
+
+
+def explain_release(
+    title: str,
+    target_session: SessionType,
+    season: int,
+    round_info: dict,
+    required_quality: str = "1080p",
+    allowed_groups: List[str] = None,
+    calendar: dict = None,
+    excluded_titles: Optional[Iterable[str]] = None,
+) -> "ReleaseAnalysis":
+    """
+    Explain how the matcher treats one release title for one target.
+
+    This exists because a wrong download has to be understandable before it can
+    be fixed. It runs the real filter over a single candidate and returns every
+    check it performed, in order, with the evidence - venue alias matched, round
+    pattern matched, the session the classifier resolved, and the score that
+    decided the winner. The alternative, re-deriving the decision in the WebUI,
+    would answer with a second implementation that drifts from the first.
+    """
+    candidate = {"title": title}
+    _, analyses = _filter_releases_impl(
+        [candidate], target_session, season, round_info,
+        required_quality, allowed_groups, calendar,
+        excluded_titles=excluded_titles,
+    )
+    for analysis in analyses:
+        if analysis.title == title:
+            return analysis
+    # Every candidate produces exactly one analysis; this is unreachable
+    # unless that changes, but a missing explanation must not be silent.
+    return ReleaseAnalysis(
+        title=title, accepted=False,
+        reason="the matcher produced no decision for this title",
+    )
+
 
 # =============================================================================
 # VENUE/COUNTRY MAPPING

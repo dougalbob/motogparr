@@ -31,15 +31,22 @@ from motogp_common import (
     CALENDAR_KEY_TO_SESSION,
     CALENDAR_DAYS,
     parse_prefix,
+    build_prefix,
     load_calendar,
     DEFAULT_DESIRED_SESSIONS,
     get_config_dir,
+    get_round_by_number,
     get_round_status,
     is_round_active,
     get_round_classes,
     get_weekend_format,
     round_runs_session,
     element_number,
+    # The mismatch dialog has to explain a real decision, so it asks the code
+    # that makes the decision. Re-deriving "why" in the WebUI would produce a
+    # second implementation that explains the wrong thing after the first rule
+    # change.
+    explain_release,
 )
 
 from utils.config_loader import (
@@ -59,6 +66,8 @@ from utils.config_loader import (
     get_plex_url,
     get_plex_token,
     get_plex_library_name,
+    get_required_quality,
+    get_allowed_groups,
 )
 
 # =============================================================================
@@ -1139,6 +1148,385 @@ def library_status():
             session["type"] = session["type"].name
     
     return jsonify(data)
+
+
+# =============================================================================
+# RELEASE MISMATCHES
+# =============================================================================
+#
+# The matcher is not perfect, and "download it again" does not fix a mismatch:
+# the same rules see the same candidates and choose the same release. These
+# routes exist so the user can say "not that one" once, have the replacement
+# request actually behave differently, and see the evidence needed to correct
+# the patterns afterwards.
+#
+# The download itself is deliberately left to the existing grabber. This app has
+# no delete action and no re-download machinery of its own: it records the
+# block, moves the wrong folder aside, and then runs the same
+# ``backfill --sessions ... --force`` command the Download tab already uses.
+# A second download path would be a second set of bugs.
+
+
+def _mismatch_target(season: int, round_num: int, session_name: str):
+    """
+    Resolve a (season, round, session) triple against the calendar.
+
+    Returns ``(round_info, session_type)`` or raises ValueError with a message
+    meant to be shown to a user. Validating here rather than in the browser
+    keeps the API honest when called by anything else, and it means a stale page
+    cannot mark a session that does not exist for that round.
+    """
+    try:
+        session_type = SessionType[str(session_name).strip().upper()]
+    except KeyError:
+        raise ValueError(f"Unknown session type: {session_name!r}")
+
+    calendar = load_calendar_data(season)
+    round_info = get_round_by_number(calendar, round_num)
+    if not round_info:
+        raise ValueError(f"Season {season} has no round {round_num}")
+
+    if not round_runs_session(round_info, session_type, calendar):
+        raise ValueError(
+            f"Round {round_num} {round_info.get('venue', '')} does not run "
+            f"{session_type.full_display_name}"
+        )
+
+    return round_info, session_type
+
+
+def _grabbed_entry(season: int, round_num: int, session_type: SessionType):
+    """The grabber's record for this session, if it has one."""
+    state_file = CONFIG_DIR / "grabber_state.json"
+    if not state_file.exists():
+        return None
+    try:
+        with open(state_file, "r") as handle:
+            state = json.load(handle)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning(f"Could not read {state_file}: {exc}")
+        return None
+
+    key = f"{season}_R{round_num:02d}_E{element_number(session_type, season):02d}"
+    entry = (state.get("grabbed") or {}).get(key)
+    return entry if isinstance(entry, dict) else None
+
+
+def _library_session_for(season: int, round_num: int,
+                         session_type: SessionType):
+    """Locate the library folder for this session, or None."""
+    from utils.release_mismatches import library_session_path
+
+    prefix = build_prefix(season, round_num, session_type)
+    return library_session_path(MOTOGP_LIBRARY_PATH, season, round_num, prefix)
+
+
+@app.route("/mismatch")
+def mismatch_page():
+    """
+    The full mismatch log.
+
+    A single list rather than another tab: the decision a user needs to make
+    here ("is this the same problem I hit last month?") depends on seeing the
+    history, not one session's view of it.
+    """
+    from utils.release_mismatches import describe_session, load_entries
+
+    entries = sorted(
+        load_entries(),
+        key=lambda e: e.get("recorded_at") or "",
+        reverse=True,
+    )
+    for entry in entries:
+        entry["session_label"] = describe_session(entry.get("session", ""))
+
+    return render_template(
+        "mismatches.html",
+        status=command_output,
+        next_race=get_next_race_info(),
+        active_tab="download",
+        entries=entries,
+    )
+
+
+@app.route("/api/release-mismatch")
+def api_release_mismatch():
+    """
+    Evidence for one session: what the matcher decided, and what is blocked.
+
+    ``accepted`` is the interesting field. It says what the matcher would do
+    with the stored release title *now* - so if the answer is "this would pass
+    every filter", the stored title is still a live risk, and re-running the
+    search without fixing the rules will pick it again.
+    """
+    season = request.args.get("season", type=int)
+    round_num = request.args.get("round", type=int)
+    session_name = request.args.get("session", "")
+
+    if not season or not round_num or not session_name:
+        return jsonify({
+            "error": "season, round and session are required"
+        }), 400
+
+    try:
+        round_info, session_type = _mismatch_target(season, round_num, session_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    from utils.release_mismatches import (
+        QUARANTINE_DIRNAME,
+        load_entries,
+        mismatches_for,
+    )
+
+    grabbed = _grabbed_entry(season, round_num, session_type) or {}
+    entries = load_entries()
+    blocked_titles = [e["title"] for e in mismatches_for(
+        season, round_num, session_type.name, entries
+    )]
+
+    logged_title = grabbed.get("release")
+    library_path = _library_session_for(season, round_num, session_type)
+    calendar = load_calendar_data(season)
+
+    analysis = None
+    if logged_title:
+        analysis = explain_release(
+            logged_title,
+            session_type,
+            season,
+            round_info,
+            get_required_quality(),
+            get_allowed_groups(),
+            calendar,
+            excluded_titles=blocked_titles,
+        ).as_dict(calendar)
+
+    # A title that came back truncated or annotated by the grabber cannot be
+    # blocked usefully, so say so rather than offering a button that would
+    # store something no candidate will ever match.
+    can_mark = bool(logged_title) and "Unknown" not in str(logged_title)
+
+    return jsonify({
+        "season": season,
+        "round": round_num,
+        "venue": round_info.get("venue", ""),
+        "session": session_type.name,
+        "session_name": session_type.full_display_name,
+        "prefix": build_prefix(season, round_num, session_type),
+        "grabbed": {
+            "release": logged_title,
+            "nzo_id": grabbed.get("nzo_id"),
+            "timestamp": grabbed.get("timestamp"),
+        },
+        "analysis": analysis,
+        "can_mark": can_mark,
+        "blocked": mismatches_for(season, round_num, session_type.name, entries),
+        "library": {
+            "found": library_path is not None,
+            "path": str(library_path) if library_path else None,
+            "quarantine_dir": str(
+                Path(MOTOGP_LIBRARY_PATH) / QUARANTINE_DIRNAME
+            ),
+        },
+        "requirements": {
+            "quality": get_required_quality(),
+            "groups": get_allowed_groups(),
+        },
+    })
+
+
+@app.route("/api/release-mismatch", methods=["POST"])
+def api_mark_release_mismatch():
+    """
+    Record a mismatch, optionally hiding the existing library folder.
+
+    Write route: it changes what the grabber will select and can move a folder
+    in the library. It is authenticated by the same ``before_request`` guard as
+    everything else, and the folder move is guarded by
+    ``quarantine_library_session``, which only ever touches a folder it found
+    by prefix inside the configured library root.
+    """
+    from utils.release_mismatches import (
+        SCOPE_GLOBAL,
+        add_mismatch,
+        quarantine_library_session,
+    )
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    try:
+        season = int(payload.get("season"))
+        round_num = int(payload.get("round"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "season and round must be numbers"}), 400
+
+    session_name = str(payload.get("session") or "").strip()
+
+    try:
+        round_info, session_type = _mismatch_target(season, round_num, session_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    grabbed = _grabbed_entry(season, round_num, session_type) or {}
+    title = str(payload.get("title") or grabbed.get("release") or "").strip()
+    if not title:
+        return jsonify({
+            "error": "No release title: the grabber has no record for this "
+                     "session and none was supplied."
+        }), 400
+
+    scope = (payload.get("scope") or "session").strip().lower()
+    if scope not in ("session", "global"):
+        return jsonify({"error": "scope must be 'session' or 'global'"}), 400
+
+    # Evidence, captured at the moment of the decision. This is what makes the
+    # record useful later: it says what the matcher thought, not what someone
+    # remembered it thinking.
+    calendar = load_calendar_data(season)
+    analysis = explain_release(
+        title,
+        session_type,
+        season,
+        round_info,
+        get_required_quality(),
+        get_allowed_groups(),
+        calendar,
+    ).as_dict(calendar)
+
+    library_action = None
+    if payload.get("quarantine"):
+        library_action = quarantine_library_session(
+            MOTOGP_LIBRARY_PATH, season, round_num,
+            build_prefix(season, round_num, session_type),
+        )
+
+    try:
+        entry = add_mismatch(
+            season=season,
+            round_num=round_num,
+            session=session_type.name,
+            title=title,
+            reason=str(payload.get("reason") or ""),
+            scope=scope,
+            venue=round_info.get("venue"),
+            sab_job_name=payload.get("sab_job_name"),
+            grabbed_at=grabbed.get("timestamp"),
+            release_info={
+                "nzo_id": grabbed.get("nzo_id"),
+                "score": analysis.get("score"),
+                "parsed": analysis.get("parsed"),
+            },
+            analysis=analysis,
+            library_action=library_action,
+            source="webui",
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify({"error": f"Could not save the mismatch: {exc}"}), 500
+
+    if library_action is not None and not library_action.get("ok"):
+        # The block is saved, which is the part that changes future behaviour.
+        # Say clearly that the file is still in the library, because leaving it
+        # there while a replacement downloads is precisely the stale-copy
+        # situation that makes Plex show the wrong thing again. ERROR rather
+        # than WARNING on purpose: the request succeeded but did not do what the
+        # user asked, and the container's uid often cannot write next to the
+        # media even when it can read it.
+        logger.error(
+            "Mismatch recorded for %s but the library folder was not moved: %s. "
+            "The old file is still in Plex and a replacement will sort into it.",
+            title, library_action.get("reason"),
+        )
+
+    return jsonify({
+        "status": "recorded",
+        "entry": entry,
+        "library_action": library_action,
+        "replacement_command": _replacement_command(season, round_num, session_type),
+    })
+
+
+@app.route("/api/release-mismatch/<ident>", methods=["DELETE"])
+def api_remove_release_mismatch(ident):
+    """Unblock a release. Undo has to exist: a wrong verdict must be reversible."""
+    from utils.release_mismatches import remove_mismatch
+
+    if not remove_mismatch(ident):
+        return jsonify({"error": "No such mismatch entry"}), 404
+    return jsonify({"status": "removed", "id": ident})
+
+
+@app.route("/api/release-mismatches")
+def api_release_mismatches():
+    """Every recorded mismatch, newest first, aflat enough to render anywhere."""
+    from utils.release_mismatches import load_entries
+
+    entries = load_entries()
+    entries.sort(key=lambda e: e.get("recorded_at") or "", reverse=True)
+    return jsonify({
+        "count": len(entries),
+        "entries": entries,
+        "global_count": sum(1 for e in entries if e.get("scope") == "global"),
+    })
+
+
+@app.route("/api/release-mismatch/redownload", methods=["POST"])
+def api_release_mismatch_redownload():
+    """
+    Start the replacement download for a session, using the existing grabber.
+
+    ``backfill --force`` is required, not cosmetic: without it the grabber's
+    30-minute search cooldown skips the session and the user is told a download
+    started when nothing was searched for. The blocked title is still excluded,
+    so the force rerun selects the *next* candidate - which is exactly the
+    behaviour the feature promises.
+    """
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    try:
+        season = int(payload.get("season"))
+        round_num = int(payload.get("round"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "season and round must be numbers"}), 400
+
+    session_name = str(payload.get("session") or "").strip()
+
+    try:
+        _, session_type = _mismatch_target(season, round_num, session_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if command_output["running"]:
+        return jsonify({
+            "error": "A grabber job is already running. Wait for it to finish."
+        }), 409
+
+    command = _replacement_command(season, round_num, session_type)
+    thread = threading.Thread(target=run_grabber_command, args=(command,))
+    thread.start()
+
+    return jsonify({"status": "started", "command": f"motogp-grab {command}"})
+
+
+def _replacement_command(season: int, round_num: int,
+                         session_type: SessionType) -> str:
+    """
+    The grabber argument string that re-searches one session.
+
+    Built server-side from a resolved SessionType, never from client text: the
+    element number must come from element_number(), and a session number typed
+    by a browser is exactly how the wrong session gets searched (the enum value
+    and the element number diverged in 2027 - see find_legacy_folders()).
+    """
+    episode = f"E{element_number(session_type, season):02d}"
+    return (
+        f"backfill --season {season} --round {round_num} "
+        f"--sessions {episode} --force"
+    )
 
 
 #: Sections and keys the WebUI is allowed to write through /app-config.

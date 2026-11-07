@@ -1736,6 +1736,324 @@ button.small { padding: 6px 10px; font-size: 11px; }
     font-weight: bold;
 }
 
+/* ============================================
+   RELEASE MISMATCHES
+   ============================================
+   The mismatch button is deliberately small and sits at the end of a session
+   row: marking a release is a correction, not a primary action, and a large
+   button on every session would compete with "select for download". */
+
+.library-session.exists {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.library-session.missing {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.library-session.missing .session-checkbox-label {
+    flex: 1;
+    min-width: 0;
+}
+
+.mismatch-btn {
+    background: transparent;
+    border: 1px solid #3a3a4e;
+    color: #7a7a90;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+    line-height: 1.4;
+    flex: 0 0 auto;
+    cursor: pointer;
+}
+
+.mismatch-btn:hover {
+    background: rgba(231, 76, 60, 0.15);
+    border-color: #e74c3c;
+    color: #e74c3c;
+    transform: none;
+}
+
+.mismatch-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.mismatch-summary-line {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #1a1a2e;
+    font-size: 12px;
+    color: #c0705f;
+}
+
+.mismatch-summary-line a {
+    color: #52aad8;
+}
+
+/* Modal: wider than the default, because a release name and a checklist of
+   checks do not fit in 450px without wrapping into unreadability. */
+.mismatch-modal-content {
+    max-width: 620px;
+    /* The evidence list can be long. Let the body scroll and keep the buttons
+       where they are: "Mark as mismatch" must not be pushed off-screen by a
+       verbose release name on a phone. */
+    display: flex;
+    flex-direction: column;
+    overflow-y: hidden;
+}
+
+.mismatch-modal-content .modal-body {
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.mismatch-modal-content .modal-footer {
+    flex: 0 0 auto;
+    background: #0a0a12;
+    border-radius: 0 0 12px 12px;
+}
+
+.mismatch-heading {
+    font-size: 17px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.mismatch-prefix {
+    font-family: monospace;
+    font-size: 12px;
+    color: #888;
+    letter-spacing: 1px;
+}
+
+.mismatch-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #888;
+    margin-bottom: 6px;
+}
+
+.mismatch-release {
+    font-family: monospace;
+    font-size: 13px;
+    color: #e5a00d;
+    background: #05050a;
+    border: 1px solid #1a1a2e;
+    border-left: 3px solid #e5a00d;
+    border-radius: 4px;
+    padding: 10px;
+    word-break: break-all;
+    user-select: all;
+}
+
+.mismatch-meta {
+    font-size: 11px;
+    color: #666;
+    margin-top: 6px;
+}
+
+.mismatch-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.mismatch-check {
+    display: grid;
+    grid-template-columns: 18px 150px 1fr;
+    gap: 6px;
+    font-size: 12px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    background: #0d0d16;
+}
+
+.mismatch-check.pass .mismatch-check-icon { color: #27ae60; }
+.mismatch-check.fail { background: rgba(231, 76, 60, 0.12); }
+.mismatch-check.fail .mismatch-check-icon { color: #e74c3c; }
+.mismatch-check.score .mismatch-check-icon { color: #e5a00d; }
+
+.mismatch-check-name { color: #aaa; }
+.mismatch-check-detail { color: #ddd; word-break: break-word; }
+
+.mismatch-verdict {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.mismatch-verdict.still-accepted {
+    background: rgba(243, 156, 18, 0.15);
+    color: #f0b040;
+}
+
+.mismatch-verdict.blocked {
+    background: rgba(39, 174, 96, 0.15);
+    color: #2ecc71;
+}
+
+.mismatch-note {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #999;
+}
+
+.mismatch-scope {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 12px;
+    color: #aaa;
+    margin-top: 10px;
+    cursor: pointer;
+}
+
+.mismatch-scope input[type="checkbox"] {
+    margin-top: 2px;
+    flex: 0 0 auto;
+}
+
+.mismatch-blocked-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mismatch-blocked-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #c0705f;
+    background: #0d0d16;
+    border-radius: 3px;
+    padding: 6px 8px;
+    word-break: break-all;
+}
+
+.unblock-btn {
+    background: #1a1a2e;
+    border: 1px solid #2a2a3e;
+    color: #52aad8;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    flex: 0 0 auto;
+}
+
+.unblock-btn:hover { background: #2a2a3e; transform: none; }
+
+/* Mismatch log page */
+.mismatch-table {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mismatch-row {
+    background: #0d0d16;
+    border: 1px solid #1a1a2e;
+    border-left: 3px solid #e74c3c;
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.mismatch-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.mismatch-round {
+    font-weight: bold;
+    color: #fff;
+    font-size: 14px;
+}
+
+.mismatch-session-name {
+    color: #52aad8;
+    font-size: 13px;
+    margin-left: 8px;
+}
+
+.mismatch-scope-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+}
+
+.mismatch-title {
+    font-family: monospace;
+    font-size: 13px;
+    color: #e5a00d;
+    word-break: break-all;
+}
+
+.mismatch-row-meta {
+    font-size: 11px;
+    color: #666;
+    margin-top: 6px;
+}
+
+.mismatch-reason {
+    font-size: 12px;
+    color: #ccc;
+    margin-top: 6px;
+    font-style: italic;
+}
+
+.mismatch-details {
+    margin-top: 10px;
+}
+
+.mismatch-details summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: #52aad8;
+    margin-bottom: 6px;
+}
+
+.mismatch-empty {
+    padding: 20px 0;
+}
+
+.mismatch-empty p { margin: 6px 0; }
+
+@media (max-width: 768px) {
+    .mismatch-check {
+        grid-template-columns: 16px 1fr;
+    }
+    .mismatch-check-detail {
+        grid-column: 2;
+    }
+}
+
 /* Warning modal additions */
 .modal-footer {
     display: flex;

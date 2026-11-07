@@ -56,6 +56,7 @@ so stopping is honest.
 | `utils/settings_schema.py` | Permitted shape of `settings.yml`; unknown/wrong-typed keys |
 | `utils/plexcheck.py` | Is Plex actually scanning the library folder? |
 | `utils/permissions.py` | Can PUID:PGID write where it must? |
+| `utils/release_mismatches.py` | Marked-wrong releases: the block list, the atomic store and the library quarantine move |
 
 ---
 
@@ -155,6 +156,7 @@ This is the single most common cause of "tagging stopped working".
 | `watcher_state.json` | processed / pending / failed, retry backoff | Loses retry state |
 | `activity_events.json` | Activity tab events (file-locked) | Yes |
 | `discord_rate_limit.json` | Webhook pacing | Yes |
+| `release_mismatches.json` (+ `.lock`) | Releases marked as wrong, with the matcher's reasoning. Written by the WebUI under a sidecar lock, read by the grabber | No — un-blocks every marked release |
 | `logs/motogp.log` (+ debug) | `RotatingFileHandler`, 50 MB debug cap | Yes |
 | `motogp_<year>.json` | Season calendars, refreshed from image | No — re-copied on start |
 | `*.bak` | Pre-refresh calendar backup | Yes |
@@ -170,6 +172,47 @@ sequence. New code must handle malformed/partial state visibly rather than
 silently replacing useful data with defaults.
 
 ---
+
+### Correcting a mismatch (the loop this exists to break)
+
+`filter_releases()` is a set of rules, so a release the rules wrongly accept is
+selected every single time the session is searched. Deleting the file and asking
+again therefore does nothing. Since this feature, the download tab's session row
+carries a 🚫 button that opens a dialog with two jobs:
+
+1. **show the evidence** - the release title the grabber recorded
+   (`grabber_state.json`), and `explain_release()`, which runs the *real* filter
+   over that title and returns every check in order with the value that matched
+   (venue alias, round pattern, resolved session, score). This is the part that
+   makes a pattern fix possible: "it matched" is what has to be corrected, and
+   a second description of the rules in the UI would drift and then explain the
+   wrong thing.
+2. **record the block** - `utils/release_mismatches.py` stores
+   `release_mismatches.json` with the title, scope, target and evidence.
+   `filter_releases(excluded_titles=...)` drops it before scoring, so the next
+   `backfill --force` selects the next-best candidate instead.
+
+Scope defaults to the one session; a global entry is offered for a title that is
+wrong wherever it appears (an off-by-one round number). Matching is on a
+normalised title (case, dots and separators folded) and nothing fuzzier - a
+looser rule would block a good release because it resembles a bad one, and the
+symptom would be a session that silently never downloads.
+
+Two details matter and are covered by tests:
+
+- **The old folder is moved, never deleted.** If the session is already sorted,
+  a replacement download's destination exists, and `shutil.move(src, dst)` would
+  nest the new folder *inside* the old one - Plex keeps showing the wrong file
+  and nothing has visibly failed. Both the dialog (opt-in, default on) and
+  `motogp_sort._clear_existing_session_folder()` move it to
+  `<library>/.mismatched/<season>/`. The leading dot keeps it out of Plex's
+  scanner and out of every folder walk in this app; the media is still on disk.
+  Deleting media from a web request is not something this app does.
+- **The replacement is not a second download path.** It runs the existing
+  `backfill --season S --round R --sessions E<element> --force` command, built
+  server-side from a resolved `SessionType`. `--force` is required because the
+  grabber's 30-minute search cooldown would otherwise skip the session and the
+  UI would report a download that never started.
 
 ## 5. WebUI surface
 
@@ -197,6 +240,12 @@ Home, Download, Settings, Stats, Calendar, Activity; a bottom nav for mobile;
 | `/stats` | GET | Stats page | low |
 | `/failed-sessions` | GET | Failed watcher items | low |
 | `/download-selected` | POST | Triggers downloads | **high — action** |
+| `/mismatch` | GET | Release-mismatch log (blocked releases, evidence, reason) | low |
+| `/api/release-mismatch` | GET | Evidence for one session: the recorded release and *why* the matcher accepted it | low (release titles only) |
+| `/api/release-mismatch` | POST | Records a block; optionally moves the wrong library folder into `<library>/.mismatched/` | **write — changes future selection and moves media** |
+| `/api/release-mismatch/<id>` | DELETE | Unblocks a release | write |
+| `/api/release-mismatches` | GET | All recorded mismatches (badge counts) | low |
+| `/api/release-mismatch/redownload` | POST | Starts `backfill --force` for one session via the existing grabber | **high — action** |
 | `/activity`, `/activity/stream` | GET | Activity feed + SSE | low |
 | `/calendar`, `/calendar-data` | GET | Calendar views | low |
 | `/api/sabnzbd/queue` | GET | Proxies SABnzbd queue with the API key | medium |
@@ -254,7 +303,7 @@ next save from the UI.
 
 ## 7. Tests and CI
 
-- **384 tests** passed in the last local verification on 2026-11-06 with
+- **423 tests** passed in the last local verification on 2026-11-07 with
   `python -m pytest tests -q`. Treat this as a dated snapshot; rerun the suite
   rather than assuming the count is current.
 - `tests/test_webui_security.py` now contains regression tests for the fixed

@@ -11,6 +11,8 @@ config/webui_settings.json
 config/watcher_state.json
 config/activity_events.json
 config/discord_rate_limit.json
+config/release_mismatches.json
+config/release_mismatches.lock
 config/*.bak
 config/logs/
 .DS_Store
