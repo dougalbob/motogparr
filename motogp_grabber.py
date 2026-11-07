@@ -741,6 +741,26 @@ def build_search_queries(round_info: dict, session_type: SessionType, season: in
     return unique_queries
 
 
+def _blocked_titles(
+    season: int, round_num: int, session_type: SessionType
+) -> Set[str]:
+    """
+    Releases the user has marked as a mismatch for this target.
+
+    A failure here must not stop a search - the worst case is that a marked
+    release is reconsidered - but it is logged, because "my mismatch was
+    ignored" and "the indexer never offered that title again" look identical
+    from the outside.
+    """
+    try:
+        from utils.release_mismatches import blocked_titles
+
+        return blocked_titles(season, round_num, session_type.name)
+    except Exception as exc:  # noqa: BLE001 - a search must still run
+        logger.warning(f"Could not read release mismatch state: {exc}")
+        return set()
+
+
 def _build_episode_key(season: int, round_num: int, session_type: SessionType) -> str:
     """Build episode key for activity tracking."""
     return f"{season}_R{round_num:02d}_E{element_number(session_type, season):02d}"
@@ -782,6 +802,12 @@ def search_for_session(
         f"Round {round_num} {venue} - {session_type.full_display_name}"
     )
 
+    # Releases the user has marked as a mismatch for this session (or
+    # globally) must never be selected again. This is why a replacement
+    # download works: without it, the same rules see the same candidates and
+    # pick the same wrong release every time.
+    excluded = _blocked_titles(season, round_num, session_type)
+
     # Filter using common module function
     filtered = filter_releases(
         all_results,
@@ -790,8 +816,15 @@ def search_for_session(
         round_info,
         get_required_quality(),
         get_allowed_groups(),
-        calendar
+        calendar,
+        excluded_titles=excluded,
     )
+
+    if excluded:
+        logger.info(
+            f"🚫 {len(excluded)} release(s) marked as a mismatch were excluded "
+            f"from this search"
+        )
 
     logger.info(f"🎯 After filtering: {len(filtered)} matching releases")
 

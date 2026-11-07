@@ -22,6 +22,7 @@ new evidence shows; **LATER** is deliberately deferred until prerequisites land.
 | 4 | Add deterministic tests at Prowlarr/SABnzbd/Plex boundaries | **PLANNED** | Exercise integration behaviour without live home services |
 | 5 | Add browser-write defense-in-depth (CSRF/Origin and CSP) | **PLANNED** | Reduce reliance on the outer Access/browser assumptions |
 | 6 | Move the WebUI to a production WSGI server | **LATER** | Do this only after job/status state is safe across workers |
+| — | Release mismatches: block, explain, replace | **DONE (2026-11-07)** | A release the rules wrongly accept is chosen on every retry, so "download it again" could not fix it |
 
 ## Slice 0 — documentation baseline (**DONE**)
 
@@ -42,6 +43,25 @@ update the relevant architecture/agent documentation in that same PR. Avoid
 copying a changing test count into multiple documents; this plan has no count by
 design.
 
+## Done outside the slice order — release mismatches (2026-11-07)
+
+Delivered ahead of the queue because it was blocking use of the app rather than
+hardening it. `motogp_common.filter_releases()` is deterministic, so an accepted
+release that is the wrong session is re-selected on every retry; deleting the
+file changed nothing and the only remedy was a code change.
+
+The change proves the persistence pattern from Slice 1 on a small store:
+`utils/release_mismatches.py` uses a sidecar lock held across the whole
+read-modify-write, a unique temporary file plus `os.replace`, and a parse
+failure is logged at ERROR rather than treated as "no mismatches" (silently
+un-blocking every release would reopen the exact loop). Slice 1 should reuse it
+rather than re-invent it.
+
+It also did **not** add a second download path: the replacement runs the
+existing `backfill --force` command, and the wrong library folder is moved (never
+deleted) into `<library>/.mismatched/`. See `AGENTS.md` §6b and
+`docs/ARCHITECTURE.md` §4.
+
 ## Slice 1 — activity event transaction (**NEXT**)
 
 **Problem evidence:** `activity_emitter.py` reads the JSON before acquiring its
@@ -59,7 +79,9 @@ JSON shape and public emitter API unchanged. Make failed writes visible through
 the existing logger rather than silently dropping the event.
 
 A small reusable storage helper is acceptable if it has a narrow API that makes
-it impossible to accidentally lock only the write phase. Do not migrate every
+it impossible to accidentally lock only the write phase.
+`utils/release_mismatches.py` (added 2026-11-07) already implements this
+contract for one small store and is the reference implementation to generalise. Do not migrate every
 state file in this slice: first prove the transaction semantics on the activity
 store.
 

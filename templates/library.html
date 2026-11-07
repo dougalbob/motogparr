@@ -78,6 +78,24 @@
         </div>
     </div>
 </div>
+
+<!-- Mismatch Modal -->
+<div class="modal-overlay" id="mismatch-modal" onclick="closeMismatchModal(event)">
+    <div class="modal-content mismatch-modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3>🚫 Wrong Release?</h3>
+            <button class="modal-close" onclick="closeMismatchModal()">✕</button>
+        </div>
+        <div class="modal-body" id="mismatch-body">
+            <p style="color:#666;">Loading release details...</p>
+        </div>
+        <div class="modal-footer">
+            <button onclick="closeMismatchModal()" class="secondary">Close</button>
+            <button onclick="copyMismatchReport()" class="secondary" id="mismatch-copy-btn">📋 Copy report</button>
+            <button onclick="markAsMismatch()" class="warning" id="mismatch-save-btn">Mark as mismatch</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -89,11 +107,29 @@
     let failedSessions = {};
     let pendingDownloads = [];
     
+    // Mismatches are released-per-session and remembered forever, so the counts
+    // are fetched once per page load and keyed the same way as a session row.
+    let mismatchCounts = {};
+    let mismatchSession = null;
+
     window.addEventListener('load', function() {
         updateLibraryRounds();
-        loadLibraryStatus();
+        loadMismatchCounts().then(loadLibraryStatus);
         loadFailedSessions();
     });
+
+    function loadMismatchCounts() {
+        return fetch('/api/release-mismatches')
+            .then(r => r.json())
+            .then(data => {
+                mismatchCounts = {};
+                (data.entries || []).forEach(entry => {
+                    const key = `${entry.season}|${entry.round}|${entry.session}`;
+                    mismatchCounts[key] = (mismatchCounts[key] || 0) + 1;
+                });
+            })
+            .catch(() => { mismatchCounts = {}; });
+    }
     
     function updateLibraryRounds() {
         const season = document.getElementById('library-season').value;
@@ -196,7 +232,16 @@
         const pastRoundsGrabbed = data.past_rounds_grabbed || data.total_grabbed;
         const pastRoundsDesired = data.past_rounds_desired || data.total_desired;
         const pastPct = pastRoundsDesired > 0 ? Math.round(pastRoundsGrabbed / pastRoundsDesired * 100) : 0;
-        
+
+        // Mismatches are shown as a line in the summary rather than a badge on
+        // each session: a marked release is remembered forever, so a badge on
+        // every affected session would turn the page into a wall of warnings.
+        // The session row still says "blocked" where it applies.
+        const mismatchCount = Object.values(mismatchCounts).reduce((a, b) => a + b, 0);
+        const mismatchSummaryLine = mismatchCount > 0
+            ? `<div class="mismatch-summary-line">🚫 ${mismatchCount} release${mismatchCount === 1 ? '' : 's'} marked as a mismatch and excluded from searches. <a href="/mismatch">View log</a></div>`
+            : '';
+
         let html = `
             <div class="library-summary">
                 <div class="library-summary-row">
@@ -214,6 +259,7 @@
                 <div class="progress-bar">
                     <div class="progress-bar-fill" style="width: ${pastPct}%"></div>
                 </div>
+                ${mismatchSummaryLine}
             </div>
         `;
         
@@ -257,8 +303,23 @@
             
             round.sessions.forEach(session => {
                 const sessionKey = `${season}_R${String(round.number).padStart(2,'0')}_${session.type}`;
+                const blockCount = mismatchCounts[`${season}|${round.number}|${session.type}`] || 0;
+                const blockedBadge = blockCount > 0
+                    ? `<span class="mismatch-badge" title="${blockCount} release${blockCount === 1 ? '' : 's'} excluded from searches for this session">🚫 ${blockCount}</span>`
+                    : '';
                 if (session.exists) {
-                    html += `<div class="library-session exists">✅ ${session.name}</div>`;
+                    // A release that came from Plex and was wrong is exactly
+                    // the case this feature exists for, so the button lives on
+                    // the session that is already in the library. It is also
+                    // offered on a missing session, because the grabber can
+                    // have a recorded release whose file has since been moved.
+                    html += `
+                        <div class="library-session exists">
+                            <span>✅ ${session.name}${blockedBadge}</span>
+                            <button class="mismatch-btn" title="This is the wrong release"
+                                    onclick="openMismatchModal(${round.number}, '${session.type}')">🚫</button>
+                        </div>
+                    `;
                 } else {
                     // Only disable checkboxes for future rounds, not live rounds
                     const isDisabled = isFuture ? 'disabled' : '';
@@ -274,8 +335,10 @@
                                        onchange="toggleSession(this)"
                                        ${isDisabled}>
                                 <span class="checkbox-custom"></span>
-                                <span class="session-name">❌ ${session.name}</span>
+                                <span class="session-name">❌ ${session.name}${blockedBadge}</span>
                             </label>
+                            <button class="mismatch-btn" title="Check the release the grabber chose"
+                                    onclick="openMismatchModal(${round.number}, '${session.type}')">🚫</button>
                         </div>
                     `;
                 }
@@ -397,6 +460,339 @@
         }
     }
     
+    // ============================================
+    // MISMATCH: "this release is wrong"
+    // ============================================
+    //
+    // Two jobs in one dialog, in this order:
+    //   1. show the release name and why the matcher accepted it, so the
+    //      patterns can be fixed (the name alone is not enough - "it matched"
+    //      is what has to be corrected);
+    //   2. record the block, so requesting the session again actually picks a
+    //      different release instead of the same wrong one.
+
+    function openMismatchModal(roundNumber, sessionType) {
+        // The display name is not passed in: it comes back from the API and is
+        // escaped into the DOM as text. Interpolating a name into an inline
+        // handler is how quoting bugs (and worse) get into a template.
+        const season = document.getElementById('library-season').value;
+        mismatchSession = {season, round: roundNumber, session: sessionType};
+
+        const body = document.getElementById('mismatch-body');
+        body.innerHTML = '<p style="color:#666;">Loading release details...</p>';
+        document.getElementById('mismatch-save-btn').disabled = true;
+        document.getElementById('mismatch-copy-btn').disabled = true;
+        document.getElementById('mismatch-modal').classList.add('active');
+
+        fetch(`/api/release-mismatch?season=${season}&round=${roundNumber}&session=${encodeURIComponent(sessionType)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    body.innerHTML = `<p style="color:#e74c3c;">${escapeHtml(data.error)}</p>`;
+                    return;
+                }
+                mismatchSession.data = data;
+                renderMismatchModal(data);
+            })
+            .catch(err => {
+                body.innerHTML = '<p style="color:#e74c3c;">Could not load release details.</p>';
+            });
+    }
+
+    function escapeHtml(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function renderMismatchModal(data) {
+        const body = document.getElementById('mismatch-body');
+        const saveBtn = document.getElementById('mismatch-save-btn');
+        document.getElementById('mismatch-copy-btn').disabled = false;
+
+        let html = `
+            <div class="mismatch-heading">
+                Round ${data.round} ${escapeHtml(data.venue)} · ${escapeHtml(data.session_name)}
+            </div>
+            <div class="mismatch-prefix">${escapeHtml(data.prefix)}</div>
+        `;
+
+        if (!data.grabbed.release) {
+            html += `
+                <p style="color:#e74c3c; margin-top:15px;">
+                    The grabber has no release recorded for this session, so there is
+                    nothing to block. That happens when the file was put there by hand,
+                    or when <code>grabber_state.json</code> was cleared since the download.
+                </p>
+            `;
+            saveBtn.disabled = true;
+        } else {
+            html += `
+                <div class="mismatch-label">Release the grabber selected</div>
+                <div class="mismatch-release" id="mismatch-release-name">${escapeHtml(data.grabbed.release)}</div>
+                <div class="mismatch-meta">
+                    ${data.grabbed.timestamp ? `Grabbed ${escapeHtml(data.grabbed.timestamp)}` : ''}
+                    ${data.grabbed.nzo_id ? ` · SABnzbd job ${escapeHtml(data.grabbed.nzo_id)}` : ''}
+                </div>
+            `;
+
+            if (data.analysis) {
+                html += `
+                    <div class="mismatch-label" style="margin-top:15px;">Why the matcher accepted it</div>
+                    <div class="mismatch-checks">
+                        ${renderChecks(data.analysis)}
+                    </div>
+                    <div class="mismatch-verdict ${data.analysis.accepted ? 'still-accepted' : 'blocked'}">
+                        ${data.analysis.accepted
+                            ? '⚠️ It would still be picked. That is the pattern to fix.'
+                            : '🚫 It is already excluded, so a replacement will choose something else.'}
+                    </div>
+                `;
+                if (data.analysis.parsed && data.analysis.parsed.session && data.analysis.parsed.session !== data.session) {
+                    html += `
+                        <div class="mismatch-note">
+                            The matcher resolved this title to
+                            <strong>${escapeHtml(data.analysis.parsed.session_name)}</strong>
+                            but the target is <strong>${escapeHtml(data.session_name)}</strong>.
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        if (data.blocked.length) {
+            html += `
+                <div class="mismatch-label" style="margin-top:15px;">Already excluded for this session</div>
+                <div class="mismatch-blocked-list">
+                    ${data.blocked.map(b => `
+                        <div class="mismatch-blocked-item">
+                            <span>${escapeHtml(b.title)}</span>
+                            <button class="unblock-btn" title="Unblock"
+                                    onclick="unblockMismatch('${escapeHtml(b.id)}')">↺</button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        if (data.can_mark && data.grabbed.release) {
+            html += `
+                <div class="mismatch-label" style="margin-top:15px;">Note (optional)</div>
+                <input type="text" id="mismatch-reason" placeholder="e.g. Plex showed Round 8, not Round 7"
+                       maxlength="200" style="width:100%;">
+                <label class="mismatch-scope">
+                    <input type="checkbox" id="mismatch-global-scope">
+                    Exclude this release everywhere, not just for this session
+                </label>
+                <label class="mismatch-scope">
+                    <input type="checkbox" id="mismatch-quarantine" checked>
+                    Move the existing folder out of Plex to
+                    <code>${escapeHtml(data.library.quarantine_dir)}</code>
+                    <span class="help-text" style="display:block; margin-left:24px;">
+                        It is renamed, never deleted, and hidden from Plex. A replacement
+                        downloads as the same session, so leaving the old folder in place
+                        would make Plex show the wrong file again.
+                    </span>
+                </label>
+                ${data.library.found ? '' : '<div class="mismatch-note">No matching folder was found in the library, so nothing will be moved.</div>'}
+                <div class="mismatch-note" style="margin-top:8px;">
+                    The replacement is searched and downloaded by the normal grabber. It
+                    sorts into the same session folder — which is why moving the old one
+                    matters.
+                </div>
+            `;
+            saveBtn.disabled = false;
+        } else {
+            saveBtn.disabled = true;
+        }
+
+        body.innerHTML = html;
+    }
+
+    function renderChecks(analysis) {
+        const names = {
+            global_exclusion: 'Single-session release',
+            class: 'Race class',
+            round: 'Round / venue',
+            quality: 'Quality',
+            group: 'Release group',
+            year: 'Season',
+            session: 'Session',
+            combined_qualifying: 'Combined qualifying',
+            marked_mismatch: 'Marked as a mismatch'
+        };
+        const rows = (analysis.checks || []).map(check => `
+            <div class="mismatch-check ${check.passed ? 'pass' : 'fail'}">
+                <span class="mismatch-check-icon">${check.passed ? '✓' : '✕'}</span>
+                <span class="mismatch-check-name">${escapeHtml(names[check.name] || check.name)}</span>
+                <span class="mismatch-check-detail">${escapeHtml(check.detail || '')}</span>
+            </div>
+        `).join('');
+
+        if (!analysis.accepted && analysis.reason) {
+            return rows + `
+                <div class="mismatch-check fail">
+                    <span class="mismatch-check-icon">✕</span>
+                    <span class="mismatch-check-name">Verdict</span>
+                    <span class="mismatch-check-detail">${escapeHtml(analysis.reason)}</span>
+                </div>
+            `;
+        }
+        if (analysis.score != null && analysis.accepted) {
+            return rows + `
+                <div class="mismatch-check score">
+                    <span class="mismatch-check-icon">★</span>
+                    <span class="mismatch-check-name">Score</span>
+                    <span class="mismatch-check-detail">${analysis.score} (highest score wins)</span>
+                </div>
+            `;
+        }
+        return rows;
+    }
+
+    function markAsMismatch() {
+        if (!mismatchSession || !mismatchSession.data) return;
+        const saveBtn = document.getElementById('mismatch-save-btn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        const reason = (document.getElementById('mismatch-reason') || {}).value || '';
+        const scopeEl = document.getElementById('mismatch-global-scope');
+        const quarantineEl = document.getElementById('mismatch-quarantine');
+
+        fetch('/api/release-mismatch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                season: mismatchSession.season,
+                round: mismatchSession.round,
+                session: mismatchSession.session,
+                title: mismatchSession.data.grabbed.release,
+                reason: reason,
+                scope: (scopeEl && scopeEl.checked) ? 'global' : 'session',
+                quarantine: !!(quarantineEl && quarantineEl.checked)
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            saveBtn.textContent = 'Mark as mismatch';
+            if (data.error) {
+                showToast(data.error, 'error');
+                saveBtn.disabled = false;
+                return;
+            }
+
+            const action = data.library_action || {};
+            if (action.ok) {
+                showToast('Marked. The old folder was moved aside.', 'success', 4000);
+            } else if (action.reason) {
+                // Saved, but the file is still there. Say so: the user has to
+                // know Plex will keep showing it until the replacement is in.
+                showToast(
+                    `Marked, but the old folder is still in Plex (${action.reason}). ` +
+                    `A replacement will sort into it.`,
+                    'warning', 8000
+                );
+            } else {
+                showToast('Marked. It will not be selected again.', 'success');
+            }
+
+            document.getElementById('mismatch-modal').classList.remove('active');
+            loadMismatchCounts().then(loadLibraryStatus);
+
+            if (confirm('Recorded. Start the replacement download now?')) {
+                startReplacementDownload();
+            }
+        })
+        .catch(() => {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Mark as mismatch';
+            showToast('Could not record the mismatch', 'error');
+        });
+    }
+
+    function startReplacementDownload() {
+        if (!mismatchSession) return;
+        fetch('/api/release-mismatch/redownload', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                season: mismatchSession.season,
+                round: mismatchSession.round,
+                session: mismatchSession.session
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                showToast(data.error, 'error');
+                return;
+            }
+            showToast('Replacement search started - the blocked release is excluded.', 'success');
+            setTimeout(() => { window.location.href = '/activity'; }, 1500);
+        })
+        .catch(() => showToast('Could not start the replacement download', 'error'));
+    }
+
+    function unblockMismatch(id) {
+        fetch(`/api/release-mismatch/${encodeURIComponent(id)}`, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    showToast(data.error, 'error');
+                    return;
+                }
+                showToast('Release unblocked', 'success');
+                openMismatchModal(mismatchSession.round, mismatchSession.session);
+                loadMismatchCounts().then(loadLibraryStatus);
+            })
+            .catch(() => showToast('Could not unblock the release', 'error'));
+    }
+
+    function copyMismatchReport() {
+        if (!mismatchSession || !mismatchSession.data) return;
+        const d = mismatchSession.data;
+        const lines = [
+            `Round ${d.round} ${d.venue} - ${d.session_name} (${d.prefix})`,
+            `Release: ${d.grabbed.release || 'none recorded'}`,
+            d.grabbed.nzo_id ? `SABnzbd job: ${d.grabbed.nzo_id}` : '',
+            d.grabbed.timestamp ? `Grabbed at: ${d.grabbed.timestamp}` : '',
+            '',
+            'Matcher decision:',
+            ...((d.analysis && d.analysis.checks) || []).map(
+                c => `  ${c.passed ? 'PASS' : 'FAIL'}  ${c.name}: ${c.detail || ''}`
+            ),
+            d.analysis && d.analysis.score != null ? `  score: ${d.analysis.score}` : '',
+            d.analysis ? `  accepted: ${d.analysis.accepted} (${d.analysis.reason})` : '',
+            '',
+            `Requirements: quality=${d.requirements.quality} groups=${(d.requirements.groups || []).join(',')}`
+        ].filter(Boolean);
+
+        const text = lines.join('\n');
+        const done = () => showToast('Report copied', 'success');
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+        } else {
+            fallbackCopy(text, done);
+        }
+    }
+
+    function fallbackCopy(text, done) {
+        const area = document.createElement('textarea');
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand('copy'); done(); }
+        catch (e) { showToast('Could not copy', 'error'); }
+        document.body.removeChild(area);
+    }
+
+    function closeMismatchModal(event) {
+        if (!event || event.target.classList.contains('modal-overlay')) {
+            document.getElementById('mismatch-modal').classList.remove('active');
+        }
+    }
+
     function proceedWithDownload() {
         closeWarningModal();
         

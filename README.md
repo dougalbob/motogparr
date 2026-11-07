@@ -346,6 +346,40 @@ The page names the reason. The usual ones:
 | `Token has expired` | Reload; Access usually re-issues |
 | `not assigned to this installation` | Cloudflare let it through but the address is not in `AUTH_ALLOWED_EMAILS` |
 
+## When the wrong release is downloaded
+
+The matcher is a set of rules, and occasionally it accepts a release whose
+contents are the wrong session. Deleting it and asking for the session again does
+not help: the same rules see the same candidates and pick the same release.
+
+**Download tab → find the session → 🚫** opens a dialog that shows:
+
+- the release name the grabber actually selected, and its SABnzbd job id;
+- **why the matcher accepted it** - every check it ran, in order, with the value
+  that matched (which venue alias, which round pattern, which session it
+  resolved, and the score that made it win);
+- anything already blocked for that session.
+
+Marking it does two things:
+
+| Action | Effect |
+|---|---|
+| **Mark as mismatch** | The title is excluded from every future search for that session, so a replacement picks a different release. ⏹ Global scope excludes it for every session instead. |
+| **Move the existing folder out of Plex** (on by default) | The wrong file is renamed into `<library>/.mismatched/<season>/`. Plex stops showing it, and a replacement sorts cleanly into the same session folder instead of being nested inside the old one. |
+
+Nothing is deleted. The quarantined folder is hidden from Plex by the leading
+dot; delete it yourself once the replacement looks right. **Unblock** on the
+[mismatch log](/mismatch) reverses a wrong verdict.
+
+The dialog also offers **Copy report**, which produces the release name and the
+full check list as text — that is the material for a pattern fix, and it can be
+pasted straight into an issue or a pull request. Everything is stored in
+`/config/release_mismatches.json`.
+
+> The block is per session by default because that is usually the real scope: a
+> Race release misfiled as Practice is wrong *for Practice*. Use global scope for
+> a title that is wrong wherever it appears, such as an off-by-one round number.
+
 ## Checking your configuration
 
 Two classes of problem are invisible in normal use, so both are reported

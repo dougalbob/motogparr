@@ -72,6 +72,11 @@ PLEX_LIBRARY_ID = get_plex_library_id()
 # Library path
 MOTOGP_LIBRARY_PATH = get_motogp_library_path()
 
+#: Where a replaced session folder is parked: ``<library>/.mismatched/<season>/``.
+#: Shared with utils/release_mismatches.py so the app and the sorter agree on
+#: which folders are "out of the library but still on disk".
+QUARANTINE_DIRNAME = ".mismatched"
+
 # Supported video extensions
 VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.m4v', '.ts', '.m2ts'}
 
@@ -921,6 +926,76 @@ def process_combined_qualifying(
 # DUAL-PATH PROCESSING
 # =============================================================================
 
+def _clear_existing_session_folder(final_path: str) -> bool:
+    """
+    Make room for a replacement download, without deleting the old media.
+
+    When a replacement for an already-sorted session is downloaded, the
+    destination folder exists. ``shutil.move(src, dst)`` then moves the new
+    folder *inside* the old one, so Plex keeps showing the old (wrong) file, a
+    second item appears, or both, and nothing has visibly failed.
+
+    The old folder is renamed aside to ``<library>/.mismatched/<season>/``: a
+    leading dot keeps it out of Plex's scanner and out of every folder walk in
+    this app, and the media is still there if the mismatch verdict was wrong.
+    This is deliberately a move, not a delete - the only thing in this
+    repository that deletes library media is ``scripts/cleanup_utility.py``,
+    which is not shipped in the image.
+    """
+    if not os.path.exists(final_path):
+        return True
+
+    parent = os.path.dirname(final_path)
+    session_name = os.path.basename(final_path)
+    round_dir = os.path.basename(parent)
+
+    # Anchor on the configured library root, not on the shape of final_path:
+    # dirname() walking upwards would put the quarantine wherever the path
+    # happens to sit if the layout ever changes. If the destination is not
+    # under the configured root, refuse - the alternative is moving a folder to
+    # a location nothing else knows about.
+    library_root = os.path.abspath(MOTOGP_LIBRARY_PATH)
+    season_dir = os.path.dirname(os.path.abspath(parent))
+    try:
+        if os.path.commonpath([library_root, season_dir]) != library_root:
+            logger.error(
+                f"  ❌ Refusing to move {final_path}: it is not inside the "
+                f"configured library {library_root}"
+            )
+            return False
+    except ValueError:  # different drives on Windows-style paths
+        logger.error(f"  ❌ Refusing to move {final_path}: not under {library_root}")
+        return False
+
+    quarantine_root = os.path.join(
+        library_root, QUARANTINE_DIRNAME, os.path.basename(season_dir)
+    )
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    destination = os.path.join(
+        quarantine_root, f"{session_name} [{round_dir}] [{stamp}]"
+    )
+
+    logger.warning(
+        "  ⚠️  A session folder already exists for this download. Moving it "
+        "aside instead of nesting the replacement inside it."
+    )
+    logger.warning(f"     From: {final_path}")
+    logger.warning(f"     To:   {destination}")
+
+    try:
+        os.makedirs(quarantine_root, exist_ok=True)
+        shutil.move(final_path, destination)
+    except OSError as exc:
+        logger.error(f"  ❌ Could not move the existing folder aside: {exc}")
+        return False
+
+    logger.warning(
+        "     The old file is hidden from Plex by the leading dot in "
+        f"'{QUARANTINE_DIRNAME}'. Delete it once the replacement looks right."
+    )
+    return True
+
+
 def process_with_prefix(
     folder_name: str, 
     full_path: str, 
@@ -973,6 +1048,8 @@ def process_with_prefix(
         return True
     
     os.makedirs(dest_parent, exist_ok=True)
+    if not _clear_existing_session_folder(final_path):
+        return False
     shutil.move(full_path, final_path)
     
     flatten_if_single_subdir(final_path)
@@ -1048,6 +1125,8 @@ def process_without_prefix(folder_name: str, full_path: str) -> bool:
         return True
     
     os.makedirs(dest_parent, exist_ok=True)
+    if not _clear_existing_session_folder(final_path):
+        return False
     shutil.move(full_path, final_path)
     
     flatten_if_single_subdir(final_path)
