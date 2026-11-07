@@ -126,7 +126,7 @@ plus `CONFIG_DIR`. `MOTOGPARR_VERSION` is informational.
 
 | Store | Written by | Read by | Holds |
 |---|---|---|---|
-| `/config/settings.yml` | entrypoint (template), WebUI `/app-config` + `/settings` | `config_loader` | services, paths, plex mapping, `grabber.*` (including `max_grabs_per_run`), `timezone` |
+| `/config/settings.yml` | entrypoint (template), WebUI `/app-config` + `/settings` | `config_loader` | services, paths, plex mapping, `grabber.*` (including `max_grabs_per_run` and `search_delay_minutes`), `webui.quick_status_log_lines`, `timezone` |
 | `/config/webui_settings.json` | WebUI `/settings` (sessions only) | `motogp_common.get_desired_sessions()`, WebUI | desired sessions only |
 
 The desired-sessions setting **only** exists in JSON. `max_grabs_per_run` is a

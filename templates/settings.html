@@ -56,6 +56,11 @@
                     <label for="max-grabs">Max grabs per run:</label>
                     <input type="number" id="max-grabs" min="1" max="50" value="{{ settings.max_grabs_per_run }}" style="width: 100px;">
                     <div class="config-help">Limits how many episodes are grabbed in one scheduled run</div>
+                    <label for="search-delay-minutes">Search delay after session (minutes):</label>
+                    <input type="number" id="search-delay-minutes" min="0" max="10080" value="60" style="width: 100px;">
+                    <div class="config-help">Wait this long after a session ends before searching for releases.</div>
+                    <label for="quick-status-lines">Quick Status log lines:</label>
+                    <input type="number" id="quick-status-lines" min="1" max="2000" value="100" style="width: 100px;">
                 </div>
             </div>
         </div>
@@ -332,6 +337,8 @@
             .then(r => r.json())
             .then(data => {
                 document.getElementById('cfg-prowlarr-url').value = data.prowlarr?.url || '';
+                document.getElementById('search-delay-minutes').value = data.grabber?.search_delay_minutes ?? 60;
+                document.getElementById('quick-status-lines').value = data.webui?.quick_status_log_lines ?? 100;
                 document.getElementById('cfg-prowlarr-key').value = data.prowlarr?.api_key || '';
                 document.getElementById('cfg-sabnzbd-url').value = data.sabnzbd?.url || '';
                 document.getElementById('cfg-sabnzbd-key').value = data.sabnzbd?.api_key || '';
@@ -456,7 +463,9 @@
                 webhook_url: document.getElementById('cfg-discord-webhook').value
             },
             timezone: document.getElementById('cfg-timezone').value,
-            max_grabs_per_run: parseInt(document.getElementById('max-grabs').value) || 22
+            max_grabs_per_run: parseInt(document.getElementById('max-grabs').value) || 22,
+            grabber: {search_delay_minutes: parseInt(document.getElementById('search-delay-minutes').value)},
+            webui: {quick_status_log_lines: parseInt(document.getElementById('quick-status-lines').value)}
         };
         
         fetch('/app-config', {

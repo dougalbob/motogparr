@@ -463,9 +463,15 @@ def get_max_grabs_per_run() -> int:
     return get_int("grabber", "max_grabs_per_run", 22)
 
 
-def get_search_delay_hours() -> int:
-    """Get hours to wait after session before searching."""
+def get_search_delay_hours() -> float:
+    """Get configured search delay as hours while accepting older YAML files."""
+    settings = _load_yaml() or {}
+    grabber = settings.get("grabber", {})
+    if isinstance(grabber, dict) and "search_delay_minutes" in grabber:
+        return get_int("grabber", "search_delay_minutes", 60) / 60
+    # Keep existing installs with the previous key/value working after upgrade.
     return get_int("grabber", "search_delay_hours", 1)
+
 
 
 def get_current_season() -> int:
@@ -720,8 +726,11 @@ grabber:
   allowed_groups: ["VERUM", "MWR"]
   required_quality: "1080p"
   max_grabs_per_run: 22
-  search_delay_hours: 4
+  search_delay_minutes: 240
   current_season: 2026
+
+webui:
+  quick_status_log_lines: 100
 
 discord:
   webhook_url: ""  # Optional: for notifications

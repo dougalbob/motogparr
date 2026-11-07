@@ -125,8 +125,10 @@ SETTINGS: Tuple[Setting, ...] = (
             choices=("720p", "1080p", "2160p")),
     Setting("grabber", "max_grabs_per_run", "positive integer",
             "Maximum episodes grabbed per scheduled run"),
-    Setting("grabber", "search_delay_hours", "positive integer",
-            "Hours to wait before searching for a session again"),
+    Setting("grabber", "search_delay_minutes", "positive integer",
+            "Minutes to wait before searching after a session ends"),
+    Setting("webui", "quick_status_log_lines", "positive integer",
+            "Number of log lines shown in Quick Status"),
     Setting("grabber", "current_season", "positive integer",
             "Season the scheduler should track"),
 

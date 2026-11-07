@@ -31,8 +31,11 @@ grabber:
   allowed_groups: []           # Release groups to accept; empty = no restriction
   required_quality: 1080p
   max_grabs_per_run: 22        # Also editable in the WebUI
-  search_delay_hours: 4
+  search_delay_minutes: 240
   current_season: 2026
+
+webui:
+  quick_status_log_lines: 100
 
 discord:
   webhook_url:                 # Optional - leave empty to disable
