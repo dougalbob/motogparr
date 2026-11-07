@@ -299,7 +299,10 @@ scheduler stale for that whole time.
 
 Surfaced on the home health strip ("Loop: last pass …", "Watcher: scanned …")
 and in `/diagnostics` under `background`, including per-component reasons for
-`never`. Both are rendered on page load from one small JSON read - no network
+`never`. The pre-existing chip there was renamed "Last search: …" - it is the
+grabber's `last_scheduled_check`, which only moves when a session is actually
+searched, so on an off-weekend it is legitimately days old and sat next to a
+fresh "Loop" chip looking like a contradiction. Both are rendered on page load from one small JSON read - no network
 call, keeping the home tab's existing "static by design" rule.
 
 **Decision recorded, not left implicit:** a stale heartbeat is a warning, never
