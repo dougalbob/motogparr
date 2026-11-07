@@ -484,7 +484,7 @@ def test_home_route_states_the_scheduler_is_stale_when_it_lags(
     (cfg_dir / "grabber_state.json").write_text(json.dumps(state), encoding="utf-8")
 
     html = client.get("/").get_data(as_text=True)
-    assert "Scheduler: last check" in html
+    assert "Last search:" in html
     assert "chip bad" in html
 
 

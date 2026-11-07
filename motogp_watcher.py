@@ -40,6 +40,8 @@ from motogp_common import (
     get_config_dir, SessionType, element_number
 )
 from activity_emitter import emit_activity, ActivityStage, mark_complete, mark_error
+from utils import failure_reasons, scan_metrics
+from utils.background_health import write_heartbeat
 
 def _folder_to_episode_key(folder_name: str) -> tuple:
     """
@@ -58,8 +60,28 @@ def _folder_to_episode_key(folder_name: str) -> tuple:
 
 
 
-from utils.config_loader import get_motogp_library_path
+from utils.config_loader import (
+    get_motogp_library_path,
+    get_plex_token,
+    get_sabnzbd_api_key,
+)
 from utils.json_store import atomic_write_json, file_lock, read_json, three_way_merge
+
+
+def _configured_secrets() -> List[str]:
+    """
+    Credentials that must never appear in a stored processing error.
+
+    A sorter/tagger failure message can carry a Plex URL, and the Plex token
+    travels in its query string. The reason is persisted in
+    ``watcher_state.json`` and rendered in the UI, so it has to be clean before
+    it is written, not at display time.
+    """
+    return [
+        value
+        for value in (get_plex_token(), get_sabnzbd_api_key())
+        if value
+    ]
 
 # Get module logger
 logger = get_logger("watcher")
@@ -84,13 +106,26 @@ class LibraryChecker:
         self._cache_ttl = timedelta(minutes=5)
     
     def _refresh_cache_if_needed(self):
-        """Refresh the library cache if expired."""
+        """
+        Refresh the library cache if expired.
+
+        Instrumented (Candidate D) because this walk covers every season the
+        library holds, and it is the most plausible source of "the watcher
+        feels slow" - but the suspicion is not a measurement, so the duration
+        and scope are recorded for /diagnostics rather than acted on.
+        """
         now = datetime.now()
         if self._cache_time and (now - self._cache_time) < self._cache_ttl:
             return
-        
+
+        with scan_metrics.timed_scan("watcher-library-cache") as scope:
+            self._refresh_cache(scope)
+
+    def _refresh_cache(self, scope: dict):
+        """The actual walk. ``scope`` records how much of the tree was visited."""
+        now = datetime.now()
         self._cache.clear()
-        
+
         if not self.library_path.exists():
             logger.warning(f"Library path does not exist: {self.library_path}")
             self._cache_time = now
@@ -105,6 +140,7 @@ class LibraryChecker:
                 for round_dir in year_dir.iterdir():
                     if not round_dir.is_dir():
                         continue
+                    scope["rounds"] = scope.get("rounds", 0) + 1
                     
                     for session_dir in round_dir.iterdir():
                         if not session_dir.is_dir():
@@ -118,6 +154,7 @@ class LibraryChecker:
                         )
                         
                         if has_video:
+                            scope["sessions"] = scope.get("sessions", 0) + 1
                             # Extract prefix from folder name
                             folder_name = session_dir.name
                             match = re.match(r'^(\d{2}R\d{2}E\d{2})', folder_name)
@@ -192,13 +229,22 @@ class FailedItem:
     last_attempt: str  # ISO format datetime
     attempt_count: int = 1
     last_error: str = ""
-    
+    #: Which actor failed and what to do about it, from
+    #: ``utils.failure_reasons``. A sorter returning False and an exception in
+    #: the processor are different faults; both used to be one string.
+    stage: str = ""
+    hint: str = ""
+    actionable: bool = False
+
     def to_dict(self) -> dict:
         return asdict(self)
     
     @classmethod
     def from_dict(cls, data: dict) -> 'FailedItem':
-        return cls(**data)
+        # Tolerate entries written before the structured fields existed; a
+        # missing key must not make the whole retry state unreadable.
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass 
@@ -334,22 +380,40 @@ class StateManager:
         self._save()
         logger.debug(f"Marked as processed: {folder_name}")
     
-    def mark_failed(self, folder_name: str, error: str = ""):
-        """Mark folder as failed."""
+    def mark_failed(self, folder_name: str, error: str = "",
+                    stage: str = failure_reasons.STAGE_PROCESS,
+                    hint: str = ""):
+        """
+        Mark folder as failed, with the stage that failed.
+
+        ``error`` is sanitised here rather than by the caller: it is a sorter or
+        tagger message that can contain a library path and, historically, a
+        Plex URL with its token in the query string. ``watcher_state.json`` is
+        read by the WebUI and survives restarts, so the stored text has to be
+        safe on its own.
+        """
         now = datetime.now().isoformat()
-        
+        error = failure_reasons.sanitise(error, _configured_secrets())
+        hint = hint or failure_reasons.HINTS.get(stage, "")
+
         if folder_name in self.state.failed:
             item = self.state.failed[folder_name]
             item.last_attempt = now
             item.attempt_count += 1
             item.last_error = error
+            item.stage = stage
+            item.hint = hint
+            item.actionable = stage in failure_reasons.ACTIONABLE
         else:
             self.state.failed[folder_name] = FailedItem(
                 folder_name=folder_name,
                 first_failed=now,
                 last_attempt=now,
                 attempt_count=1,
-                last_error=error
+                last_error=error,
+                stage=stage,
+                hint=hint,
+                actionable=stage in failure_reasons.ACTIONABLE,
             )
         
         self._save()
@@ -467,6 +531,11 @@ class DownloadWatcher:
         # State management
         config_path = Path(config_dir) if config_dir else Path("/config")
         self.state_manager = StateManager(config_path)
+        # Heartbeat destination (Candidate A). A watcher thread that dies
+        # inside the scheduler's process leaves no trace anywhere else: the
+        # scheduler keeps looping and the container stays healthy while
+        # completed downloads are never picked up.
+        self._heartbeat_dir = config_path
         
         # Library verification
         if library_path is None:
@@ -610,24 +679,41 @@ class DownloadWatcher:
                 # Note: COMPLETE event is emitted by plex_tagger after successful tagging
                 return True
             else:
-                error_msg = "Processor returned False"
+                error_msg = "the sorter did not confirm the move"
                 logger.warning(f"⚠️ [{correlation_id}] Processing failed: {folder_name} - {error_msg}")
-                self.state_manager.mark_failed(folder_name, error_msg)
-                
+                # The sorter returning False and the processor raising are
+                # different faults with different next steps, so both record
+                # the stage rather than the old generic "Processing failed".
+                self.state_manager.mark_failed(
+                    folder_name, error_msg, stage=failure_reasons.STAGE_PROCESS
+                )
+
                 # Emit ERROR activity
                 if episode_key:
                     mark_error(
                         episode_key=episode_key,
-                        error_message=f"Processing failed: {error_msg}",
+                        error_message=failure_reasons.summarise(
+                            failure_reasons.STAGE_PROCESS, error_msg
+                        ),
                         episode_name=episode_name
                     )
                 
                 return False
         
         except Exception as e:
-            error_msg = str(e)
+            error_msg = f"{type(e).__name__}: {e}"
             logger.error(f"❌ [{correlation_id}] Error processing {folder_name}: {error_msg}", exc_info=True)
-            self.state_manager.mark_failed(folder_name, error_msg)
+            self.state_manager.mark_failed(
+                folder_name, error_msg, stage=failure_reasons.STAGE_PROCESS
+            )
+            if episode_key:
+                mark_error(
+                    episode_key=episode_key,
+                    error_message=failure_reasons.summarise(
+                        failure_reasons.STAGE_PROCESS, error_msg
+                    ),
+                    episode_name=episode_name,
+                )
             return False
         
         finally:
@@ -636,11 +722,19 @@ class DownloadWatcher:
             self.folder_sizes.pop(folder_str, None)
     
     def _scan_directory(self):
-        """Scan watch directory for new folders to process."""
+        """
+        Scan watch directory for new folders to process.
+
+        Every completed scan is a heartbeat, including one that found nothing
+        and one whose watch directory is missing: both prove the thread is
+        alive, and a missing downloads path is already reported as its own
+        problem rather than disguised as a dead watcher.
+        """
         logger.debug(f"Scanning: {self.watch_dir}")
-        
+
         if not self.watch_dir.exists():
             logger.warning(f"Watch directory does not exist: {self.watch_dir}")
+            self._beat()
             return
         
         try:
@@ -738,9 +832,21 @@ class DownloadWatcher:
                     )
                 
                 self._process_folder(folder_path)
-        
+
         except Exception as e:
             logger.error(f"Error scanning directory: {e}", exc_info=True)
+        finally:
+            # Also after a failed scan: the loop survived it, which is the
+            # fact the record is for. A thread that raises and stops scanning
+            # stops beating, and that is what must show up as stale.
+            self._beat()
+
+    def _beat(self):
+        """Record that this thread completed a scan cycle."""
+        write_heartbeat(
+            self._heartbeat_dir, "watcher",
+            last_scan=datetime.now().isoformat(),
+        )
     
     def _run_loop(self):
         """Main watcher loop."""
@@ -773,6 +879,10 @@ class DownloadWatcher:
             return
         
         self._running = True
+        write_heartbeat(
+            self._heartbeat_dir, "watcher",
+            started=datetime.now().isoformat(),
+        )
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="DownloadWatcher")
         self._thread.start()
     

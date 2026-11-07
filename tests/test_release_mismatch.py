@@ -597,10 +597,12 @@ def test_grabber_search_excludes_marked_titles(monkeypatch, round_info):
     monkeypatch.setattr(grabber, "get_allowed_groups", lambda: ["MWR"])
     monkeypatch.setattr(grabber, "build_search_queries", lambda *a: ["q"])
     monkeypatch.setattr(grabber, "get_indexers", lambda: [])
-    monkeypatch.setattr(grabber, "search_indexer", lambda *a: [
+    # search_indexer reports (releases, error) so a failure and an empty result
+    # are distinguishable; the fake answers with the candidates and no error.
+    monkeypatch.setattr(grabber, "search_indexer", lambda *a: ([
         {"title": GOOD, "guid": "1", "size": 1},
         {"title": WRONG_ROUND, "guid": "2", "size": 1},
-    ])
+    ], None))
 
     results = grabber.search_for_session(
         round_info, SessionType.MOTOGP_RACE, 2026,

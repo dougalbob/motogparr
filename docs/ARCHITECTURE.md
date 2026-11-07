@@ -56,6 +56,9 @@ so stopping is honest.
 | `utils/calendar_sync.py` | Same-season check + safe replacement of `/config` calendars |
 | `utils/validate_calendar.py` | CLI calendar/library checker |
 | `utils/healthcheck.py` | stdlib-only `HEALTHCHECK` probe for `/healthz` |
+| `utils/background_health.py` | Scheduler-loop and watcher-thread progress records plus the staleness rule (§8b). Reported to the user; deliberately not part of the Docker probe |
+| `utils/failure_reasons.py` | The closed vocabulary for "why did that session not download", the wait-vs-fix distinction, and the redaction every stored reason passes through (§8c) |
+| `utils/scan_metrics.py` | In-process timing of the library walks, surfaced in `/diagnostics`. Measurement only - no index, no cache change, nothing persisted (§8d) |
 | `utils/settings_schema.py` | Permitted shape of `settings.yml`; unknown/wrong-typed keys |
 | `utils/plexcheck.py` | Is Plex actually scanning the library folder? |
 | `utils/permissions.py` | Can PUID:PGID write where it must? |
@@ -160,6 +163,7 @@ This is the single most common cause of "tagging stopped working".
 | `activity_events.json` | Activity tab events (file-locked) | Yes |
 | `discord_rate_limit.json` | Webhook pacing | Yes |
 | `release_mismatches.json` (+ `.lock`) | Releases marked as wrong, with the matcher's reasoning. Written by the WebUI under a sidecar lock, read by the grabber | No — un-blocks every marked release |
+| `background_health.json` (+ `.lock`) | Scheduler-loop and watcher progress timestamps (§8b). Written by the scheduler and the watcher thread, read by the WebUI | Yes — resets both components to "unknown", which is reported as such |
 | `logs/motogp.log` (+ debug) | `RotatingFileHandler`, 50 MB debug cap | Yes |
 | `motogp_<year>.json` | Season calendars, refreshed from image | No — re-copied on start |
 | `*.bak` | Pre-refresh calendar backup | Yes |
@@ -259,7 +263,7 @@ Home, Download, Settings, Stats, Calendar, Activity; a bottom nav for mobile;
 | `/logs/stream` | GET | SSE log tail | **exposes log text** |
 | `/logs/recent` | GET | Recent log lines | **exposes log text** |
 | `/stats` | GET | Stats page | low |
-| `/failed-sessions` | GET | Failed watcher items | low |
+| `/failed-sessions` | GET | Failed session searches, normalised with the stage that failed, whether waiting can help, and a next-step hint (§8c) | low |
 | `/download-selected` | POST | Triggers downloads | **high — action** |
 | `/mismatch` | GET | Release-mismatch log (blocked releases, evidence, reason) | low |
 | `/api/release-mismatch` | GET | Evidence for one session: the recorded release and *why* the matcher accepted it | low (release titles only) |
@@ -270,7 +274,7 @@ Home, Download, Settings, Stats, Calendar, Activity; a bottom nav for mobile;
 | `/activity`, `/activity/stream` | GET | Activity feed + SSE | low |
 | `/calendar`, `/calendar-data` | GET | Calendar views | low |
 | `/api/sabnzbd/queue` | GET | Proxies SABnzbd queue with the API key | medium |
-| `/diagnostics` | GET | Schema issues, credential provenance, Plex library check | medium (no values) |
+| `/diagnostics` | GET | Schema issues, credential provenance, Plex library check, background-progress heartbeat (§8b) | medium (no values) |
 | `/flags/<path>`, `/assets/<path>` | GET | Static files | low (path must be checked) |
 | `/manifest.json`, `/sw.js` | GET | PWA — public | — |
 | `/healthz` | GET | Liveness for the Docker HEALTHCHECK — public | — |
@@ -339,8 +343,15 @@ next save from the UI.
 - CI: `docker-publish.yml` (tests → build → push), `calendar-check.yml`
   (calendar validation, duplicate JSON key rejection), `container-smoke.yml`
   (build and run the image, assert non-root + auth), `release.yml` (generate
-  notes, publish, open release-notes PR), and `pr-label-check.yml` (require at
-  least one label on PRs to `main` so release notes are categorised). Their
+  notes, publish, open release-notes PR, then wait for the versioned image and
+  `:latest` to resolve before calling the release shipped), `release-prep.yml`
+  (run `scripts/check_release_readiness.py` on every PR to `main`: tag format,
+  Unraid `TemplateURL` pin, Dockerfile `COPY` sources, tag not already
+  published), and `pr-label-check.yml` (require at least one label on PRs to
+  `main` so release notes are categorised). `release.yml` also refuses to
+  publish a tag whose own tree does not pin it, which is the v2.11.0 ordering
+  hazard made mechanical - the checklist order is in
+  `docs/IMPROVEMENT_PLAN.md`. Their
   triggers differ: calendar checks are path-filtered, the container smoke test
   skips documentation-only PRs, and release publishing runs on version tags or
   manual dispatch. Workflows use Node 24 runtimes (`actions/checkout@v5`,
@@ -425,6 +436,114 @@ history for all three race classes.
 
 One known cosmetic gap remains: the SAB progress gradient may not render in the
 mobile PWA (fallback text is fine).
+
+## 8b. Background progress vs. container health
+
+Two different questions, deliberately answered separately:
+
+| Question | Answered by | Used for |
+|---|---|---|
+| Can the WebUI serve a page? | `utils/healthcheck.py` → `/healthz` | Docker `HEALTHCHECK`, so a dead UI no longer hides behind a green "Up" |
+| Is the scheduler still looping, and the watcher still scanning? | `background_health.json` (§4) | The home health strip and `/diagnostics` - **not** the Docker probe |
+
+The scheduler records `last_loop` at the top of every iteration, `last_check`
+when a scheduled search actually ran, and `started` once at startup; the
+watcher records `last_scan` after every scan cycle (including one that found
+nothing, or whose downloads path is missing) and `started` when the thread
+starts. "Progress" is always the loop field, never `last_check`: off-weekend
+the scheduler legitimately runs no searches for days, and a rule keyed on
+searches would report a perfectly healthy scheduler as stale for that whole
+time.
+
+`utils/background_health.py` holds the question and the rule; the loops only
+write. `component_health()` takes an explicit `now` and does no I/O, states are
+`live` / `stale` / `never`, and **`never` is never reported as healthy** - a
+fresh container has no evidence yet, so it says so. The stale threshold is
+twice the scheduler's *own* interval (`motogp_scheduler.CONFIG`, including the
+quiet-hours interval via `is_quiet_hours()`) plus an hour of grace; reading the
+intervals from the scheduler is what stops a correct overnight run from being
+called dead at 03:00.
+
+A stale heartbeat is a **warning, not a restart** (decided in Candidate A):
+`/healthz` stays a stateless probe with no file reads, no network calls and no
+race-weekend awareness, because a slow-but-legitimate Prowlarr search must not
+put the container into a restart loop. Because the record is a shared `/config`
+file it goes through `utils/json_store.py` (§4) - one component per write, so
+the scheduler and the watcher thread cannot erase each other's timestamps - and
+a failed heartbeat write is logged and swallowed: a monitoring loop that dies
+because monitoring failed is a worse outage than a missing heartbeat.
+
+## 8c. Why a session did not download
+
+`grabber_state.json`'s `failed` map used to hold one of three strings, and they
+were not diagnoses: `"No results"` was recorded for a 401 from an indexer, an
+unreachable Prowlarr, no enabled indexers and a genuinely empty search alike;
+`"Grab failed"` covered an unreachable SABnzbd and a refused release alike.
+
+`utils/failure_reasons.py` owns the replacement. Stages, in pipeline order:
+`search_setup`, `search_indexer`, `no_candidates`, `rejected`, `blocked`,
+`sab_submit`, `download`, `process`. Each has a label, a hint naming the next
+step, and `actionable` - the field that matters, because it separates **wait**
+(`no_candidates`, `rejected`, `blocked` are self-resolving or deliberate) from
+**fix something** (a dead service never repairs itself).
+
+Where the evidence comes from:
+
+- `search_for_session(..., diagnostics=...)` fills a caller-supplied dict with
+  indexer/candidate/filter counters. It is an out-parameter, not a second return
+  value, so every existing caller is unchanged.
+- `search_indexer()` returns `(releases, error)` and `grab_release()` returns
+  `(nzo_id, error)`, so a refused key, a timeout and an empty answer stop being
+  the same empty list. Neither error string contains a URL: Prowlarr and SABnzbd
+  both put their key in the query string.
+- `explain_search()` converts the counters to a stage, in pipeline order, so a
+  setup error outranks an empty result (both yield zero candidates; only one
+  needs a human). Partial indexer failure is reported but not called a failure.
+- `GrabberState.mark_failed()` accepts the old bare string *and* a structured
+  record; the watcher's `FailedItem` gained `stage`/`hint`/`actionable` with
+  `from_dict` ignoring unknown keys, so an existing `watcher_state.json` still
+  loads and retry state is never lost by adding a field.
+
+**Every stored reason is redacted** by `failure_reasons.sanitise()`: configured
+secret values verbatim, then any URL reduced to `scheme://host:port`, then named
+credential parameters and bare 32-character tokens. These strings persist in
+`/config`, render in the UI and get copied into reports, and a `requests`
+exception renders the whole URL - see AGENTS.md §7a for why that is not a
+hypothetical.
+
+`/failed-sessions` normalises entries through `describe()`. An entry written
+before the stages existed keeps its reason and reports **no** stage: labelling a
+historic "No results" as "not published yet" would relabel a past outage as a
+quiet weekend. The Download tab's warning dialog shows the stage-named reason, an
+⚠️ for actionable faults and the hint, and escapes the text (it contains
+indexer/downloader error strings, so it is data, not markup).
+
+## 8d. Library scan cost is measured, not assumed
+
+The watcher caches a library walk for five minutes and several WebUI routes walk
+it per request, so "the scan might be slow" is a reasonable suspicion - and one
+that has never been measured. `utils/scan_metrics.py` records duration and scope
+for `library-season` (`motogp_webui.scan_library_for_season`, called on every
+home page and Download tab render) and `watcher-library-cache`
+(`LibraryChecker._refresh_cache_if_needed`).
+
+`/diagnostics` reports `scan_cost`: per label, count, median, p95 and max in
+milliseconds, the scope of the slowest sample (rounds and sessions walked), and
+any sample over `SLOW_SCAN_SECONDS` named individually. Percentiles are
+nearest-rank, so a single bad sample stays visible instead of being smoothed
+into its neighbours.
+
+Recorded limits, so a later session does not "finish the job" by building the
+thing this deliberately avoids:
+
+- **Nothing is persisted.** Samples live in the process and are lost on restart;
+  a metrics file would be another locked `/config` store for information that
+  only matters during an investigation.
+- **Nothing is cached or indexed on the strength of the numbers.** A targeted
+  scan or an incrementally refreshed index is a *possible outcome* of a
+  measurement showing the walk is the problem - not part of taking one. Revisit
+  only with evidence from a real library, not from this sandbox.
+- **No timers in the sort/tagger path.** The library walk is the question.
 
 ## 9. What the old notes said vs. what is true
 

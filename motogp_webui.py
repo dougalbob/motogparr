@@ -70,7 +70,7 @@ from utils.config_loader import (
     get_search_delay_hours,
     get_int,
 )
-from utils import home_summary
+from utils import background_health, home_summary, scan_metrics
 from utils.json_store import atomic_write_json, file_lock, read_json, write_json
 from utils.webui_jobs import JobManager
 
@@ -764,7 +764,21 @@ def save_webui_settings(settings):
 # =============================================================================
 
 def scan_library_for_season(year: int) -> dict:
-    """Scan the library to find existing sessions for a season."""
+    """
+    Scan the library to find existing sessions for a season.
+
+    Instrumented, not optimised (Candidate D): the home page and several routes
+    walk this per request, and the review did not establish whether that is
+    slow. The wrapper records duration and scope so ``/diagnostics`` can answer
+    the question with numbers before anyone builds an index "for performance".
+    """
+    return scan_metrics.timed(
+        "library-season", _scan_library_for_season, year
+    )
+
+
+def _scan_library_for_season(year: int) -> dict:
+    """The actual walk; called through the instrumented wrapper above."""
     season_path = os.path.join(MOTOGP_LIBRARY_PATH, str(year))
     
     if not os.path.exists(season_path):
@@ -899,8 +913,37 @@ def get_home_summary(settings: dict) -> dict:
             ),
             "library_ok": os.path.isdir(MOTOGP_LIBRARY_PATH),
         },
+        "background": _background_health(now, bool(weekend_round)),
         "season": season,
     }
+
+
+def _background_health(now: datetime, in_weekend: bool) -> dict:
+    """
+    Scheduler-loop and watcher-thread progress, from the on-disk heartbeat.
+
+    Separate from ``health.scheduler`` above, which is the grabber's own
+    ``last_scheduled_check``: that one only moves when a search actually ran,
+    so an off-weekend week reads as "never run" even though the scheduler is
+    sleeping normally. This one answers the different question "is the loop
+    still turning", and both are shown because they fail differently.
+
+    No I/O beyond one small JSON read and no network calls - the home tab is
+    rendered on load and must not wait on a service to say whether the
+    machine is alive.
+    """
+    try:
+        heartbeat = background_health.read_heartbeat(CONFIG_DIR)
+    except Exception as exc:  # noqa: BLE001 - a broken record must not 500 the page
+        logger.warning(f"Could not read the background heartbeat: {exc}")
+        heartbeat = {}
+
+    return background_health.background_health(
+        heartbeat,
+        now,
+        in_weekend=in_weekend,
+        quiet=background_health.quiet_hours_at(now),
+    )
 
 
 def get_library_status(year: int, round_filter: int = None) -> dict:
@@ -1881,11 +1924,24 @@ def diagnostics():
     from utils.plexcheck import check_from_settings
     from utils.plexlabels import probe_section
 
+    now = datetime.now()
+    in_weekend = home_summary.find_weekend_round(
+        load_calendar_data(get_current_season()), now.date()
+    ) is not None
+
     return jsonify({
         "validation": validate(),
         "credentials": credential_sources(),
         "plex_library": check_from_settings().as_dict(),
         "plex_labels": _probe_plex_labels(probe_section),
+        # Measurement, not an opinion: how long this process's library walks
+        # actually take. No index or cache change is justified until these
+        # numbers say the walk is the problem (Candidate D).
+        "scan_cost": scan_metrics.snapshot(),
+        # Progress, not just liveness: the scheduler and the watcher can both
+        # stop doing work while the WebUI keeps answering /healthz, which is
+        # the one failure the Docker probe structurally cannot see.
+        "background": _background_health(now, in_weekend),
     })
 
 
@@ -2024,18 +2080,26 @@ def stats():
 
 @app.route("/failed-sessions")
 def failed_sessions():
-    """Get recently failed session searches."""
-    state_file = CONFIG_DIR / "grabber_state.json"
-    failed = {}
-    
-    if state_file.exists():
-        try:
-            with open(state_file, 'r') as f:
-                state = json.load(f)
-                failed = state.get("failed", {})
-        except Exception:
-            pass
-    
+    """
+    Recently failed session searches, with the stage that failed.
+
+    Each entry is normalised by ``utils.failure_reasons.describe`` so the
+    Download tab can say *which* actor failed ("Search service: Prowlarr is
+    unreachable") and whether waiting can help, instead of showing the bare
+    "No results" every cause used to collapse into. Entries written before the
+    stage existed keep their reason and carry no stage: they are reported as
+    unknown rather than labelled with a guess.
+
+    Read through the shared store so a reader cannot see a torn file - the
+    grabber writes this while the WebUI may be rendering.
+    """
+    from utils import failure_reasons
+
+    state = _load_grabber_state()
+    failed = {
+        key: failure_reasons.describe(entry)
+        for key, entry in (state.get("failed") or {}).items()
+    }
     return jsonify({"failed": failed})
 
 

@@ -53,6 +53,7 @@ from motogp_common import (
     GRAB_MODE_SCHEDULED, GRAB_MODE_BACKFILL,
 )
 from activity_emitter import emit_activity, ActivityStage, mark_error
+from utils import failure_reasons
 from utils.json_store import atomic_write_json, file_lock, read_json, three_way_merge
 
 # Import config
@@ -207,12 +208,28 @@ class GrabberState:
             entry["mode"] = mode
         self.state["grabbed"][session_key] = entry
 
-    def mark_failed(self, session_key: str, reason: str):
-        """Mark session search as failed."""
-        self.state["failed"][session_key] = {
-            "timestamp": datetime.now().isoformat(),
-            "reason": reason
-        }
+    def mark_failed(self, session_key: str, reason, **extra):
+        """
+        Mark session search as failed.
+
+        ``reason`` is either the plain string this always accepted, or a
+        structured record from :func:`utils.failure_reasons.make`. The record
+        form carries the stage that failed and whether waiting can help, so the
+        Download tab can say "Prowlarr is unreachable" instead of "No results" -
+        the two used to be indistinguishable, and one of them needs a human.
+        A bare string stays supported because the shape is already on disk in
+        every existing installation and in other call sites.
+        """
+        if isinstance(reason, dict):
+            entry = dict(reason)
+            entry.setdefault("timestamp", datetime.now().isoformat())
+        else:
+            entry = {
+                "timestamp": datetime.now().isoformat(),
+                "reason": reason,
+            }
+        entry.update({k: v for k, v in extra.items() if v is not None})
+        self.state["failed"][session_key] = entry
 
     def clear_session(self, session_key: str):
         """Clear all state for a session."""
@@ -727,10 +744,28 @@ def parse_newznab_xml(xml_text: str, indexer_name: str = "Unknown") -> List[dict
     return releases
 
 
-def search_indexer(query: str, indexer_id: int, indexer_name: str) -> List[dict]:
-    """Search a specific indexer via Prowlarr."""
+def search_indexer(query: str, indexer_id: int,
+                   indexer_name: str) -> Tuple[List[dict], Optional[str]]:
+    """
+    Search one indexer. Returns ``(releases, error)``.
+
+    The error is returned rather than only logged, because "this indexer
+    refused the request" and "this indexer answered with nothing" produce the
+    same empty list and used to be stored as the same failure. One of them
+    needs a human; the other needs patience.
+
+    The error text is a short sentence naming the indexer and the status or
+    exception type - never the URL. Prowlarr's search URL carries the API key in
+    its query string, and a requests exception renders the whole URL; the caller
+    passes the text through ``failure_reasons.sanitise`` as a second line of
+    defence, but not putting it here is the first.
+    """
     prowlarr_url = get_prowlarr_url()
     prowlarr_api_key = get_prowlarr_api_key()
+
+    if not prowlarr_url or not prowlarr_api_key:
+        # No URL and no key is a configuration fault, not an unreachable host.
+        return [], "Prowlarr is not configured"
 
     try:
         url = f"{prowlarr_url}/{indexer_id}/api"
@@ -744,11 +779,17 @@ def search_indexer(query: str, indexer_id: int, indexer_name: str) -> List[dict]
         response = requests.get(url, params=params, timeout=60)
 
         if response.status_code == 200:
-            return parse_newznab_xml(response.text, indexer_name)
-        return []
-    except Exception as e:
+            return parse_newznab_xml(response.text, indexer_name), None
+        if response.status_code in (401, 403):
+            return [], f"{indexer_name} rejected the API key (HTTP {response.status_code})"
+        return [], f"{indexer_name} returned HTTP {response.status_code}"
+    except requests.exceptions.Timeout:
+        return [], f"{indexer_name} timed out"
+    except requests.exceptions.ConnectionError:
+        return [], "Prowlarr is unreachable from this container"
+    except Exception as e:  # noqa: BLE001 - one indexer must not stop the search
         logger.debug(f"Error searching {indexer_name}: {e}")
-        return []
+        return [], f"{indexer_name}: {type(e).__name__}"
 
 
 def build_search_queries(round_info: dict, session_type: SessionType, season: int) -> List[str]:
@@ -818,18 +859,73 @@ def _build_episode_key(season: int, round_num: int, session_type: SessionType) -
     return f"{season}_R{round_num:02d}_E{element_number(session_type, season):02d}"
 
 
+def _configured_secrets() -> List[str]:
+    """
+    Credential values that must never reach a stored reason string.
+
+    The reason is written to grabber_state.json, rendered in the Download tab
+    and copied into reports, so a requests exception carrying
+    ``/1/api?apikey=...`` would leak the key exactly as the 2026-11-05 incident
+    did (AGENTS.md §7a). Passing the real values in as well means the
+    redaction does not depend on recognising the shape of the URL.
+    """
+    return [
+        value for value in (get_prowlarr_api_key(), get_sabnzbd_api_key())
+        if value
+    ]
+
+
+def _record_failure(state: "GrabberState", session_key: str, stage: str,
+                    detail: str = "", **extra) -> dict:
+    """Store a structured failure for a session and return the record."""
+    record = failure_reasons.make(
+        stage, detail, secrets=_configured_secrets(), **extra
+    )
+    state.mark_failed(session_key, record)
+    return record
+
+
 def search_for_session(
     round_info: dict,
     session_type: SessionType,
     season: int,
     indexers: List[dict],
-    calendar: dict = None
+    calendar: dict = None,
+    diagnostics: Optional[dict] = None,
 ) -> List[dict]:
-    """Search all indexers for a session."""
+    """
+    Search all indexers for a session.
+
+    ``diagnostics`` is an out-parameter: when a dict is passed, it is filled with
+    the counters that let :func:`utils.failure_reasons.explain_search` say *why*
+    a search produced nothing. The return value is unchanged, so callers that do
+    not care (including every existing test) are unaffected - a second return
+    value would have broken them for no benefit.
+
+    The distinction being recorded is the one that used to be lost: no indexer
+    answered, versus every indexer answered "nothing published", versus
+    candidates arrived and the rules rejected them. All three used to be stored
+    as "No results".
+    """
     queries = build_search_queries(round_info, session_type, season)
+
+    # This list is built from indexers that get_indexers() already filtered, so
+    # an empty list means no *enabled* indexer - a configuration problem, not an
+    # absence of releases.
+    if not indexers:
+        if diagnostics is not None:
+            diagnostics.update({
+                "setup_error": "no enabled Prowlarr indexers",
+                "indexers": 0, "indexers_failed": 0,
+                "candidates": 0, "filtered": 0,
+            })
+        logger.error("🔍 No enabled indexers - cannot search for any session")
+        return []
 
     all_results = []
     seen_guids = set()
+    errors: List[str] = []
+    failed_indexers = 0
 
     round_num = round_info.get("round", "?")
     venue = round_info.get("venue", "Unknown")
@@ -839,15 +935,23 @@ def search_for_session(
     for indexer in indexers:
         idx_id = indexer.get('id')
         idx_name = indexer.get('name', 'Unknown')
+        indexer_answered = False
 
         for query in queries[:5]:
-            results = search_indexer(query, idx_id, idx_name)
+            results, error = search_indexer(query, idx_id, idx_name)
+            if error:
+                errors.append(error)
+                continue
+            indexer_answered = True
 
             for release in results:
                 guid = release.get('guid', '')
                 if guid and guid not in seen_guids:
                     seen_guids.add(guid)
                     all_results.append(release)
+
+        if not indexer_answered:
+            failed_indexers += 1
 
     logger.info(
         f"📋 Found {len(all_results)} candidates for "
@@ -879,6 +983,19 @@ def search_for_session(
         )
 
     logger.info(f"🎯 After filtering: {len(filtered)} matching releases")
+
+    if diagnostics is not None:
+        diagnostics.update({
+            "setup_error": None,
+            "indexers": len(indexers),
+            "indexers_failed": failed_indexers,
+            "candidates": len(all_results),
+            "filtered": len(filtered),
+            "errors": errors[:3],
+            # Every candidate was dropped because the user blocked it: a
+            # deliberate dead end, not a rule failure.
+            "all_blocked": bool(all_results) and not filtered and bool(excluded),
+        })
 
     return filtered
 
@@ -916,12 +1033,18 @@ def test_sabnzbd_connection() -> bool:
         return False
 
 
-def grab_release(release: dict, session_info: dict, season: int) -> Optional[str]:
-    """Send release to SABnzbd with enriched name.
+def grab_release(release: dict, session_info: dict,
+                 season: int) -> Tuple[Optional[str], str]:
+    """
+    Send release to SABnzbd with enriched name.
 
-    Returns the nzo_id string on success (empty string if SABnzbd did not
-    provide one), or None on failure. Callers should check ``result is not
-    None`` to determine success.
+    Returns ``(nzo_id, error)``. On success ``nzo_id`` is a string (empty if
+    SABnzbd did not provide one) and ``error`` is empty; on failure ``nzo_id``
+    is None and ``error`` says what went wrong, because "Grab failed" covered
+    an unreachable SABnzbd, a rejected API key and a refused release alike.
+
+    The error text names the *kind* of fault and never includes the request URL
+    - SABnzbd's API puts the key in the query string.
     """
     sabnzbd_url = get_sabnzbd_url()
     sabnzbd_api_key = get_sabnzbd_api_key()
@@ -930,7 +1053,11 @@ def grab_release(release: dict, session_info: dict, season: int) -> Optional[str
 
     if not download_url:
         logger.error("No download URL available")
-        return None
+        return None, "the release has no download link"
+
+    if not sabnzbd_url or not sabnzbd_api_key:
+        logger.error("SABnzbd not configured")
+        return None, "SABnzbd is not configured"
 
     # Build enriched name with prefix
     round_num = session_info.get("round", 0)
@@ -958,7 +1085,7 @@ def grab_release(release: dict, session_info: dict, season: int) -> Optional[str
                 result = response.json()
             except Exception as parse_err:
                 logger.error(f"SABnzbd response parse error: {parse_err}")
-                return None
+                return None, "SABnzbd returned a response that is not JSON"
 
             if result.get('status', False):
                 # Extract nzo_id from response (SABnzbd returns a list)
@@ -972,13 +1099,19 @@ def grab_release(release: dict, session_info: dict, season: int) -> Optional[str
                 logger.info(f"   📊 Score: {release_score}")
                 if nzo_id:
                     logger.info(f"   🆔 nzo_id: {nzo_id}")
-                return nzo_id if nzo_id else ""
+                return (nzo_id if nzo_id else ""), ""
             else:
-                logger.error(f"SABnzbd error: {result.get('error', 'Unknown')}")
-        return None
+                error = result.get('error') or "Unknown"
+                logger.error(f"SABnzbd error: {error}")
+                return None, f"SABnzbd refused the release: {error}"
+        return None, f"SABnzbd returned HTTP {response.status_code}"
+    except requests.exceptions.Timeout:
+        return None, "SABnzbd timed out accepting the release"
+    except requests.exceptions.ConnectionError:
+        return None, "SABnzbd is unreachable from this container"
     except Exception as e:
         logger.error(f"Grab error: {e}")
-        return None
+        return None, f"SABnzbd submission failed: {type(e).__name__}"
 
 
 def get_sabnzbd_job_status(nzo_id: str) -> str:
@@ -1403,20 +1536,31 @@ def cmd_backfill(args):
             round_info={"round": round_num, "venue": venue}
         )
 
-        results = search_for_session(round_info, session_type, season, indexers, calendar)
+        diagnostics: dict = {}
+        results = search_for_session(
+            round_info, session_type, season, indexers, calendar,
+            diagnostics=diagnostics,
+        )
 
         state.mark_searched(session_key)
 
         if not results:
-            print("    ❌ No matching releases found")
+            # Why nothing came back decides what the user should do, so the
+            # cause is recorded rather than flattened into "No results" (which
+            # made a Prowlarr outage look exactly like "not published yet").
+            cause = failure_reasons.explain_search(diagnostics)
+            record = _record_failure(
+                state, session_key, cause["stage"] or failure_reasons.STAGE_NO_CANDIDATES,
+                cause.get("detail", ""),
+            )
+            print(f"    ❌ {record['reason']}")
             logger.info(
-                f"❌ No candidates: Round {round_num} {venue} - "
+                f"❌ No candidates ({record['stage']}): Round {round_num} {venue} - "
                 f"{session_type.full_display_name}"
             )
-            state.mark_failed(session_key, "No results")
             mark_error(
                 episode_key=episode_key,
-                error_message="No matching releases found"
+                error_message=record["reason"],
             )
             continue
 
@@ -1424,7 +1568,10 @@ def cmd_backfill(args):
 
         if not available:
             print(f"    ⚠️  All results already grabbed this run")
-            state.mark_failed(session_key, "All results already grabbed")
+            _record_failure(
+                state, session_key, failure_reasons.STAGE_REJECTED,
+                "every matching release was already grabbed in this run",
+            )
             continue
 
         logger.info(
@@ -1471,7 +1618,7 @@ def cmd_backfill(args):
                 release_name=best_title[:80]
             )
 
-            nzo_id = grab_release(best, item, season)
+            nzo_id, grab_error = grab_release(best, item, season)
             if nzo_id is not None:
                 print(f"    ✅ Grab successful!")
                 state.mark_grabbed(session_key, best_title, nzo_id=nzo_id or None,
@@ -1487,11 +1634,17 @@ def cmd_backfill(args):
                         state.mark_grabbed(other_key, best_title + " (combined)",
                                            mode=GRAB_MODE_BACKFILL)
             else:
-                print(f"    ❌ Grab failed!")
-                state.mark_failed(session_key, "Grab failed")
+                record = _record_failure(
+                    state, session_key, failure_reasons.STAGE_SAB_SUBMIT,
+                    grab_error,
+                )
+                print(f"    ❌ {record['reason']}")
+                logger.error(
+                    f"Grab failed for {session_key}: {record['reason']}"
+                )
                 mark_error(
                     episode_key=episode_key,
-                    error_message="SABnzbd grab failed"
+                    error_message=record["reason"],
                 )
 
     state.save()
@@ -1687,20 +1840,28 @@ def cmd_scheduled(args):
             round_info={"round": round_num, "venue": venue},
         )
 
-        results = search_for_session(round_info, session_type, season, indexers, calendar)
+        diagnostics: dict = {}
+        results = search_for_session(
+            round_info, session_type, season, indexers, calendar,
+            diagnostics=diagnostics,
+        )
 
         state.mark_searched(session_key)
 
         if not results:
-            print("    ❌ No matching releases found yet")
-            logger.info(
-                f"No matching releases for Round {round_num} {venue} - "
-                f"{session_type.full_display_name}"
+            cause = failure_reasons.explain_search(diagnostics)
+            record = _record_failure(
+                state, session_key, cause["stage"] or failure_reasons.STAGE_NO_CANDIDATES,
+                cause.get("detail", ""),
             )
-            state.mark_failed(session_key, "No results")
+            print(f"    ❌ {record['reason']}")
+            logger.info(
+                f"No matching releases ({record['stage']}) for Round {round_num} "
+                f"{venue} - {session_type.full_display_name}"
+            )
             mark_error(
                 episode_key=episode_key,
-                error_message="No matching releases found",
+                error_message=record["reason"],
             )
             continue
 
@@ -1733,7 +1894,7 @@ def cmd_scheduled(args):
                 release_name=best.get("title", "Unknown")[:80],
             )
 
-            nzo_id = grab_release(best, item, season)
+            nzo_id, grab_error = grab_release(best, item, season)
             if nzo_id is not None:
                 state.mark_grabbed(
                     session_key,
@@ -1743,10 +1904,17 @@ def cmd_scheduled(args):
                 )
                 grabs_this_run += 1
             else:
-                state.mark_failed(session_key, "Grab failed")
+                record = _record_failure(
+                    state, session_key, failure_reasons.STAGE_SAB_SUBMIT,
+                    grab_error,
+                )
+                print(f"    ❌ {record['reason']}")
+                logger.error(
+                    f"Grab failed for {session_key}: {record['reason']}"
+                )
                 mark_error(
                     episode_key=episode_key,
-                    error_message="SABnzbd grab failed",
+                    error_message=record["reason"],
                 )
 
     state.update_scheduled_check()

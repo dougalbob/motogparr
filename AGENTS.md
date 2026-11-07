@@ -112,6 +112,16 @@ root-level `test_*.py` scratch scripts and errors out. See `SANDBOX.md`.
 - Prefer one concern per PR. Follow the dependency-aware slices in
   [`docs/IMPROVEMENT_PLAN.md`](docs/IMPROVEMENT_PLAN.md).
 - Never commit `*.backup*` files.
+- **A release is a sequence, and it is checked.** Bump the Unraid
+  `TemplateURL` pin, merge, *then* tag that merge commit; the release job
+  refuses to publish a tag whose own tree does not pin it, and does not report
+  success until the versioned image and `:latest` both resolve. Run
+  `python scripts/check_release_readiness.py --version vX.Y.Z` before tagging
+  (`release-prep.yml` runs the same script on every PR to `main` in
+  `--mode check`, because on an ordinary PR the pin names the *last* release and
+  the prepare-mode tag check would fail every PR). Never move a tag to
+  repair a failed check - cut a new patch version. The full checklist is in
+  `docs/IMPROVEMENT_PLAN.md` under "Release checklist".
 
 ---
 
@@ -497,3 +507,26 @@ your network as public knowledge from that date.
 - Flask dev server is used in production (`app.run`). Fine on a LAN behind
   Cloudflare, but do not increase worker count or add threading without
   revisiting the shared-state assumption above.
+- **A failure must say which stage failed.** `grabber_state.json`'s `failed`
+  entries and the watcher's `FailedItem` carry a `stage`, `hint` and
+  `actionable` flag from `utils/failure_reasons.py`. "No results" used to mean
+  a 401, an unreachable Prowlarr *and* an empty search; the difference decides
+  whether the user waits or fixes something. Every stored reason passes through
+  `failure_reasons.sanitise()` first - a `requests` exception carries the full
+  URL, and Prowlarr/SABnzbd put their key in the query string (see §7a). Do not
+  add a fourth ad-hoc reason string; add a stage. Old entries have no stage and
+  are shown as unknown rather than labelled by guesswork.
+- **The library scan is measured, not optimised.** `/diagnostics` reports
+  `scan_cost` from `utils/scan_metrics.py` (median/p95/max per walk, plus any
+  scan over two seconds). Do not add an index, a database or a caching change on
+  the strength of a hunch: the numbers exist so the decision can be made on
+  evidence from a real library. Instrumentation wrappers must return the scanned
+  value untouched.
+- **Liveness is not progress.** The Docker probe only proves the WebUI answers
+  `/healthz`. The scheduler writes `last_loop` on every iteration and the
+  watcher writes `last_scan` after every scan to `background_health.json`
+  (`utils/background_health.py`); the home page and `/diagnostics` judge those
+  against the scheduler's own intervals. Keep `/healthz` free of file reads and
+  network calls, and keep a stale heartbeat a *warning* rather than a Docker
+  failure - a slow Prowlarr search must not restart the container. See
+  `docs/ARCHITECTURE.md` §8b.

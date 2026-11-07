@@ -122,12 +122,38 @@
 <div class="card home-health">
     <div class="home-hero-kicker">Health</div>
     <div class="health-strip">
+        {# Two different facts, deliberately labelled differently so they cannot
+           read as one contradiction: this chip is the last scheduled *search*
+           (the grabber's own record, which only moves when a session is
+           searched); the Loop chip below is the scheduler's last pass. On an
+           off-weekend the first is legitimately days old. #}
         {% if home.health.never %}
-        <span class="chip warn">Scheduler: never run</span>
+        <span class="chip warn">Last search: never run</span>
         {% elif home.health.stale %}
-        <span class="chip bad">Scheduler: last check {{ home.health.age_label }} (expected every {{ home.health.expected_minutes }} min)</span>
+        <span class="chip bad">Last search: {{ home.health.age_label }} (expected every {{ home.health.expected_minutes }} min)</span>
         {% else %}
-        <span class="chip ok">Scheduler: checked {{ home.health.age_label }}</span>
+        <span class="chip ok">Last search: {{ home.health.age_label }}</span>
+        {% endif %}
+
+        {# Loop progress, not process liveness: a scheduler that is awake but
+           not looping, or a watcher thread that died inside it, leaves a
+           perfectly healthy WebUI with nothing downloading. #}
+        {% set bg_sched = home.background.components.scheduler %}
+        {% if bg_sched.state == 'live' %}
+        <span class="chip ok">Loop: last pass {{ bg_sched.age_label }}</span>
+        {% elif bg_sched.state == 'stale' %}
+        <span class="chip bad">Loop: last pass {{ bg_sched.age_label }} (expected every {{ bg_sched.expected_minutes }} min)</span>
+        {% else %}
+        <span class="chip idle">Loop: waiting for first pass</span>
+        {% endif %}
+
+        {% set bg_watch = home.background.components.watcher %}
+        {% if bg_watch.state == 'live' %}
+        <span class="chip ok">Watcher: scanned {{ bg_watch.age_label }}</span>
+        {% elif bg_watch.state == 'stale' %}
+        <span class="chip bad">Watcher: last scan {{ bg_watch.age_label }}</span>
+        {% else %}
+        <span class="chip idle">Watcher: waiting for first scan</span>
         {% endif %}
 
         {% if home.health.library_ok %}
