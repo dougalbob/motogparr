@@ -394,7 +394,7 @@ The order is the whole point, so it is written down here as well as enforced:
 5. **Never move a tag** to repair a failed check: the published image would come
    from a tree the pre-flight never saw. Cut a new patch version instead.
 
-### Candidate C — explain ordinary search and processing failures end to end
+### Candidate C — explain ordinary search and processing failures end to end (**DONE 2026-11-07**)
 
 The mismatch workflow already explains why a release title matched the filter.
 A related improvement would make ordinary unsuccessful sessions easier to
@@ -412,6 +412,68 @@ release-filter logic in the browser.
 **Acceptance:** representative failure cases have deterministic tests, secrets
 and full API URLs are not exposed, and a user can distinguish “nothing ready”
 from “the work failed” without searching several unrelated log sections.
+
+**Audit first, as the candidate required.** What was already recorded: the
+activity feed carried ERROR events, the watcher had a retry state with
+`last_error`, and the logs had a line per cause. What was **lost**: the reason
+itself. `grabber_state.json` stored `"No results"` for a 401 from the indexer, an
+unreachable Prowlarr, no enabled indexers and a genuinely empty search alike;
+`"Grab failed"` covered an unreachable SABnzbd, a rejected key and a refused
+release; the watcher stored `"Processor returned False"` and, in the exception
+path, no activity event at all. The structured fields, not new logging, are what
+was missing.
+
+**Delivered as Slice C.** `utils/failure_reasons.py` is the whole vocabulary: a
+closed set of stages in pipeline order (`search_setup`, `search_indexer`,
+`no_candidates`, `rejected`, `blocked`, `sab_submit`, `download`, `process`),
+each with a label and a next-step hint, and an `actionable` flag that is the
+distinction the candidate asked for - **wait** ("nothing published yet" retries
+itself) versus **fix something** (a dead service never does).
+
+Wiring, kept as small as possible:
+
+- `search_for_session()` takes an optional `diagnostics` **out-parameter**
+  rather than a new return value, so every existing caller and test is
+  unchanged. It counts indexers, failed indexers, candidates and filtered
+  results, and notes whether every candidate was dropped because the user
+  blocked it.
+- `search_indexer()` returns `(releases, error)` so a refused key, a timeout, an
+  unreachable host and an empty answer are no longer the same empty list. The
+  error never contains the URL - Prowlarr's search URL has `apikey=` in its
+  query string.
+- `grab_release()` returns `(nzo_id, error)` for the same reason on the SABnzbd
+  side.
+- `explain_search()` maps the counters to a stage, ordered so that a setup error
+  outranks an empty result: both produce zero candidates and only one needs a
+  human. Partial indexer failure is reported but **not** called a failure,
+  because incomplete results on a half-working indexer should not send the user
+  hunting every weekend.
+- `GrabberState.mark_failed()` still accepts the old bare string (every
+  existing install has that shape on disk) *and* a structured record. The
+  watcher's `FailedItem` gained `stage`/`hint`/`actionable`, with `from_dict`
+  tolerating old entries so retry state is never lost by adding a field.
+
+**Redaction is the security half of this change.** Every stored reason passes
+through `failure_reasons.sanitise()`, which removes configured secret values,
+keeps only `scheme://host:port` of any URL, and masks named credential
+parameters and bare 32-character tokens. These strings are persisted in
+`/config`, rendered in the UI and copied into reports; AGENTS.md §7a records
+that this repository has already published a live Prowlarr key once, and a
+requests exception renders the full URL.
+
+**UI.** `/failed-sessions` normalises each entry (`describe()`), and the
+Download tab's pre-download warning shows the stage-named reason, an ⚠️ for
+actionable faults and the hint beneath it. Entries written before the stages
+existed keep their reason and show **no** stage - labelling a historic "No
+results" as "not published yet" would relabel an outage as a quiet weekend. The
+reason is escaped, not interpolated as markup (same decision as the mismatch
+dialog).
+
+`tests/test_failure_reasons.py` covers the vocabulary, the actionable
+classification, redaction, each `explain_search` branch including the ambiguity
+cases, both grabber seams, the legacy string/entry paths, and the route and the
+dialog. The three existing fakes were updated to the new seam shapes without
+weakening an assertion.
 
 ### Candidate D — measure library scan cost before optimising
 
@@ -456,7 +518,7 @@ performance work that needs measurements before any optimisation is justified.
 |---|---|---|---|
 | **A** | Candidate A | **DONE (2026-11-07)** | Adds the heartbeat records the later visibility work reads. Pure, testable rules; no dependency on anything else. |
 | **B** | Candidate B | PLANNED | Independent of A. Workflow and template only; no runtime code. |
-| **C** | Candidate C (+ the data A produces) | PLANNED | Needs A's records to tell "the machine is alive and has nothing to do" apart from "the work failed". |
+| **C** | Candidate C (+ the data A produces) | **DONE (2026-11-07)** | Needs A's records to tell "the machine is alive and has nothing to do" apart from "the work failed". |
 | **D** | Candidate E (Activity filters, diagnostics summary) | PLANNED | Pure presentation over A and C. Explicitly a follow-on: filters over unstructured text are not worth building. |
 | **—** | Candidate D (library scan cost) | DEFERRED until measured | Instrument-only first. No index, no database, no caching change until a measurement shows the scan is the problem. |
 

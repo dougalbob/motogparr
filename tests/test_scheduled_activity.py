@@ -89,7 +89,10 @@ def test_scheduled_path_emits_the_grabber_activity_lifecycle(monkeypatch):
              "size": 1000, "link": "x"}
         ],
     )
-    monkeypatch.setattr(grabber, "grab_release", lambda *args, **kwargs: "nzo123")
+    # grab_release reports (nzo_id, error): the error is what the Download tab
+    # shows, so the fake has to supply it too rather than silently returning
+    # a bare id that the caller would unpack into two characters.
+    monkeypatch.setattr(grabber, "grab_release", lambda *a, **k: ("nzo123", ""))
     monkeypatch.setattr(
         grabber,
         "get_sessions_ready_for_search",

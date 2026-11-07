@@ -57,6 +57,7 @@ so stopping is honest.
 | `utils/validate_calendar.py` | CLI calendar/library checker |
 | `utils/healthcheck.py` | stdlib-only `HEALTHCHECK` probe for `/healthz` |
 | `utils/background_health.py` | Scheduler-loop and watcher-thread progress records plus the staleness rule (§8b). Reported to the user; deliberately not part of the Docker probe |
+| `utils/failure_reasons.py` | The closed vocabulary for "why did that session not download", the wait-vs-fix distinction, and the redaction every stored reason passes through (§8c) |
 | `utils/settings_schema.py` | Permitted shape of `settings.yml`; unknown/wrong-typed keys |
 | `utils/plexcheck.py` | Is Plex actually scanning the library folder? |
 | `utils/permissions.py` | Can PUID:PGID write where it must? |
@@ -261,7 +262,7 @@ Home, Download, Settings, Stats, Calendar, Activity; a bottom nav for mobile;
 | `/logs/stream` | GET | SSE log tail | **exposes log text** |
 | `/logs/recent` | GET | Recent log lines | **exposes log text** |
 | `/stats` | GET | Stats page | low |
-| `/failed-sessions` | GET | Failed watcher items | low |
+| `/failed-sessions` | GET | Failed session searches, normalised with the stage that failed, whether waiting can help, and a next-step hint (§8c) | low |
 | `/download-selected` | POST | Triggers downloads | **high — action** |
 | `/mismatch` | GET | Release-mismatch log (blocked releases, evidence, reason) | low |
 | `/api/release-mismatch` | GET | Evidence for one session: the recorded release and *why* the matcher accepted it | low (release titles only) |
@@ -470,6 +471,51 @@ file it goes through `utils/json_store.py` (§4) - one component per write, so
 the scheduler and the watcher thread cannot erase each other's timestamps - and
 a failed heartbeat write is logged and swallowed: a monitoring loop that dies
 because monitoring failed is a worse outage than a missing heartbeat.
+
+## 8c. Why a session did not download
+
+`grabber_state.json`'s `failed` map used to hold one of three strings, and they
+were not diagnoses: `"No results"` was recorded for a 401 from an indexer, an
+unreachable Prowlarr, no enabled indexers and a genuinely empty search alike;
+`"Grab failed"` covered an unreachable SABnzbd and a refused release alike.
+
+`utils/failure_reasons.py` owns the replacement. Stages, in pipeline order:
+`search_setup`, `search_indexer`, `no_candidates`, `rejected`, `blocked`,
+`sab_submit`, `download`, `process`. Each has a label, a hint naming the next
+step, and `actionable` - the field that matters, because it separates **wait**
+(`no_candidates`, `rejected`, `blocked` are self-resolving or deliberate) from
+**fix something** (a dead service never repairs itself).
+
+Where the evidence comes from:
+
+- `search_for_session(..., diagnostics=...)` fills a caller-supplied dict with
+  indexer/candidate/filter counters. It is an out-parameter, not a second return
+  value, so every existing caller is unchanged.
+- `search_indexer()` returns `(releases, error)` and `grab_release()` returns
+  `(nzo_id, error)`, so a refused key, a timeout and an empty answer stop being
+  the same empty list. Neither error string contains a URL: Prowlarr and SABnzbd
+  both put their key in the query string.
+- `explain_search()` converts the counters to a stage, in pipeline order, so a
+  setup error outranks an empty result (both yield zero candidates; only one
+  needs a human). Partial indexer failure is reported but not called a failure.
+- `GrabberState.mark_failed()` accepts the old bare string *and* a structured
+  record; the watcher's `FailedItem` gained `stage`/`hint`/`actionable` with
+  `from_dict` ignoring unknown keys, so an existing `watcher_state.json` still
+  loads and retry state is never lost by adding a field.
+
+**Every stored reason is redacted** by `failure_reasons.sanitise()`: configured
+secret values verbatim, then any URL reduced to `scheme://host:port`, then named
+credential parameters and bare 32-character tokens. These strings persist in
+`/config`, render in the UI and get copied into reports, and a `requests`
+exception renders the whole URL - see AGENTS.md §7a for why that is not a
+hypothetical.
+
+`/failed-sessions` normalises entries through `describe()`. An entry written
+before the stages existed keeps its reason and reports **no** stage: labelling a
+historic "No results" as "not published yet" would relabel a past outage as a
+quiet weekend. The Download tab's warning dialog shows the stage-named reason, an
+⚠️ for actionable faults and the hint, and escapes the text (it contains
+indexer/downloader error strings, so it is data, not markup).
 
 ## 9. What the old notes said vs. what is true
 

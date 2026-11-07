@@ -505,6 +505,15 @@ your network as public knowledge from that date.
 - Flask dev server is used in production (`app.run`). Fine on a LAN behind
   Cloudflare, but do not increase worker count or add threading without
   revisiting the shared-state assumption above.
+- **A failure must say which stage failed.** `grabber_state.json`'s `failed`
+  entries and the watcher's `FailedItem` carry a `stage`, `hint` and
+  `actionable` flag from `utils/failure_reasons.py`. "No results" used to mean
+  a 401, an unreachable Prowlarr *and* an empty search; the difference decides
+  whether the user waits or fixes something. Every stored reason passes through
+  `failure_reasons.sanitise()` first - a `requests` exception carries the full
+  URL, and Prowlarr/SABnzbd put their key in the query string (see §7a). Do not
+  add a fourth ad-hoc reason string; add a stage. Old entries have no stage and
+  are shown as unknown rather than labelled by guesswork.
 - **Liveness is not progress.** The Docker probe only proves the WebUI answers
   `/healthz`. The scheduler writes `last_loop` on every iteration and the
   watcher writes `last_scan` after every scan to `background_health.json`

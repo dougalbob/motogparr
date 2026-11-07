@@ -40,6 +40,7 @@ from motogp_common import (
     get_config_dir, SessionType, element_number
 )
 from activity_emitter import emit_activity, ActivityStage, mark_complete, mark_error
+from utils import failure_reasons
 from utils.background_health import write_heartbeat
 
 def _folder_to_episode_key(folder_name: str) -> tuple:
@@ -59,8 +60,28 @@ def _folder_to_episode_key(folder_name: str) -> tuple:
 
 
 
-from utils.config_loader import get_motogp_library_path
+from utils.config_loader import (
+    get_motogp_library_path,
+    get_plex_token,
+    get_sabnzbd_api_key,
+)
 from utils.json_store import atomic_write_json, file_lock, read_json, three_way_merge
+
+
+def _configured_secrets() -> List[str]:
+    """
+    Credentials that must never appear in a stored processing error.
+
+    A sorter/tagger failure message can carry a Plex URL, and the Plex token
+    travels in its query string. The reason is persisted in
+    ``watcher_state.json`` and rendered in the UI, so it has to be clean before
+    it is written, not at display time.
+    """
+    return [
+        value
+        for value in (get_plex_token(), get_sabnzbd_api_key())
+        if value
+    ]
 
 # Get module logger
 logger = get_logger("watcher")
@@ -193,13 +214,22 @@ class FailedItem:
     last_attempt: str  # ISO format datetime
     attempt_count: int = 1
     last_error: str = ""
-    
+    #: Which actor failed and what to do about it, from
+    #: ``utils.failure_reasons``. A sorter returning False and an exception in
+    #: the processor are different faults; both used to be one string.
+    stage: str = ""
+    hint: str = ""
+    actionable: bool = False
+
     def to_dict(self) -> dict:
         return asdict(self)
     
     @classmethod
     def from_dict(cls, data: dict) -> 'FailedItem':
-        return cls(**data)
+        # Tolerate entries written before the structured fields existed; a
+        # missing key must not make the whole retry state unreadable.
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass 
@@ -335,22 +365,40 @@ class StateManager:
         self._save()
         logger.debug(f"Marked as processed: {folder_name}")
     
-    def mark_failed(self, folder_name: str, error: str = ""):
-        """Mark folder as failed."""
+    def mark_failed(self, folder_name: str, error: str = "",
+                    stage: str = failure_reasons.STAGE_PROCESS,
+                    hint: str = ""):
+        """
+        Mark folder as failed, with the stage that failed.
+
+        ``error`` is sanitised here rather than by the caller: it is a sorter or
+        tagger message that can contain a library path and, historically, a
+        Plex URL with its token in the query string. ``watcher_state.json`` is
+        read by the WebUI and survives restarts, so the stored text has to be
+        safe on its own.
+        """
         now = datetime.now().isoformat()
-        
+        error = failure_reasons.sanitise(error, _configured_secrets())
+        hint = hint or failure_reasons.HINTS.get(stage, "")
+
         if folder_name in self.state.failed:
             item = self.state.failed[folder_name]
             item.last_attempt = now
             item.attempt_count += 1
             item.last_error = error
+            item.stage = stage
+            item.hint = hint
+            item.actionable = stage in failure_reasons.ACTIONABLE
         else:
             self.state.failed[folder_name] = FailedItem(
                 folder_name=folder_name,
                 first_failed=now,
                 last_attempt=now,
                 attempt_count=1,
-                last_error=error
+                last_error=error,
+                stage=stage,
+                hint=hint,
+                actionable=stage in failure_reasons.ACTIONABLE,
             )
         
         self._save()
@@ -616,24 +664,41 @@ class DownloadWatcher:
                 # Note: COMPLETE event is emitted by plex_tagger after successful tagging
                 return True
             else:
-                error_msg = "Processor returned False"
+                error_msg = "the sorter did not confirm the move"
                 logger.warning(f"⚠️ [{correlation_id}] Processing failed: {folder_name} - {error_msg}")
-                self.state_manager.mark_failed(folder_name, error_msg)
-                
+                # The sorter returning False and the processor raising are
+                # different faults with different next steps, so both record
+                # the stage rather than the old generic "Processing failed".
+                self.state_manager.mark_failed(
+                    folder_name, error_msg, stage=failure_reasons.STAGE_PROCESS
+                )
+
                 # Emit ERROR activity
                 if episode_key:
                     mark_error(
                         episode_key=episode_key,
-                        error_message=f"Processing failed: {error_msg}",
+                        error_message=failure_reasons.summarise(
+                            failure_reasons.STAGE_PROCESS, error_msg
+                        ),
                         episode_name=episode_name
                     )
                 
                 return False
         
         except Exception as e:
-            error_msg = str(e)
+            error_msg = f"{type(e).__name__}: {e}"
             logger.error(f"❌ [{correlation_id}] Error processing {folder_name}: {error_msg}", exc_info=True)
-            self.state_manager.mark_failed(folder_name, error_msg)
+            self.state_manager.mark_failed(
+                folder_name, error_msg, stage=failure_reasons.STAGE_PROCESS
+            )
+            if episode_key:
+                mark_error(
+                    episode_key=episode_key,
+                    error_message=failure_reasons.summarise(
+                        failure_reasons.STAGE_PROCESS, error_msg
+                    ),
+                    episode_name=episode_name,
+                )
             return False
         
         finally:

@@ -2062,18 +2062,26 @@ def stats():
 
 @app.route("/failed-sessions")
 def failed_sessions():
-    """Get recently failed session searches."""
-    state_file = CONFIG_DIR / "grabber_state.json"
-    failed = {}
-    
-    if state_file.exists():
-        try:
-            with open(state_file, 'r') as f:
-                state = json.load(f)
-                failed = state.get("failed", {})
-        except Exception:
-            pass
-    
+    """
+    Recently failed session searches, with the stage that failed.
+
+    Each entry is normalised by ``utils.failure_reasons.describe`` so the
+    Download tab can say *which* actor failed ("Search service: Prowlarr is
+    unreachable") and whether waiting can help, instead of showing the bare
+    "No results" every cause used to collapse into. Entries written before the
+    stage existed keep their reason and carry no stage: they are reported as
+    unknown rather than labelled with a guess.
+
+    Read through the shared store so a reader cannot see a torn file - the
+    grabber writes this while the WebUI may be rendering.
+    """
+    from utils import failure_reasons
+
+    state = _load_grabber_state()
+    failed = {
+        key: failure_reasons.describe(entry)
+        for key, entry in (state.get("failed") or {}).items()
+    }
     return jsonify({"failed": failed})
 
 

@@ -68,9 +68,10 @@
             <button class="modal-close" onclick="closeWarningModal()">✕</button>
         </div>
         <div class="modal-body">
-            <p>The following episodes failed to find downloads recently and may fail again:</p>
+            <p>The following episodes failed recently. The first line says which step
+            failed, which is the difference between "wait" and "go and fix something":</p>
             <div id="failed-sessions-list" class="failed-sessions-list"></div>
-            <p class="help-text">These episodes will still be searched with --force flag.</p>
+            <p class="help-text">These episodes will still be searched with the --force flag.</p>
         </div>
         <div class="modal-footer">
             <button onclick="closeWarningModal()" class="secondary">Cancel</button>
@@ -429,6 +430,11 @@
                     recentlyFailed.push({
                         name: dl.name,
                         reason: failInfo.reason,
+                        stageLabel: failInfo.stage_label || '',
+                        hint: failInfo.hint || '',
+                        // "Prowlarr is unreachable" must not look the same as
+                        // "not published yet": one needs a human now.
+                        actionable: !!failInfo.actionable,
                         date: failDate.toLocaleDateString()
                     });
                 }
@@ -444,13 +450,25 @@
     
     function showWarningModal(failedList) {
         const listEl = document.getElementById('failed-sessions-list');
+        // Everything here comes from JSON (the reason includes text from
+        // Prowlarr/SABnzbd errors), so it is escaped rather than interpolated
+        // as markup. The mismatch dialog made the same choice for the same
+        // reason: a release title is not trusted HTML.
+        const esc = (value) => {
+            const div = document.createElement('div');
+            div.textContent = value == null ? '' : String(value);
+            return div.innerHTML;
+        };
         listEl.innerHTML = failedList.map(f => `
-            <div class="failed-session-item">
-                <span class="failed-name">${f.name}</span>
-                <span class="failed-reason">${f.reason} (${f.date})</span>
+            <div class="failed-session-item${f.actionable ? ' actionable' : ''}">
+                <span class="failed-name">${esc(f.name)}</span>
+                <span class="failed-reason">
+                    ${f.actionable ? '⚠️ ' : ''}${esc(f.reason)} (${esc(f.date)})
+                    ${f.hint ? '<br><span class="failed-hint">' + esc(f.hint) + '</span>' : ''}
+                </span>
             </div>
         `).join('');
-        
+
         document.getElementById('warning-modal').classList.add('active');
     }
     

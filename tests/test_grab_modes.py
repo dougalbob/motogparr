@@ -89,7 +89,10 @@ def test_cmd_scheduled_records_scheduled_mode(tmp_path, monkeypatch):
             {"title": "MotoGP 2026 Qatar FP2 1080p MWR", "size": 1000, "link": "x"}
         ],
     )
-    monkeypatch.setattr(grabber, "grab_release", lambda *args, **kwargs: "nzo123")
+    # grab_release reports (nzo_id, error): the error is what the Download tab
+    # shows, so the fake has to supply it too rather than silently returning
+    # a bare id that the caller would unpack into two characters.
+    monkeypatch.setattr(grabber, "grab_release", lambda *a, **k: ("nzo123", ""))
     monkeypatch.setattr(
         grabber, "get_sessions_ready_for_search",
         lambda calendar, search_delay_hours=None: [{
@@ -149,7 +152,10 @@ def test_cmd_backfill_records_backfill_mode(tmp_path, monkeypatch):
             {"title": "MotoGP 2026 Qatar FP1 1080p MWR", "size": 1000, "link": "x"}
         ],
     )
-    monkeypatch.setattr(grabber, "grab_release", lambda *args, **kwargs: "nzo123")
+    # grab_release reports (nzo_id, error): the error is what the Download tab
+    # shows, so the fake has to supply it too rather than silently returning
+    # a bare id that the caller would unpack into two characters.
+    monkeypatch.setattr(grabber, "grab_release", lambda *a, **k: ("nzo123", ""))
 
     args = argparse.Namespace(
         season=2026, dry_run=False, round=None, force=True, sessions=None
@@ -192,7 +198,7 @@ def test_backfill_never_records_the_scheduled_mode(tmp_path, monkeypatch):
         grabber, "search_for_session",
         lambda *args, **kwargs: [{"title": "MotoGP Race", "size": 1, "link": "x"}],
     )
-    monkeypatch.setattr(grabber, "grab_release", lambda *args, **kwargs: "nzo")
+    monkeypatch.setattr(grabber, "grab_release", lambda *a, **k: ("nzo", ""))
 
     args = argparse.Namespace(
         season=2026, dry_run=False, round=None, force=True, sessions=None
