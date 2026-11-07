@@ -268,3 +268,104 @@ container smoke workflow.
    image works.
 6. Update `AGENTS.md` and `docs/ARCHITECTURE.md` when their claims change, and
    mark the relevant slice complete only after tests/CI verify it.
+
+## Additional review candidates (2026-11-07)
+
+These candidates came from a follow-up review of the scheduler, watcher, WebUI,
+health probe and release workflow. They are proposals, not commitments: re-check
+the current implementation and user impact before starting a slice. Prefer the
+operational visibility work first; do not turn these into a broad redesign.
+
+### Candidate A — background-process health and progress (**NEXT candidate**)
+
+The container health probe checks the WebUI `/healthz`. `entrypoint.sh`
+supervises the scheduler process and stops the container if that process exits,
+but process liveness alone cannot show that work is progressing; the watcher is
+also a thread inside the scheduler. A stuck scheduler or stopped watcher thread
+could leave an apparently healthy WebUI without the expected background work.
+
+Consider a small heartbeat/status record for scheduler loop progress and watcher
+liveness, plus timestamps for the last scheduler check and grabber run. Expose
+these in diagnostics and a compact dashboard status panel, with a clear stale
+threshold and a visible “unknown” state when no heartbeat exists yet. Keep
+`/healthz` lightweight and deterministic; do not make it depend on Prowlarr,
+SABnzbd, Plex, or a race weekend being active. Decide separately whether a stale
+heartbeat should affect Docker health or only produce a warning, so a slow but
+legitimate search does not cause restart loops.
+
+**Acceptance:** tests prove timestamps advance in normal operation, stale state
+is reported without a network call, and initialization/shutdown do not show a
+false healthy status. Preserve the current process supervision semantics unless
+there is evidence for a specific change.
+
+### Candidate B — make the release sequence hard to get wrong
+
+The release flow is split across the Unraid template's pinned `TemplateURL`, a
+version tag, the container image workflow, and release notes. During v2.11.0,
+the tag was attempted before the template pin had been updated; the template CI
+check caught the mismatch and required a follow-up PR before a working release
+could be rebuilt. This is a sequencing hazard, not a reason to weaken the test.
+
+Document or automate a release-preparation step that updates the Unraid
+`TemplateURL` to the candidate version and verifies the template before tagging.
+After the tag, verify that the versioned image and `latest` were published before
+calling the release shipped. Keep the image build tied to the exact tagged
+commit, and make retries safe when a release or image already exists. Consider
+whether the release workflow should block publication when prerequisite checks
+or the template pin are inconsistent.
+
+**Acceptance:** a dry-run or workflow test covers the order: template change is
+merged first, tag points to that merged tree, image tags resolve to that commit,
+and release metadata refers to the same tag. Do not create/move a release tag as
+a workaround for a failed check without documenting and validating the exact
+resulting image and release state.
+
+### Candidate C — explain ordinary search and processing failures end to end
+
+The mismatch workflow already explains why a release title matched the filter.
+A related improvement would make ordinary unsuccessful sessions easier to
+diagnose: distinguish service connection/authentication errors, no search
+results, candidates rejected by filtering, SAB submission failures, stalled or
+failed downloads, and sorter/Plex-processing failures.
+
+First audit the existing activity events and logs to identify which causes are
+already recorded and where context is lost. Then add only the missing structured
+reason fields and a focused UI presentation (for example, a per-session
+“why it did not download” detail). Reuse the existing pipeline and mismatch
+explanation; do not add a second search/download implementation or duplicate
+release-filter logic in the browser.
+
+**Acceptance:** representative failure cases have deterministic tests, secrets
+and full API URLs are not exposed, and a user can distinguish “nothing ready”
+from “the work failed” without searching several unrelated log sections.
+
+### Candidate D — measure library scan cost before optimising
+
+The watcher caches a library scan for five minutes, while UI routes also inspect
+library state. For a larger library these walks may affect response time or
+watcher responsiveness, but the review did not establish that they are currently
+slow enough to justify a new index.
+
+Instrument scan duration and scope, surface unusually slow scans in diagnostics,
+and add a representative temporary-library benchmark/test. If measurements
+show a real bottleneck, consider a targeted scan or incrementally refreshed
+index with a full-rescan correctness fallback. Avoid a database or persistent
+index until measurements demonstrate that the simpler scan is the problem.
+
+### Candidate E — small Activity and diagnostics UX improvements
+
+Once the structured failure reasons and background health data exist, consider
+adding focused Activity filters (season, round, session, stage) and links from a
+failure to the corresponding session/library view. A compact diagnostics
+summary could show service reachability, scheduler/watcher progress, and recent
+failure counts while keeping credential values and sensitive URLs hidden.
+
+Treat this as a follow-on to A and C: do not add filters that merely reformat
+unstructured log text, and keep the current simple UI usable on mobile.
+
+### Revisit the deferred integration tests only when triggered
+
+Slice 4 remains deferred as recorded above. Revive a narrow set of deterministic
+Prowlarr/SABnzbd/Plex boundary tests if those paths change materially, an upstream
+API compatibility issue occurs, or unexplained failures need safe reproduction.
+Do not build a full fake home network just for coverage metrics.
