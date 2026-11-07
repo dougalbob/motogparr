@@ -362,10 +362,20 @@ resulting image and release state.
   reports and exits non-zero; it never edits the template or creates a tag - a
   check that repairs its own input cannot catch the mistake it exists to catch.
   With no git remote the tag check warns rather than passing silently.
-* `.github/workflows/release-prep.yml` runs it on **every PR to main**, reading
-  the candidate version from the template pin itself, so there is no second
-  place to keep in step. Only the PR that bumps the pin to a tag that does not
-  exist yet can pass, which is exactly the order the release needs.
+* `.github/workflows/release-prep.yml` runs it on **every PR to main** in
+  `--mode check`, reading the candidate version from the template pin itself, so
+  there is no second place to keep in step. The mode matters and was found by
+  the workflow's first real run: on an ordinary PR the template is pinned to the
+  last *released* tag, so `--mode prepare`'s "the tag must not exist yet" rule
+  failed every PR to main. `--mode check` asks the question CI can answer - the
+  version format, that the pin names a version, and that every `Dockerfile` COPY
+  source exists - and treats an unpublished *next* version as a warning, because
+  that is exactly what the bump PR looks like before its tag is pushed.
+  `--mode prepare` stays strict for the maintainer, for whom a tag that already
+  exists is the failure mode being prevented. Known limit: in check mode nothing
+  forces a merged pin to correspond to a real tag, because the tag does not exist
+  until after the merge - publishing is the backstop, since `release.yml` refuses
+  a tag its own tree does not pin.
 * `release.yml` now gates publishing: the tagged tree must pin its own tag
   *before* the release step, and the job does not call the release shipped
   until `ghcr.io/<repo>:<version>` **and** `:latest` both resolve. It polls the

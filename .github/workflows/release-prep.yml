@@ -65,9 +65,16 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Candidate: ${version}"
 
+      # --mode check, not the default: on an ordinary PR the template is
+      # pinned to the last *released* tag, so "the tag must not exist yet"
+      # would fail every PR to main. The mode still verifies the tag format,
+      # that the pin names a version, and that every Dockerfile COPY source
+      # exists. Bumping the pin to the next version is expected to warn here
+      # until that tag is pushed.
       - name: Check release readiness
         run: |
           python scripts/check_release_readiness.py \
+            --mode check \
             --version "${{ steps.version.outputs.version }}"
 
       # The ordering claim is only worth anything if the checks themselves are

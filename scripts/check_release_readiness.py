@@ -220,11 +220,58 @@ def check_tag_is_new(version: str, tags: Optional[List[str]], report: Report) ->
     return True
 
 
+def check_tag_exists(version: str, tags: Optional[List[str]], report: Report) -> bool:
+    """
+    Check mode: the pinned version should be a released tag.
+
+    CI runs this on ordinary pull requests, where the template is pinned to the
+    *last* release. A pin that names a tag nobody has ever published would send
+    every fresh Unraid install to a 404 TemplateURL, so it is worth failing -
+    but only as a warning, because the legitimate bump PR does exactly that
+    until its tag is pushed, and blocking that PR would break the release
+    sequence this exists to protect.
+    """
+    if tags is None:
+        report.warn(
+            "Could not read tags from origin (no git remote here). Skipping the "
+            "'pinned tag exists' check."
+        )
+        return True
+    if version in tags:
+        report.note(f"{version} is the published tag installed systems fetch")
+        return True
+    report.warn(
+        f"{version} is not on the remote yet. Correct for a release-preparation "
+        "PR (the pin moves before the tag); a mistake for anything else."
+    )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
-def run(version: str, repo_root: Path = REPO_ROOT) -> Report:
+def run(version: str, repo_root: Path = REPO_ROOT,
+        prepare: bool = True) -> Report:
+    """
+    Run the checks. ``prepare`` selects which question is being asked.
+
+    ``prepare=True`` is "I am about to tag ``version``", so the tag must not
+    exist yet - a published tag means the image came from a tree this check
+    never saw, and re-tagging to repair that is the workaround to avoid.
+
+    ``prepare=False`` is "is this branch's template pin internally consistent",
+    which is what CI asks on every pull request to ``main``. The pinned version
+    is *already* on the remote there (the template is pinned to the last
+    release until someone prepares the next one), so running the prepare check
+    would fail every ordinary PR. The pin check is the same in both modes: in
+    prepare mode it proves the pin is the tag being cut, in check mode it
+    proves a fresh install fetches a tag that exists.
+
+    Known limit: in check mode nothing forces a *merged* pin to correspond to a
+    real tag, because the tag does not exist until after the merge. Publishing
+    is the backstop - ``release.yml`` refuses a tag its own tree does not pin.
+    """
     report = Report()
 
     if not check_version(version, report):
@@ -237,7 +284,11 @@ def run(version: str, repo_root: Path = REPO_ROOT) -> Report:
         report.fail(f"{TEMPLATE} is missing, so no Unraid install can find it")
 
     check_copy_sources(repo_root, report)
-    check_tag_is_new(version, remote_tags(repo_root), report)
+    tags = remote_tags(repo_root)
+    if prepare:
+        check_tag_is_new(version, tags, report)
+    else:
+        check_tag_exists(version, tags, report)
     return report
 
 
@@ -253,9 +304,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--repo-root", default=str(REPO_ROOT),
         help="Repository to check (defaults to this script's checkout)",
     )
+    parser.add_argument(
+        "--mode", choices=("prepare", "check"), default="prepare",
+        help=(
+            "prepare (default): about to tag this version, so the tag must not "
+            "exist yet. check: CI on a pull request, where the pinned version is "
+            "normally the last release - only the pin, the format and the "
+            "Dockerfile sources are verified."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    report = run(args.version, Path(args.repo_root))
+    report = run(args.version, Path(args.repo_root), prepare=args.mode == "prepare")
 
     print(f"Release readiness for {args.version}")
     output = report.render()
@@ -269,6 +329,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if args.mode == "check":
+        print(f"OK - this tree is consistent with {args.version}.")
+        return 0
 
     print("OK - safe to tag this commit.")
     print(

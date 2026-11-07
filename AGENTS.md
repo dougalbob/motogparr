@@ -117,7 +117,9 @@ root-level `test_*.py` scratch scripts and errors out. See `SANDBOX.md`.
   refuses to publish a tag whose own tree does not pin it, and does not report
   success until the versioned image and `:latest` both resolve. Run
   `python scripts/check_release_readiness.py --version vX.Y.Z` before tagging
-  (`release-prep.yml` runs it on every PR to `main`). Never move a tag to
+  (`release-prep.yml` runs the same script on every PR to `main` in
+  `--mode check`, because on an ordinary PR the pin names the *last* release and
+  the prepare-mode tag check would fail every PR). Never move a tag to
   repair a failed check - cut a new patch version. The full checklist is in
   `docs/IMPROVEMENT_PLAN.md` under "Release checklist".
 

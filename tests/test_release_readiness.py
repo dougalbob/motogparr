@@ -150,6 +150,22 @@ def test_the_repository_as_committed_is_ready_for_its_pinned_version():
     assert not any("TemplateURL" in failure for failure in report.failures), report.render()
 
 
+def test_check_mode_exits_zero_for_an_unreleased_next_version(tmp_path, capsys):
+    """The maintainer's pre-flight stays strict; CI's question is a different one."""
+    template = tmp_path / "unraid"
+    template.mkdir()
+    (template / "motogparr.xml").write_text(
+        "<Container><TemplateURL>https://raw.githubusercontent.com/dougalbob/"
+        "motogparr/v9.9.9/unraid/motogparr.xml</TemplateURL></Container>"
+    )
+    (tmp_path / "Dockerfile").write_text("")
+
+    code = readiness.main(
+        ["--mode", "check", "--version", "v9.9.9", "--repo-root", str(tmp_path)]
+    )
+    assert code == 0
+
+
 def test_the_script_exits_non_zero_and_annotates_on_failure(tmp_path, capsys):
     """
     The ::error:: line is what survives to a check-run annotation, which is the
@@ -237,8 +253,55 @@ def test_readiness_workflow_checks_the_pinned_version_and_tags_exist():
     # Reads the version from the template rather than a second variable.
     assert "unraid/motogparr.xml" in text
     assert "check_release_readiness.py" in text
-    # Tags must be fetched, or the "already published" check only warns.
+    # Tags must be fetched, or the "pinned version is published" notice is
+    # never available.
     assert "git fetch --tags" in text
+
+
+def test_readiness_workflow_runs_in_check_mode_not_prepare_mode():
+    """
+    Caught by this workflow's first real run: on an ordinary PR to main the
+    template is pinned to the last release, so the prepare-mode "the tag must
+    not exist yet" rule failed every PR. CI asks a different question from the
+    maintainer, and the mode has to say so.
+    """
+    text = PREP.read_text(encoding="utf-8")
+    assert "--mode check" in text
+    assert "--mode prepare" not in text
+
+
+def test_check_mode_accepts_an_already_published_pin():
+    """
+    The case that broke CI: the pin names a released tag. Prepare mode refuses
+    it (re-tagging is the workaround being prevented); check mode accepts it,
+    because that is what every install is supposed to fetch.
+    """
+    prepare = readiness.Report()
+    assert readiness.check_tag_is_new("v2.11.0", ["v2.11.0"], prepare) is False
+
+    check = readiness.Report()
+    assert readiness.check_tag_exists("v2.11.0", ["v2.11.0"], check) is True
+    assert check.ok
+    assert "published tag" in check.notes[0]
+
+
+def test_check_mode_warns_but_passes_for_the_unreleased_bump():
+    """
+    The bump PR pins a tag that does not exist until after its merge. Failing
+    it would break the very sequence this protects; staying silent would claim
+    a verification that did not happen.
+    """
+    check = readiness.Report()
+    assert readiness.check_tag_exists("v2.12.0", ["v2.11.0"], check) is True
+    assert check.ok
+    assert check.warnings and "not on the remote yet" in check.warnings[0]
+
+
+def test_the_current_tree_is_consistent_in_check_mode():
+    """The end-to-end case CI runs on this PR."""
+    report = readiness.run(current_pin(), REPO_ROOT, prepare=False)
+    assert report.ok, report.render()
+    assert not report.warnings, report.render()
 
 
 def test_readiness_workflow_is_read_only_and_needs_no_docker():
