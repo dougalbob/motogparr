@@ -24,8 +24,11 @@ import motogp_grabber as grabber
 class FakeState:
     """Minimal GrabberState so the test does not touch /config."""
 
+    last_instance = None
+
     def __init__(self, *args, **kwargs):
         self.state = {"searched": {}, "grabbed": {}, "failed": {}}
+        FakeState.last_instance = self
 
     def make_session_key(self, season, round_num, session_type):
         return (
@@ -42,8 +45,11 @@ class FakeState:
     def mark_failed(self, key, reason):
         self.state["failed"][key] = {"reason": reason}
 
-    def mark_grabbed(self, key, title, nzo_id=None):
-        self.state["grabbed"][key] = {"title": title, "nzo_id": nzo_id}
+    def mark_grabbed(self, key, title, nzo_id=None, mode=None):
+        entry = {"title": title, "nzo_id": nzo_id}
+        if mode:
+            entry["mode"] = mode
+        self.state["grabbed"][key] = entry
 
     def update_scheduled_check(self):
         pass
@@ -122,3 +128,8 @@ def test_scheduled_path_emits_the_grabber_activity_lifecycle(monkeypatch):
     assert searching["episode_name"] == "Moto3 Free Practice 1"
     assert searching["round_info"]["round"] == 19
     assert searching["round_info"]["venue"] == "Malaysia"
+
+    # Issue #51: the scheduled path must record how the release was found, so
+    # the home page can tell keeping pace with a weekend from a backfill.
+    grabbed_entries = FakeState.last_instance.state["grabbed"]
+    assert grabbed_entries["2026_R19_E10"]["mode"] == "scheduled"

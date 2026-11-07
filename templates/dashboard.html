@@ -1,24 +1,151 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Home Tab - Simplified welcome and navigation -->
-<div class="card">
-    <h2>Welcome to MotoGParr</h2>
-    <p class="help-text">MotoGP Automated Recording & Retrieval</p>
-    
-    <div class="home-status">
-        <p>Use the tabs above to navigate:</p>
-        <ul class="home-nav-hints">
-            <li><strong>Download</strong> - View library and download missing episodes</li>
-            <li><strong>Settings</strong> - Configure preferences and app settings</li>
-            <li><strong>Stats</strong> - View grab statistics</li>
-            <li><strong>Calendar</strong> - Race schedule and calendar view</li>
-            <li><strong>Activity</strong> - Live activity feed and logs</li>
-        </ul>
+<!-- Home Tab - what the machine just did, what it will do next, and whether it is alive -->
+<div class="home-header">
+    <h2>MotoGParr</h2>
+    <p class="help-text">Automated recording &amp; retrieval — {{ home.season }} season</p>
+</div>
+
+<!-- Latest scheduled addition (issue #51, request 1) -->
+<div class="card home-hero">
+    {% if home.latest %}
+    <div class="home-hero-kicker">Latest scheduled addition</div>
+    <div class="home-hero-title">{{ home.latest.name }}</div>
+    <div class="home-hero-sub">
+        Round {{ home.latest.round }}{% if home.latest.venue %} · {{ home.latest.venue }}{% endif %} · {{ home.latest.season }}
+    </div>
+    {% if home.latest.release %}
+    <div class="home-hero-release">{{ home.latest.release }}</div>
+    {% endif %}
+    <div class="home-hero-time">
+        {% if home.latest.source == 'added' %}
+        Added to Plex <span data-utc="{{ home.latest.timestamp_utc }}">{{ home.latest.timestamp_label }}</span>
+        {% else %}
+        Grabbed <span data-utc="{{ home.latest.timestamp_utc }}">{{ home.latest.timestamp_label }}</span>
+        <span class="home-hero-note">— in the library; no "ready in Plex" event left in the activity log</span>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="home-hero-kicker">Latest scheduled addition</div>
+    <div class="home-empty">
+        <strong>Nothing recorded yet.</strong>
+        <p>
+            This card fills in the next time the scheduler grabs a session during a race weekend.
+            Grabs made before MotoGParr started recording <em>how</em> a session was grabbed carry
+            no such record, so they are not shown rather than guessed at — and backfills never
+            count, because a catch-up is not the machine keeping pace.
+        </p>
+    </div>
+    {% endif %}
+</div>
+
+{% if home.weekend %}
+<!-- Race weekend: next session + how much of the weekend is in Plex (requests 2 and 3) -->
+<div class="card home-next">
+    <div class="home-next-head">
+        <span class="home-hero-kicker">Round {{ home.weekend.round }} · {{ home.weekend.venue }}</span>
+    </div>
+
+    {% if home.weekend.next and home.weekend.next.state == 'complete' %}
+    <div class="home-next-title">Weekend complete</div>
+    <div class="home-next-line">
+        Every scheduled session has aired. The scheduler keeps searching for anything
+        still missing for {{ home.health.expected_minutes }} minutes or so.
+    </div>
+
+    {% elif home.weekend.next %}
+    {% set nxt = home.weekend.next %}
+    <div class="home-next-line">
+        {% if nxt.state == 'live' %}
+        <span class="live-badge">LIVE</span>
+        {% else %}
+        <span class="home-next-chip">UP NEXT</span>
+        {% endif %}
+        <span class="home-next-class">{{ nxt.class_label }}</span>
+    </div>
+    <div class="home-next-title">{{ nxt.name }}</div>
+    <div class="home-next-line">
+        {% if nxt.state == 'live' %}
+        On now · ends <span data-utc="{{ nxt.end_utc }}">{{ nxt.end_label }}</span>
+        {% else %}
+        Starts in <strong>{{ nxt.countdown }}</strong> · at
+        <span data-utc="{{ nxt.start_utc }}">{{ nxt.start_label }}</span>
+        {% endif %}
+    </div>
+    <div class="home-next-search">
+        Searchable from <span data-utc="{{ nxt.search_after_utc }}">{{ nxt.search_after_label }}</span>
+        <span class="home-hero-note">— {{ nxt.search_delay_hours }} h after the session, per your search delay</span>
+    </div>
+
+    {% else %}
+    <div class="home-next-title">No timed sessions left</div>
+    <div class="home-next-line">
+        This round has nothing left with a calendar time that you have enabled.
+    </div>
+    {% endif %}
+</div>
+
+<div class="card home-progress">
+    {% set p = home.weekend.progress %}
+    <div class="home-hero-kicker">Weekend progress</div>
+    <div class="home-progress-title">
+        {% if p.aired == 0 %}
+        No sessions have aired yet for Round {{ p.round }} {{ p.venue }}
+        {% else %}
+        {{ p.in_plex }} of {{ p.aired }} aired sessions now in Plex
+        <span class="home-hero-note">— Round {{ p.round }} {{ p.venue }}</span>
+        {% endif %}
+    </div>
+    {% if p.aired > 0 %}
+    <div class="progress-bar">
+        <div class="progress-bar-fill" style="width: {{ (100 * p.in_plex // p.aired) }}%"></div>
+    </div>
+    <div class="home-progress-chips">
+        <span class="chip ok">{{ p.in_plex }} in Plex</span>
+        {% if p.downloading %}<span class="chip warn">{{ p.downloading }} downloading</span>{% endif %}
+        {% if p.not_found %}<span class="chip bad">{{ p.not_found }} not found yet</span>{% endif %}
+        {% if p.awaiting %}<span class="chip idle">{{ p.awaiting }} awaiting search</span>{% endif %}
+    </div>
+    {% if p.missing %}
+    <ul class="home-missing">
+        {% for m in p.missing %}
+        <li>{{ m.name }} <span class="home-missing-state">— {{ m.state }}</span></li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Health strip: server-rendered facts first, then one-shot client probes -->
+<div class="card home-health">
+    <div class="home-hero-kicker">Health</div>
+    <div class="health-strip">
+        {% if home.health.never %}
+        <span class="chip warn">Scheduler: never run</span>
+        {% elif home.health.stale %}
+        <span class="chip bad">Scheduler: last check {{ home.health.age_label }} (expected every {{ home.health.expected_minutes }} min)</span>
+        {% else %}
+        <span class="chip ok">Scheduler: checked {{ home.health.age_label }}</span>
+        {% endif %}
+
+        {% if home.health.library_ok %}
+        <span class="chip ok">Library: reachable</span>
+        {% else %}
+        <span class="chip bad">Library: path missing</span>
+        {% endif %}
+
+        <span class="chip idle" id="health-sab">SABnzbd: checking…</span>
+        <span class="chip idle" id="health-plex">Plex: checking…</span>
+        <span class="chip idle" id="health-prowlarr">Prowlarr: checking…</span>
+    </div>
+    <div class="home-health-foot">
+        <a href="/diagnostics">Full diagnostics</a> runs the deeper Plex library checks.
     </div>
 </div>
 
-<!-- Quick Status -->
+<!-- Quick Status (kept: last command output) -->
 <div class="card">
     <h2>Quick Status</h2>
     {% if status.timestamp %}<div class="timestamp">Last activity: {{ status.timestamp }}</div>{% endif %}
@@ -28,6 +155,55 @@
 
 {% block scripts %}
 <script>
-    // Home tab - minimal JS needed
+    // Session times arrive as UTC ("...Z"); show them in the browser's zone,
+    // the same conversion the calendar modal uses.
+    document.querySelectorAll('[data-utc]').forEach(function (el) {
+        var dt = new Date(el.getAttribute('data-utc'));
+        if (isNaN(dt.getTime())) return;
+        el.textContent = dt.toLocaleString(undefined, {
+            weekday: 'short', day: '2-digit', month: 'short',
+            hour: '2-digit', minute: '2-digit'
+        });
+    });
+
+    function setChip(id, text, state) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'chip ' + state;
+    }
+
+    // One-shot probes on load (no polling: the home tab is a snapshot).
+    fetch('/test-connections')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            setChip('health-plex', 'Plex: ' + (data.plex ? 'reachable' : 'unreachable'),
+                    data.plex ? 'ok' : 'bad');
+            setChip('health-prowlarr', 'Prowlarr: ' + (data.prowlarr ? 'reachable' : 'unreachable'),
+                    data.prowlarr ? 'ok' : 'bad');
+            setChip('health-sab', 'SABnzbd: ' + (data.sabnzbd ? 'reachable' : 'unreachable'),
+                    data.sabnzbd ? 'ok' : 'bad');
+        })
+        .catch(function () {
+            setChip('health-plex', 'Plex: check failed', 'idle');
+            setChip('health-prowlarr', 'Prowlarr: check failed', 'idle');
+            setChip('health-sab', 'SABnzbd: check failed', 'idle');
+        });
+
+    fetch('/api/sabnzbd/queue')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.error) return;  // /test-connections already reported SAB
+            var parts = [];
+            if (data.paused) parts.push('paused');
+            if (data.motogp_count) {
+                parts.push(data.motogp_count + ' MotoGP item' + (data.motogp_count === 1 ? '' : 's'));
+            } else {
+                parts.push('queue empty');
+            }
+            if (data.speed) parts.push(data.speed);
+            setChip('health-sab', 'SABnzbd: ' + parts.join(' · '), 'ok');
+        })
+        .catch(function () { /* reachability chip already covers it */ });
 </script>
 {% endblock %}

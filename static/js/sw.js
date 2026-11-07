@@ -1,4 +1,4 @@
-const CACHE_NAME = 'motogparr-v1.5';
+const CACHE_NAME = 'motogparr-v1.6';
 const OFFLINE_URL = '/';
 
 const ASSETS_TO_CACHE = [
@@ -39,7 +39,10 @@ self.addEventListener('fetch', (event) => {
         event.request.url.includes('/library-status') ||
         event.request.url.includes('/app-config') ||
         event.request.url.includes('/release-mismatch') ||
-        event.request.url.includes('/test-connections')) {
+        event.request.url.includes('/test-connections') ||
+        // Health chips on the home tab: a cached queue/connection answer would
+        // be a stale claim about whether the machine is alive right now.
+        event.request.url.includes('/api/sabnzbd')) {
         return;
     }
     

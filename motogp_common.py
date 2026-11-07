@@ -625,6 +625,18 @@ SESSION_ELEMENTS_LEGACY: Dict[SessionType, int] = {
 }
 
 
+# How a grab was found, recorded in the grabber_state.json "grabbed" entries.
+#
+# The home page reports the latest *scheduled* addition (issue #51), and the
+# two paths must never be conflated: a backfill is a correction or a catch-up,
+# not the machine keeping pace with the weekend. Entries written before this
+# vocabulary existed carry no mode at all and are reported as unknown - never
+# inferred from timestamps, for the same reason an ambiguous element number is
+# refused rather than guessed.
+GRAB_MODE_SCHEDULED = "scheduled"
+GRAB_MODE_BACKFILL = "backfill"
+
+
 def element_number(session_type: SessionType, season: Optional[int] = None) -> int:
     """The number to WRITE into a folder name for this session and season."""
     if season is not None and season <= LEGACY_ELEMENT_SEASON:
