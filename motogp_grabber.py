@@ -18,6 +18,7 @@ Usage:
     python3 motogp_grabber.py status
 """
 
+import copy
 import os
 import sys
 import json
@@ -52,6 +53,7 @@ from motogp_common import (
     GRAB_MODE_SCHEDULED, GRAB_MODE_BACKFILL,
 )
 from activity_emitter import emit_activity, ActivityStage, mark_error
+from utils.json_store import atomic_write_json, file_lock, read_json, three_way_merge
 
 # Import config
 from utils.config_loader import (
@@ -100,37 +102,66 @@ def init_logging(verbose: bool = False):
 # STATE MANAGEMENT
 # =============================================================================
 
+def _empty_grabber_state() -> dict:
+    return {
+        "searched": {},
+        "grabbed": {},
+        "failed": {},
+        "last_run": None,
+        "last_scheduled_check": None,
+    }
+
+
 class GrabberState:
     """Manages persistent state for the grabber."""
 
     def __init__(self, state_file: Path = STATE_FILE):
         self.state_file = state_file
         self.state = self._load()
+        # Snapshot of what was loaded, so save() can tell which entries this
+        # process changed and merge only those into the current file.
+        self._snapshot = copy.deepcopy(self.state)
 
     def _load(self) -> dict:
         """Load state from file."""
-        if self.state_file.exists():
-            try:
-                with open(self.state_file, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Could not load state file: {e}")
-
-        return {
-            "searched": {},
-            "grabbed": {},
-            "failed": {},
-            "last_run": None,
-            "last_scheduled_check": None,
-        }
+        data = read_json(self.state_file, _empty_grabber_state(), log=logger)
+        if not isinstance(data, dict):
+            logger.error(
+                "Grabber state in %s is not a JSON object; starting from empty state",
+                self.state_file,
+            )
+            return _empty_grabber_state()
+        state = _empty_grabber_state()
+        state.update(data)
+        return state
 
     def save(self):
-        """Save state to file."""
-        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        """
+        Save state as a locked merge, not an overwrite.
+
+        Scheduled and manually requested grabbers are separate processes and
+        can overlap. Reloading under the sidecar lock and three-way merging
+        (see ``utils.json_store``) means an entry another grabber committed
+        while this one was running survives this save, while entries this
+        process added, changed or deleted are applied. Atomic replacement
+        alone would only have prevented torn JSON, not the lost update.
+        A failed write propagates: pretending the state was saved would let
+        the run report success while its grabs were never recorded.
+        """
         self.state["last_run"] = datetime.now().isoformat()
 
-        with open(self.state_file, 'w') as f:
-            json.dump(self.state, f, indent=2)
+        def _merge(disk):
+            if not isinstance(disk, dict):
+                disk = _empty_grabber_state()
+            merged = three_way_merge(self._snapshot, self.state, disk)
+            return merged
+
+        with file_lock(self.state_file):
+            disk = read_json(self.state_file, _empty_grabber_state(), log=logger)
+            merged = _merge(disk)
+            atomic_write_json(self.state_file, merged)
+        self.state = merged
+        self._snapshot = copy.deepcopy(merged)
 
     @staticmethod
     def make_session_key(season: int, round_num: int, session_type: SessionType) -> str:

@@ -46,7 +46,10 @@ so stopping is honest.
 | `motogp_plex_tagger.py` | Labels, genres, collections in Plex. Uses **exact path matching** |
 | `motogp_plex_tagger.py` + `motogp_overlay_utility.py` | Artwork overlay/poster generation |
 | `motogp_common.py` | Shared spine: session enum, logging, calendar access, release parsing/filtering, prefix build/parse |
-| `activity_emitter.py` | JSON event bus for the Activity tab (`ActivityStage` enum); its current lock does not protect the full transaction (§4) |
+| `activity_emitter.py` | JSON event bus for the Activity tab (`ActivityStage` enum); every emit is one locked transaction via `utils/json_store.py` (§4) |
+| `utils/json_store.py` | The one persistence contract for shared `/config` JSON: sidecar lock held across load-mutate-commit, unique temp file, atomic replace, loud corruption (§4) |
+| `utils/webui_jobs.py` | The WebUI's one-at-a-time background job: synchronous slot reservation, bounded output, exit code, timeout. Process-local by design — the reason Slice 6 cannot add WSGI workers yet |
+| `utils/origin_guard.py` | Browser-write defence-in-depth: write methods need an `Origin`/`Referer` host matching the request host (headerless non-browser clients pass to auth). CSP is report-only in `motogp_webui.add_security_headers` |
 | `grab_stats.py` | Stats derived from `grabber_state.json` |
 | `motogp_discord.py` | Webhook notifications, has its own rate-limit file |
 | `utils/config_loader.py` | **`ENV_SPEC`**, settings precedence, validation, startup report |
@@ -160,16 +163,34 @@ This is the single most common cause of "tagging stopped working".
 | `logs/motogp.log` (+ debug) | `RotatingFileHandler`, 50 MB debug cap | Yes |
 | `motogp_<year>.json` | Season calendars, refreshed from image | No — re-copied on start |
 | `*.bak` | Pre-refresh calendar backup | Yes |
+| `*.lock` | Sidecar locks for the JSON stores above (`utils/json_store.py`) | Leave them: empty, tiny, and deleting one a process holds open breaks its locking |
 
-Most state is plain JSON read/write shared by separate processes. Direct writes
-can expose truncated files, and concurrent read-modify-write operations can lose
-updates. The activity emitter attempts a file lock, but its current lock is taken
-only while writing a shared temporary file, after the data was read; it does not
-serialize the full transaction. Treat cross-process state integrity as an open
-improvement, not as solved by the activity lock. See
-[`docs/IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) for the proposed migration
-sequence. New code must handle malformed/partial state visibly rather than
-silently replacing useful data with defaults.
+Most state is plain JSON shared by separate processes, but the four stores
+below no longer write it directly. They all go through `utils/json_store.py`,
+which is the single implementation of the persistence contract: a stable
+sidecar lock (`<name>.lock`, never the data file or a temp file) held across
+the whole load-mutate-commit transaction, a unique temporary file in the same
+directory, flush + fsync, then `os.replace`. A reader therefore sees the old
+file or the new one, never a truncated mixture, and two writers cannot read
+the same snapshot and overwrite each other's updates. Corrupt JSON is logged
+at ERROR naming the path before the caller's default is used - silently
+treating corrupt state as empty state is how "the file is broken" used to
+become an evening of "why did it do that again".
+
+| Store | Transaction model |
+|---|---|
+| `activity_events.json` | `update_json`: reloaded under the lock for every emit/progress/clear |
+| `release_mismatches.json` | Same contract (the original implementation, now delegating to the helper) |
+| `grabber_state.json` | Long-lived in-memory state; `save()` reloads under the lock and three-way merges against the load-time snapshot, so overlapping scheduled/manual grabbers keep each other's entries and this process's deletions still apply |
+| `watcher_state.json` | Same three-way merge on `_save()` (`processed` merged as a set) |
+| `webui_settings.json` | Locked atomic whole-document write; callers submit the complete document. The one-time `max_grabs_per_run` migration re-reads and writes under the same lock |
+
+Still outside the contract, deliberately: `discord_rate_limit.json` (one
+writer, disposable), `settings.yml` (owned by `utils/config_loader.py`, which
+has its own write path), and `scripts/cleanup_utility.py` (offline,
+`--confirm`-gated, not in the image). New code must use `utils.json_store`
+for any new shared JSON state and must handle malformed state visibly rather
+than silently replacing useful data with defaults.
 
 ---
 
@@ -227,7 +248,7 @@ Home, Download, Settings, Stats, Calendar, Activity; a bottom nav for mobile;
 | `/library` | GET | Download/library view | low |
 | `/settings-page` | GET | Settings + admin sub-tab | low; server-side auth applies to the route |
 | `/logs` | GET | Log viewer | **exposes log text** |
-| `/run` | POST | Spawns grabber/overlay using a client-supplied argument string | **high — authenticated action; argument allowlisting and job concurrency need hardening** |
+| `/run` | POST | Starts one typed job (`{action, season, round, sessions, scale, dry_run, force}`); `build_job()` validates fields and builds the argv server-side | **write — authenticated action; singleton slot claimed synchronously under a lock, output bounded, 1h timeout, exit code recorded (utils/webui_jobs.py)** |
 | `/settings` | GET/POST | Reads/writes sessions in `webui_settings.json`; `max_grabs_per_run` is read from and written to `settings.yml` via `config_loader` | **write** |
 | `/status` | GET | Background command output | low |
 | `/api/activity-events` | GET | Activity events | low |

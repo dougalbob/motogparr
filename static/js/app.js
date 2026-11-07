@@ -14,11 +14,13 @@ function scrollOutputToBottom() {
     }
 }
 
-function runCommand(cmd) {
+function runCommand(job) {
+    // Typed jobs only: the server accepts {action, season, round, ...} and
+    // builds the argv itself. A free-form command string is never sent.
     fetch('/run', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({command: cmd})
+        body: JSON.stringify(job)
     }).then(response => {
         if (response.ok) {
             showToast('Command started...', 'info');

@@ -7,7 +7,6 @@ Web interface for MotoGP grabber - refactored with templates.
 
 import os
 import sys
-import subprocess
 import threading
 import json
 import re
@@ -71,6 +70,8 @@ from utils.config_loader import (
     get_search_delay_hours,
 )
 from utils import home_summary
+from utils.json_store import atomic_write_json, file_lock, read_json, write_json
+from utils.webui_jobs import JobManager
 
 # =============================================================================
 # CONFIGURATION
@@ -175,6 +176,25 @@ def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
+    # Report-only on purpose (Slice 5): the templates still use inline
+    # scripts and styles, so an enforcing CSP would break the UI. This makes
+    # the browser log what *would* be blocked, which is the evidence needed
+    # to tighten it later - it must not be "fixed" to enforcing without
+    # removing the inline handlers first, and it must not quietly gain
+    # 'unsafe-inline' for scripts either, or it stops reporting the thing it
+    # exists to measure. Static/media allowances match what the UI loads.
+    response.headers.setdefault(
+        "Content-Security-Policy-Report-Only",
+        "default-src 'self'; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'self'; "
+        "base-uri 'self'; "
+        "form-action 'self'",
+    )
     return response
 
 
@@ -200,6 +220,14 @@ def _install_auth(flask_app):
 
 AUTH_GATE = _install_auth(app)
 
+# Browser-write origin check (utils/origin_guard.py). Installed after auth
+# so an unauthenticated request is refused as 401 before the origin question
+# is asked. No Cloudflare configuration is involved: Origin/Referer pass
+# through the tunnel untouched, and this is decided entirely in this process.
+from utils.origin_guard import install_origin_guard
+
+install_origin_guard(app)
+
 
 @app.context_processor
 def inject_auth_context():
@@ -211,15 +239,12 @@ def inject_auth_context():
         "identity_email": _session.get(SESSION_EMAIL_KEY),
         "auth_disabled": getattr(AUTH_GATE, "mode", "none") == "none",
     }
-# Store command output
-command_output = {
-    "running": False,
-    "command": "",
-    "output": "",
-    "timestamp": None,
-    "batch_total": 0,
-    "batch_current": 0
-}
+# The one background job (grabber/overlay) and its status. The manager owns
+# the singleton reservation, the bounded output buffer and the exit/timeout
+# bookkeeping; command_output stays as the plain dict templates and /status
+# render. See utils/webui_jobs.py for why this is process-local on purpose.
+jobs = JobManager()
+command_output = jobs.state
 
 
 # =============================================================================
@@ -656,7 +681,17 @@ def migrate_max_grabs_per_run() -> None:
 
     del saved["max_grabs_per_run"]
     try:
-        save_webui_settings(saved)
+        # Write under the store lock without re-taking it via
+        # save_webui_settings (flock on a second fd would deadlock against
+        # our own lock), so a concurrent /settings save cannot resurrect
+        # the migrated key or be overwritten by this stale snapshot.
+        with file_lock(WEBUI_CONFIG_FILE):
+            # Re-read inside the lock: the value may have changed since the
+            # unlocked read above; only the key removal is applied.
+            current = read_json(WEBUI_CONFIG_FILE, {}, log=logger)
+            if isinstance(current, dict):
+                current.pop("max_grabs_per_run", None)
+                atomic_write_json(WEBUI_CONFIG_FILE, current)
     except OSError as exc:  # noqa: BLE001 - report, never silently keep a duplicate
         logger.warning(
             "Could not drop max_grabs_per_run from %s: %s",
@@ -711,10 +746,16 @@ def save_webui_settings(settings):
 
     Callers must not pass max_grabs_per_run: it is a grabber setting and
     belongs in settings.yml, not in this file.
+
+    The write takes the store's sidecar lock and replaces the file
+    atomically (``utils.json_store``): concurrent settings requests can no
+    longer interleave on the same file, and the grabber reading this file
+    (``motogp_common``) sees the old settings or the new ones, never a
+    truncated mixture. Callers submit the complete settings document, so a
+    locked whole-file write is the right transaction here; failures raise
+    OSError, which the /settings route already turns into a 500.
     """
-    WEBUI_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(WEBUI_CONFIG_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+    write_json(WEBUI_CONFIG_FILE, settings)
 
 
 # =============================================================================
@@ -950,117 +991,197 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
 # COMMAND RUNNERS
 # =============================================================================
 
-def run_grabber_command(args: str):
-    """Run a grabber command in the background."""
-    global command_output
-    
-    command_output["running"] = True
-    command_output["command"] = f"motogp-grab {args}"
-    command_output["output"] = "Starting...\n"
-    command_output["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    try:
-        cmd = [PYTHON_PATH, str(GRABBER_SCRIPT)] + args.split()
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1
-        )
-        
-        output_lines = []
-        for line in process.stdout:
-            output_lines.append(line)
-            command_output["output"] = "".join(output_lines)
-        
-        process.wait()
-        command_output["output"] = "".join(output_lines)
-        
-    except Exception as e:
-        command_output["output"] += f"\nError: {e}"
-    finally:
-        command_output["running"] = False
+def run_job(argv):
+    """Worker body for one job whose slot has already been claimed."""
+    jobs.run_job(list(argv))
 
 
-def run_overlay_command(args: str):
-    """Run an overlay command in the background."""
-    global command_output
-    
-    command_output["running"] = True
-    command_output["command"] = f"motogp-overlay {args}"
-    command_output["output"] = "Starting overlay...\n"
-    command_output["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+def _job_int(payload, field, required=False):
+    value = payload.get(field)
+    if value is None:
+        if required:
+            raise ValueError(f"{field} is required")
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"{field} must be a number")
     try:
-        parts = args.split()
-        
-        if parts[0] == 'apply-season':
-            year = parts[1]
-            scale = "1.0"
-            dry_run = False
-            
-            for i, p in enumerate(parts):
-                if p == '--scale' and i + 1 < len(parts):
-                    scale = parts[i + 1]
-                if p == '--dry-run':
-                    dry_run = True
-            
-            cmd = [PYTHON_PATH, str(OVERLAY_SCRIPT), "apply-season", year, "--scale", scale]
-            if dry_run:
-                cmd.append("--dry-run")
-        
-        elif parts[0] == 'apply-round':
-            year = parts[1]
-            round_num = parts[2]
-            scale = "1.0"
-            dry_run = False
-            
-            for i, p in enumerate(parts):
-                if p == '--scale' and i + 1 < len(parts):
-                    scale = parts[i + 1]
-                if p == '--dry-run':
-                    dry_run = True
-            
-            calendar = load_calendar_data(int(year))
-            round_info = next(
-                (r for r in calendar.get("rounds", []) if r.get("round") == int(round_num)),
-                None
-            )
-            
-            if round_info:
-                # Always use the folder name from the calendar so renumbered
-                # rounds (e.g. Qatar moving to Round 20) resolve correctly.
-                folder = round_info.get("folder") or (
-                    f"Round {int(round_num):02d} {round_info.get('venue', 'Unknown')}"
-                )
-                round_path = os.path.join(MOTOGP_LIBRARY_PATH, year, folder)
-                cmd = [PYTHON_PATH, str(OVERLAY_SCRIPT), "apply-round", round_path, "--scale", scale]
-                if dry_run:
-                    cmd.append("--dry-run")
-            else:
-                command_output["output"] = f"Error: Round {round_num} not found in calendar"
-                command_output["running"] = False
-                return
-        else:
-            command_output["output"] = f"Error: Unknown overlay command: {parts[0]}"
-            command_output["running"] = False
-            return
-        
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} must be a number")
+
+
+def _job_bool(payload, field):
+    value = payload.get(field, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be true or false")
+    return value
+
+
+def _job_season(payload, required=False):
+    season = _job_int(payload, "season", required=required)
+    if season is not None and season not in discover_seasons():
+        raise ValueError(f"unknown season: {season}")
+    return season
+
+
+def _job_round(payload, season, required=False):
+    round_num = _job_int(payload, "round", required=required)
+    if round_num is None:
+        return None
+    if season is None:
+        raise ValueError("round requires a season")
+    calendar = load_calendar_data(season)
+    known = {r.get("round") for r in calendar.get("rounds", [])}
+    if known and round_num not in known:
+        raise ValueError(f"unknown round {round_num} for season {season}")
+    return round_num
+
+
+def _job_sessions(payload):
+    raw = payload.get("sessions")
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("sessions must be a non-empty list")
+    sessions = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError("sessions must be element tokens like 'E82'")
+        token = item.strip().upper()
+        if not token.startswith("E") or not token[1:].isdigit():
+            raise ValueError("sessions must be element tokens like 'E82'")
+        number = int(token[1:])
+        if not 1 <= number <= 99:
+            raise ValueError("session element numbers must be between 1 and 99")
+        token = f"E{number:02d}"
+        if token not in sessions:
+            sessions.append(token)
+    return sessions
+
+
+def _job_scale(payload):
+    value = payload.get("scale", 1.0)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("scale must be a number")
+    scale = float(value)
+    if not 0.5 <= scale <= 3.0:
+        raise ValueError("scale must be between 0.5 and 3.0")
+    return scale
+
+
+#: Fields each /run action may carry. Anything else is rejected rather than
+#: ignored: a misspelled field that silently does nothing is how the UI ends
+#: up reporting a job that never matched what the user asked for.
+_JOB_FIELDS = {
+    "status": {"season"},
+    "scheduled": {"season", "dry_run", "force"},
+    "backfill": {"season", "round", "sessions", "dry_run", "force"},
+    "overlay-season": {"season", "scale", "dry_run"},
+    "overlay-round": {"season", "round", "scale", "dry_run"},
+}
+
+
+def build_job(payload):
+    """
+    Validate a /run payload and return ``(argv, label)``.
+
+    This replaces the old contract where the browser sent a command string
+    and the server split it into argv: a client could pass any grabber flag
+    that exists (or several that don't), and a typo produced a subprocess
+    usage error instead of a 400. Now the client names an action and typed
+    fields; every argv element below is built here, from validated values,
+    and nothing the client sent is ever split, joined or shell-interpreted.
+    Raises ValueError with a user-facing message for anything unsupported.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Expected a JSON object")
+    action = payload.get("action")
+    if action not in _JOB_FIELDS:
+        raise ValueError(
+            f"unsupported action: {action!r} "
+            f"(expected one of: {', '.join(sorted(_JOB_FIELDS))})"
         )
-        
-        output_lines = []
-        for line in process.stdout:
-            output_lines.append(line)
-            command_output["output"] = "".join(output_lines)
-        
-        process.wait()
-        command_output["output"] = "".join(output_lines)
-        
-    except Exception as e:
-        command_output["output"] += f"\nError: {e}"
-    finally:
-        command_output["running"] = False
+    unexpected = set(payload) - _JOB_FIELDS[action] - {"action"}
+    if unexpected:
+        raise ValueError(
+            f"unsupported field(s) for {action}: {', '.join(sorted(unexpected))}"
+        )
+
+    grabber = [PYTHON_PATH, str(GRABBER_SCRIPT)]
+    overlay = [PYTHON_PATH, str(OVERLAY_SCRIPT)]
+
+    if action == "status":
+        argv = grabber + ["status"]
+        season = _job_season(payload)
+        if season is not None:
+            argv += ["--season", str(season)]
+        return argv, "motogp-grab " + " ".join(argv[2:])
+
+    if action == "scheduled":
+        argv = grabber + ["scheduled"]
+        season = _job_season(payload)
+        if season is not None:
+            argv += ["--season", str(season)]
+        if _job_bool(payload, "dry_run"):
+            argv.append("--dry-run")
+        if _job_bool(payload, "force"):
+            argv.append("--force")
+        return argv, "motogp-grab " + " ".join(argv[2:])
+
+    if action == "backfill":
+        season = _job_season(payload, required=True)
+        argv = grabber + ["backfill", "--season", str(season)]
+        round_num = _job_round(payload, season)
+        if round_num is not None:
+            argv += ["--round", str(round_num)]
+        sessions = _job_sessions(payload)
+        if sessions:
+            argv += ["--sessions", ",".join(sessions)]
+        if _job_bool(payload, "dry_run"):
+            argv.append("--dry-run")
+        if _job_bool(payload, "force"):
+            argv.append("--force")
+        return argv, "motogp-grab " + " ".join(argv[2:])
+
+    # Overlay actions share scale/dry-run handling.
+    season = _job_season(payload, required=True)
+    scale = _job_scale(payload)
+    dry_run = _job_bool(payload, "dry_run")
+
+    if action == "overlay-season":
+        argv = overlay + ["apply-season", str(season), "--scale", str(scale)]
+        if dry_run:
+            argv.append("--dry-run")
+        return argv, "motogp-overlay " + " ".join(argv[2:])
+
+    # overlay-round: the folder is resolved from the calendar server-side,
+    # so a renumbered round (e.g. Qatar moving to Round 20) still resolves,
+    # and the client never supplies a filesystem path.
+    round_num = _job_round(payload, season, required=True)
+    calendar = load_calendar_data(season)
+    round_info = next(
+        (r for r in calendar.get("rounds", []) if r.get("round") == round_num),
+        None,
+    )
+    if round_info is None:
+        raise ValueError(f"Round {round_num} not found in calendar")
+    folder = round_info.get("folder") or (
+        f"Round {round_num:02d} {round_info.get('venue', 'Unknown')}"
+    )
+    round_path = os.path.join(MOTOGP_LIBRARY_PATH, str(season), folder)
+    argv = overlay + ["apply-round", round_path, "--scale", str(scale)]
+    if dry_run:
+        argv.append("--dry-run")
+    return argv, "motogp-overlay " + " ".join(argv[2:])
+
+
+def _start_job(argv, label):
+    """Claim the singleton slot and launch; returns False when busy."""
+    if not jobs.try_start(label):
+        return False
+    thread = threading.Thread(target=run_job, args=(list(argv),), daemon=True)
+    thread.start()
+    return True
 
 
 # =============================================================================
@@ -1152,19 +1273,25 @@ def logs_page():
 
 @app.route("/run", methods=["POST"])
 def run():
-    if command_output["running"]:
-        return jsonify({"error": "Command already running"}), 400
-    
-    data = request.json
-    cmd = data.get("command", "status")
-    
-    if cmd.startswith("overlay "):
-        thread = threading.Thread(target=run_overlay_command, args=(cmd[8:],))
-    else:
-        thread = threading.Thread(target=run_grabber_command, args=(cmd,))
-    
-    thread.start()
-    return jsonify({"status": "started", "command": cmd})
+    """
+    Start one typed background job.
+
+    The payload names an action plus typed fields (see build_job); the old
+    ``{"command": "..."}`` string contract is gone, so nothing a client sends
+    is split into argv. Validation happens before the job slot is claimed, and
+    the slot is claimed synchronously here - not inside the worker thread -
+    so two simultaneous requests cannot both start a job.
+    """
+    payload = request.get_json(silent=True)
+    try:
+        argv, label = build_job(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if not _start_job(argv, label):
+        return jsonify({"error": "Command already running"}), 409
+
+    return jsonify({"status": "started", "command": label})
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -1596,22 +1723,22 @@ def api_release_mismatch_redownload():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    if command_output["running"]:
+    argv = _replacement_argv(season, round_num, session_type)
+    if not _start_job(argv, f"motogp-grab {_replacement_command(season, round_num, session_type)}"):
         return jsonify({
             "error": "A grabber job is already running. Wait for it to finish."
         }), 409
 
-    command = _replacement_command(season, round_num, session_type)
-    thread = threading.Thread(target=run_grabber_command, args=(command,))
-    thread.start()
+    return jsonify({
+        "status": "started",
+        "command": f"motogp-grab {_replacement_command(season, round_num, session_type)}",
+    })
 
-    return jsonify({"status": "started", "command": f"motogp-grab {command}"})
 
-
-def _replacement_command(season: int, round_num: int,
-                         session_type: SessionType) -> str:
+def _replacement_argv(season: int, round_num: int,
+                      session_type: SessionType) -> list:
     """
-    The grabber argument string that re-searches one session.
+    The grabber argv that re-searches one session.
 
     Built server-side from a resolved SessionType, never from client text: the
     element number must come from element_number(), and a session number typed
@@ -1619,10 +1746,17 @@ def _replacement_command(season: int, round_num: int,
     and the element number diverged in 2027 - see find_legacy_folders()).
     """
     episode = f"E{element_number(session_type, season):02d}"
-    return (
-        f"backfill --season {season} --round {round_num} "
-        f"--sessions {episode} --force"
-    )
+    return [
+        PYTHON_PATH, str(GRABBER_SCRIPT),
+        "backfill", "--season", str(season), "--round", str(round_num),
+        "--sessions", episode, "--force",
+    ]
+
+
+def _replacement_command(season: int, round_num: int,
+                         session_type: SessionType) -> str:
+    """Display form of _replacement_argv, for the mismatch dialog."""
+    return " ".join(_replacement_argv(season, round_num, session_type)[2:])
 
 
 #: Sections and keys the WebUI is allowed to write through /app-config.
@@ -1930,68 +2064,40 @@ def download_selected():
             print(f"Could not convert session: {session_name} - {e}")
             continue
     
-    # Build commands with specific sessions
+    # Build one argv list per round. These are executed as lists, never
+    # joined and re-split; the "commands" strings in the response are a
+    # display form for the UI, built from the same argv.
+    job_list = []
     commands = []
     for round_num, episodes in by_round.items():
         if episodes:  # Only if we have valid episodes
             sessions_str = ",".join(episodes)
-            cmd = f"backfill --season {season} --round {round_num} --sessions {sessions_str} --force"
-            commands.append(cmd)
-    
-    # Run commands sequentially in background, keeping running=True until all complete
-    def run_all_commands(cmds, season, round_info):
-        global command_output
-        total = len(cmds)
-        command_output["batch_total"] = total
-        
-        for i, (cmd, info) in enumerate(zip(cmds, round_info)):
-            # Update command display with clear search status
-            command_output["running"] = True
-            command_output["batch_current"] = i + 1
-            round_num = info["round"]
-            episodes = info["episodes"]
-            command_output["command"] = f"Searching ({i+1}/{total}): Season {season} R{round_num} {episodes}"
-            command_output["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            if i == 0:
-                command_output["output"] = f"Starting batch download of {total} job(s)...\n\n"
-            else:
-                command_output["output"] += f"\n{'='*60}\n"
-            
-            command_output["output"] += f">>> Search {i+1}/{total}: Season {season} Round {round_num} - {episodes}\n\n"
-            
-            try:
-                cmd_parts = [PYTHON_PATH, str(GRABBER_SCRIPT)] + cmd.split()
-                process = subprocess.Popen(
-                    cmd_parts, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1
-                )
-                
-                for line in process.stdout:
-                    command_output["output"] += line
-                
-                process.wait()
-                
-            except Exception as e:
-                command_output["output"] += f"\nError: {e}\n"
-        
-        # Only set running=False after ALL commands complete
-        command_output["running"] = False
-        command_output["batch_total"] = 0
-        command_output["batch_current"] = 0
-        command_output["output"] += f"\n{'='*60}\n✅ All {total} searches completed.\n"
-        command_output["output"] += f"\n{'='*60}\nAll {len(cmds)} commands completed.\n"
-    
-    # Build round info for status display
-    round_info = []
-    for round_num, episodes in by_round.items():
-        if episodes:
-            round_info.append({"round": round_num, "episodes": ",".join(episodes)})
-    
-    if commands:
-        thread = threading.Thread(target=run_all_commands, args=(commands, season, round_info))
+            argv = [
+                PYTHON_PATH, str(GRABBER_SCRIPT),
+                "backfill", "--season", str(season), "--round", str(round_num),
+                "--sessions", sessions_str, "--force",
+            ]
+            job_list.append((
+                argv,
+                f"Searching: Season {season} R{round_num} {sessions_str}",
+            ))
+            commands.append(" ".join(argv[2:]))
+
+    if job_list:
+        # Claim the singleton slot synchronously, like /run: this route used
+        # to start a batch even while another job was already running.
+        if not jobs.try_start(
+            f"Searching: {len(job_list)} round(s), Season {season}",
+            output=f"Starting batch download of {len(job_list)} job(s)...\n",
+        ):
+            return jsonify({"error": "Command already running"}), 409
+        thread = threading.Thread(
+            target=jobs.run_sequence,
+            args=(job_list, f"Starting batch download of {len(job_list)} job(s)...\n"),
+            daemon=True,
+        )
         thread.start()
-    
+
     return jsonify({
         "status": "started",
         "rounds": list(by_round.keys()),
