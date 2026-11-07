@@ -18,13 +18,16 @@ Usage:
     )
 """
 
-import json
-import fcntl
+import logging
 import os
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, List, Any
+
+from utils.json_store import read_json, update_json, write_json
+
+logger = logging.getLogger("motogparr.activity")
 
 # Configuration
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
@@ -57,47 +60,63 @@ STAGE_CONFIG = {
 }
 
 
+def _empty_data() -> Dict[str, Any]:
+    return {"events": {}, "completed_history": []}
+
+
+def _normalise(data: Any) -> Dict[str, Any]:
+    """Ensure the required keys exist, whatever shape was loaded."""
+    if not isinstance(data, dict):
+        return _empty_data()
+    data.setdefault("events", {})
+    data.setdefault("completed_history", [])
+    return data
+
+
 def _load_activity_data() -> Dict[str, Any]:
-    """Load activity data from JSON file."""
-    if not ACTIVITY_FILE.exists():
-        return {"events": {}, "completed_history": []}
-    
-    try:
-        with open(ACTIVITY_FILE, 'r') as f:
-            data = json.load(f)
-            # Ensure required keys exist
-            if "events" not in data:
-                data["events"] = {}
-            if "completed_history" not in data:
-                data["completed_history"] = []
-            return data
-    except (json.JSONDecodeError, IOError):
-        return {"events": {}, "completed_history": []}
+    """Load activity data from JSON file (read-only; writers are atomic)."""
+    return _normalise(read_json(ACTIVITY_FILE, _empty_data(), log=logger))
 
 
 def _save_activity_data(data: Dict[str, Any]) -> None:
-    """Save activity data to JSON file with file locking."""
-    # Ensure config directory exists
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Write to temp file first, then rename (atomic operation)
-    temp_file = ACTIVITY_FILE.with_suffix('.json.tmp')
-    
+    """
+    Save the whole activity document under the sidecar lock.
+
+    Prefer :func:`_update_activity_data` for changes: replacing a snapshot
+    loaded earlier can discard another process's event. This whole-document
+    write remains for ``clear_all_activity`` and compatibility, and is still
+    locked and atomic so a reader never sees a partial file. Failures are
+    logged at ERROR rather than printed or swallowed - an event that could
+    not be written is an event the Activity tab will never show.
+    """
     try:
-        with open(temp_file, 'w') as f:
-            # Acquire exclusive lock
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                json.dump(data, f, indent=2, default=str)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        
-        # Atomic rename
-        temp_file.rename(ACTIVITY_FILE)
-    except IOError as e:
-        print(f"Error saving activity data: {e}")
-        if temp_file.exists():
-            temp_file.unlink()
+        write_json(ACTIVITY_FILE, _normalise(data))
+    except OSError as exc:
+        logger.error("Could not save activity data to %s: %s", ACTIVITY_FILE, exc)
+
+
+def _update_activity_data(mutator) -> Any:
+    """
+    Apply ``mutator`` to the activity document as one locked transaction.
+
+    The document is reloaded after the sidecar lock is taken, so concurrent
+    emitters in the grabber, watcher and tagger each build on the previous
+    writer's committed state. Previously the file was read first and the lock
+    held only around serialising to a shared temp file, so two processes
+    could read the same snapshot and overwrite each other's events. A failed
+    write is logged at ERROR (the event is lost, but never silently).
+    """
+    def _apply(data):
+        return mutator(_normalise(data))
+
+    try:
+        return update_json(ACTIVITY_FILE, _empty_data, _apply, log=logger)
+    except OSError as exc:
+        logger.error(
+            "Could not update activity events in %s: %s; the event was not recorded",
+            ACTIVITY_FILE, exc,
+        )
+        return None
 
 
 def emit_activity(
@@ -125,55 +144,50 @@ def emit_activity(
         release_name: Optional release/filename being processed
         nzo_id: Optional SABnzbd job ID for tracking downloads
     """
-    data = _load_activity_data()
-    
-    # Build event object
     stage_config = STAGE_CONFIG.get(stage, {})
 
-    # The watcher can reconstruct the round from a folder prefix, but not the
-    # venue. Retain identity supplied by an earlier stage rather than making an
-    # active download lose its venue as it moves through the pipeline.
-    previous_event = data["events"].get(episode_key, {})
-    round_num = round_info.get("round") if round_info else None
-    venue = round_info.get("venue") if round_info else None
-    if round_num is None:
-        round_num = previous_event.get("round")
-    if venue is None:
-        venue = previous_event.get("venue")
+    def _mutate(data):
+        # The watcher can reconstruct the round from a folder prefix, but not the
+        # venue. Retain identity supplied by an earlier stage rather than making an
+        # active download lose its venue as it moves through the pipeline. The
+        # previous event is read inside the locked transaction, so it is the
+        # latest committed one, not a snapshot from before another process wrote.
+        previous_event = data["events"].get(episode_key, {})
+        round_num = round_info.get("round") if round_info else None
+        venue = round_info.get("venue") if round_info else None
+        if round_num is None:
+            round_num = previous_event.get("round")
+        if venue is None:
+            venue = previous_event.get("venue")
 
-    event = {
-        "id": episode_key,
-        "name": episode_name,
-        "stage": stage.value,
-        "stage_icon": stage_config.get("icon", "❓"),
-        "stage_color": stage_config.get("color", "#666"),
-        "stage_label": stage_config.get("label", stage.value),
-        "details": details,
-        "timestamp": datetime.now().isoformat(),
-        "round": round_num,
-        "venue": venue,
-        "progress": progress,
-        "error_message": error_message,
-        "release_name": release_name,
-        "nzo_id": nzo_id,
-    }
-    
-    # Handle completion - move to history
-    if stage in (ActivityStage.COMPLETE, ActivityStage.ERROR):
-        # Remove from active events if present
-        if episode_key in data["events"]:
-            del data["events"][episode_key]
-        
-        # Add to completed history
-        data["completed_history"].insert(0, event)
-        
-        # Trim history to max size
-        data["completed_history"] = data["completed_history"][:MAX_COMPLETED_HISTORY]
-    else:
-        # Update or create in active events
-        data["events"][episode_key] = event
-    
-    _save_activity_data(data)
+        event = {
+            "id": episode_key,
+            "name": episode_name,
+            "stage": stage.value,
+            "stage_icon": stage_config.get("icon", "❓"),
+            "stage_color": stage_config.get("color", "#666"),
+            "stage_label": stage_config.get("label", stage.value),
+            "details": details,
+            "timestamp": datetime.now().isoformat(),
+            "round": round_num,
+            "venue": venue,
+            "progress": progress,
+            "error_message": error_message,
+            "release_name": release_name,
+            "nzo_id": nzo_id,
+        }
+
+        # Handle completion - move to history
+        if stage in (ActivityStage.COMPLETE, ActivityStage.ERROR):
+            data["events"].pop(episode_key, None)
+            data["completed_history"].insert(0, event)
+            # Trim history to max size
+            data["completed_history"] = data["completed_history"][:MAX_COMPLETED_HISTORY]
+        else:
+            # Update or create in active events
+            data["events"][episode_key] = event
+
+    _update_activity_data(_mutate)
 
 
 def update_download_progress(
@@ -189,14 +203,14 @@ def update_download_progress(
         progress: Download progress (0-100)
         details: Optional updated details string
     """
-    data = _load_activity_data()
-    
-    if episode_key in data["events"]:
-        data["events"][episode_key]["progress"] = progress
-        data["events"][episode_key]["timestamp"] = datetime.now().isoformat()
-        if details:
-            data["events"][episode_key]["details"] = details
-        _save_activity_data(data)
+    def _mutate(data):
+        if episode_key in data["events"]:
+            data["events"][episode_key]["progress"] = progress
+            data["events"][episode_key]["timestamp"] = datetime.now().isoformat()
+            if details:
+                data["events"][episode_key]["details"] = details
+
+    _update_activity_data(_mutate)
 
 
 def mark_complete(
@@ -262,11 +276,10 @@ def clear_episode(episode_key: str) -> None:
     Args:
         episode_key: The episode to remove
     """
-    data = _load_activity_data()
-    
-    if episode_key in data["events"]:
-        del data["events"][episode_key]
-        _save_activity_data(data)
+    def _mutate(data):
+        data["events"].pop(episode_key, None)
+
+    _update_activity_data(_mutate)
 
 
 def get_active_events() -> Dict[str, Any]:

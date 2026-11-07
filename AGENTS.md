@@ -4,7 +4,7 @@ Kickoff document for an agentic contributor working on MotoGParr. It describes
 the system, its invariants, the current implementation status and the next
 recommended work. Keep status and plans current when code or priorities change.
 
-**Latest repository release: v2.9.0** · **Last verified here: 463 tests passing (2026-11-07)** · **Single user, self-hosted**
+**Latest repository release: v2.10.0** · **Last verified here: 509 tests passing (2026-11-07)** · **Single user, self-hosted**
 
 ---
 
@@ -97,7 +97,7 @@ visible errors.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests -q          # last checked: 423 passed (2026-11-07)
+.venv/bin/python -m pytest tests -q          # last checked: 509 passed (2026-11-07)
 ```
 
 Always use `pytest tests` — **not** bare `pytest`, which also collects the
@@ -123,7 +123,15 @@ JWT — signature against Cloudflare's published keys, issuer, audience, expiry 
 and requires the email to be in `AUTH_ALLOWED_EMAILS`. A verified email that is
 not on the allowlist is denied. Cloudflare is the outer gate; the app is the
 inner one, because a LAN host or another container on the Docker network never
-goes through Cloudflare at all.
+goes through Cloudflare at all. Since Slice 5 (2026-11-07) writes also carry
+an origin check (`utils/origin_guard.py`, installed after the auth guard):
+a browser write whose `Origin`/`Referer` host is not this app's host gets a
+403, so a malicious page in another tab cannot trigger downloads with the
+user's Cloudflare session. Headerless writes (curl, scripts) are allowed
+through to auth - do not "tighten" that without a plan for non-browser
+clients, and do not compare schemes (Cloudflare terminates TLS, so the
+browser says https while the app sees http). The CSP header is report-only
+by design; never flip it to enforcing while templates use inline scripts.
 
 **There is one user and there will only ever be one.** No accounts, no sign-up,
 no roster, no roles. The allowlist is the entire permission model.
@@ -146,9 +154,18 @@ Still true, and still worth knowing:
 
 - `/app-config` returns the **Plex token and Prowlarr/SABnzbd API keys** — now
   behind auth, so it matters that the auth cannot be bypassed.
-- `/run` spawns a subprocess from a client-supplied string and
-  `/download-selected` triggers downloads. Both are authenticated writes now,
-  but the argument handling is still string-splitting: treat as untrusted.
+- `/run` used to spawn a subprocess from a client-supplied string. Since
+  Slice 3 (2026-11-07) it accepts only a named action with typed fields and
+  `build_job()` constructs the argv server-side; nothing a client sends is
+  split or shell-interpreted. `/download-selected` and the mismatch
+  redownload build argv lists the same way (their response "commands" are
+  display strings only — never execute those). All three claim the one job
+  slot synchronously via `utils/webui_jobs.JobManager` before any thread
+  starts: do not reintroduce a `running` check that the worker sets later,
+  that was the duplicate-launch race. Job state is process-local, which is
+  why Slice 6 (WSGI workers) is gated on it. Both routes remain
+  authenticated writes: treat payloads as untrusted and keep validation in
+  `build_job()`.
 - `scripts/cleanup_utility.py` **deletes library folders and rewrites grabber
   state**. It is no longer a test, no longer at the repo root, no longer in the
   image, and requires `--confirm`. Keep it that way: `tests/test_build_hygiene.py`
@@ -453,10 +470,20 @@ your network as public knowledge from that date.
 
 ## 8. Known traps (learned the hard way)
 
-- The WebUI and scheduler are separate processes that share `/config` JSON
-  state by **writing files with no locking** (activity events use a lock; most
-  others do not). Assume a reader can see a half-written file and handle
-  `JSONDecodeError` — several places already do, silently.
+- The WebUI, scheduler, grabber and watcher are separate processes sharing
+  `/config` JSON state. Since the combined Slices 1+2 change (2026-11-07) the
+  four shared stores (`activity_events.json`, `grabber_state.json`,
+  `watcher_state.json`, `webui_settings.json`, plus `release_mismatches.json`)
+  all persist through **`utils/json_store.py`**: a sidecar lock held across the
+  whole load-mutate-commit, a unique temp file, and atomic replacement, so a
+  reader now sees the old file or the new one, never a half-written one. Do
+  not write a shared JSON store with a bare `open(..., "w")` again — use
+  `update_json` for mutations, or `three_way_merge` on save for a long-lived
+  in-memory state object (that is how the grabber and watcher keep another
+  process's committed entries without resurrecting their own deletions).
+  Corrupt JSON is logged at ERROR naming the path before defaults are used;
+  keep it that way. `discord_rate_limit.json` is the deliberate exception
+  (one writer, disposable).
 - `discover_seasons()` reads `/config`, not the image, so a season only appears
   in the UI once the entrypoint has copied the calendar into `/config`.
 - `WEBUI_CONFIG_FILE` (`webui_settings.json`) holds desired sessions only.

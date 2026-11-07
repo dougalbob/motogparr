@@ -59,6 +59,7 @@ def _folder_to_episode_key(folder_name: str) -> tuple:
 
 
 from utils.config_loader import get_motogp_library_path
+from utils.json_store import atomic_write_json, file_lock, read_json, three_way_merge
 
 # Get module logger
 logger = get_logger("watcher")
@@ -231,8 +232,11 @@ class StateManager:
         self.state_file = self.state_dir / "watcher_state.json"
         self.legacy_file = self.state_dir / "watcher_processed.txt"
         self.state = WatcherState()
+        # Snapshot of what was loaded, so _save() can merge this process's
+        # changes into whatever is on disk then (see utils.json_store).
+        self._snapshot = self.state.to_dict()
         self._load()
-    
+
     def _load(self):
         """Load state from disk."""
         # Try new JSON format first
@@ -241,6 +245,7 @@ class StateManager:
                 with open(self.state_file, 'r') as f:
                     data = json.load(f)
                 self.state = WatcherState.from_dict(data)
+                self._snapshot = self.state.to_dict()
                 logger.debug(f"Loaded state: {len(self.state.processed)} processed, {len(self.state.failed)} failed")
                 return
             except Exception as e:
@@ -265,11 +270,47 @@ class StateManager:
                 logger.warning(f"Could not load legacy state: {e}")
     
     def _save(self):
-        """Save state to disk."""
+        """
+        Save state to disk as a locked merge, not an overwrite.
+
+        The watcher is long-lived, so its in-memory state can be hours older
+        than the file (the WebUI reads this file, and a second watcher or a
+        CLI clear can write it). Reloading under the sidecar lock and
+        three-way merging against the load-time snapshot keeps entries
+        committed since then, while this process's own additions, retries
+        and clears are applied. The write is atomic, so the WebUI never
+        reads a half-written file. ``processed`` is a set, so it is merged
+        as a list in its JSON form and converted back afterwards.
+        """
         try:
-            self.state_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.state_file, 'w') as f:
-                json.dump(self.state.to_dict(), f, indent=2)
+            with file_lock(self.state_file):
+                disk = read_json(self.state_file, {}, log=logger)
+                if not isinstance(disk, dict):
+                    disk = {}
+                disk.setdefault("processed", [])
+                disk.setdefault("failed", {})
+                ours = self.state.to_dict()
+                # three_way_merge works on dicts; merge the processed list
+                # as a set union/difference against the snapshot instead.
+                merged_failed = three_way_merge(
+                    self._snapshot.get("failed", {}),
+                    ours.get("failed", {}),
+                    disk.get("failed", {}),
+                )
+                base_processed = set(self._snapshot.get("processed", []))
+                our_processed = set(ours.get("processed", []))
+                disk_processed = set(disk.get("processed", []))
+                merged_processed = (
+                    (disk_processed | (our_processed - base_processed))
+                    - (base_processed - our_processed)
+                )
+                merged = {
+                    "processed": sorted(merged_processed),
+                    "failed": merged_failed,
+                }
+                atomic_write_json(self.state_file, merged)
+            self.state = WatcherState.from_dict(merged)
+            self._snapshot = merged
         except Exception as e:
             logger.error(f"Could not save state: {e}")
     

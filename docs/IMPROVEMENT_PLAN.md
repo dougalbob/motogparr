@@ -16,12 +16,12 @@ new evidence shows; **LATER** is deliberately deferred until prerequisites land.
 | Order | Slice | Status | Main reason |
 |---|---|---|---|
 | 0 | Refresh agent-facing documentation and establish this plan | **DONE** | Stale instructions are a source of incorrect code changes |
-| 1 | Make activity-event updates one locked, atomic transaction | **NEXT** | Events can be lost or state files corrupted by concurrent processes |
-| 2 | Apply the same persistence contract to grabber, watcher and WebUI JSON state | **PLANNED** | These files are also shared or written directly |
-| 3 | Replace free-form WebUI command strings with typed, guarded jobs | **PLANNED** | Prevent argument misuse, duplicate launches and unbounded output |
-| 4 | Add deterministic tests at Prowlarr/SABnzbd/Plex boundaries | **PLANNED** | Exercise integration behaviour without live home services |
-| 5 | Add browser-write defense-in-depth (CSRF/Origin and CSP) | **PLANNED** | Reduce reliance on the outer Access/browser assumptions |
-| 6 | Move the WebUI to a production WSGI server | **LATER** | Do this only after job/status state is safe across workers |
+| 1 | Make activity-event updates one locked, atomic transaction | **DONE (2026-11-07)** | Events can be lost or state files corrupted by concurrent processes |
+| 2 | Apply the same persistence contract to grabber, watcher and WebUI JSON state | **DONE (2026-11-07, combined with Slice 1)** | These files are also shared or written directly |
+| 3 | Replace free-form WebUI command strings with typed, guarded jobs | **DONE (2026-11-07)** | Prevent argument misuse, duplicate launches and unbounded output |
+| 4 | Add deterministic tests at Prowlarr/SABnzbd/Plex boundaries | **DEFERRED (2026-11-07)** | Valuable while the pipeline changes often; the app is nearing end of development, so the fakes' upkeep outweighs the insurance. Revive if the search/submit/tag paths change materially, an upstream API breaks compatibility, or unexplained download failures need safe reproduction |
+| 5 | Add browser-write defense-in-depth (CSRF/Origin and CSP) | **DONE (2026-11-07, light version)** | Reduce reliance on the outer Access/browser assumptions |
+| 6 | Move the WebUI to a production WSGI server | **DEFERRED (2026-11-07)** | Only worth it if the built-in server causes a real problem; Slice 3's job state is still process-local, so multi-worker remains unsafe |
 | — | Release mismatches: block, explain, replace | **DONE (2026-11-07)** | A release the rules wrongly accept is chosen on every retry, so "download it again" could not fix it |
 
 ## Slice 0 — documentation baseline (**DONE**)
@@ -62,7 +62,19 @@ existing `backfill --force` command, and the wrong library folder is moved (neve
 deleted) into `<library>/.mismatched/`. See `AGENTS.md` §6b and
 `docs/ARCHITECTURE.md` §4.
 
-## Slice 1 — activity event transaction (**NEXT**)
+## Slice 1 — activity event transaction (**DONE, 2026-11-07, combined with Slice 2**)
+
+Delivered together with Slice 2 as one change, at the maintainer's request:
+the two slices share one helper and one transaction model, so proving them
+separately would have meant reviewing the same contract twice.
+`utils/json_store.py` is that helper - sidecar lock held across
+load-mutate-commit, unique temp file plus `os.replace`, corruption logged at
+ERROR - generalised from `utils/release_mismatches.py`, which now delegates
+to it. The activity emitter keeps its JSON shape and public API; a failed
+write is logged at ERROR instead of printed or dropped silently.
+`tests/test_json_store.py` covers concurrent writers in separate processes,
+lock release on exceptions, a failed replacement leaving the previous file
+readable, and loud corruption handling.
 
 **Problem evidence:** `activity_emitter.py` reads the JSON before acquiring its
 lock. The lock is taken on the temporary output file only while serialising,
@@ -94,7 +106,22 @@ store.
 - Run `python -m pytest tests -q` and the normal CI workflows.
 - No event schema, ordering, retention-limit or Activity UI behaviour changes.
 
-## Slice 2 — other JSON state files (**PLANNED; split by store if needed**)
+## Slice 2 — other JSON state files (**DONE, 2026-11-07, combined with Slice 1**)
+
+All three candidate stores were migrated in the same change (see Slice 1).
+Transaction models differ by how the owner works, which is why the helper
+offers both forms: `webui_settings.json` takes a locked atomic whole-document
+write (callers submit the complete document; the `max_grabs_per_run`
+migration also re-reads under the lock), while the grabber's and watcher's
+long-lived in-memory state is reconciled on save with
+`json_store.three_way_merge` against the load-time snapshot - entries another
+process committed meanwhile survive, and this process's own deletions still
+apply unless the other process changed that same key. File names, schemas and
+the `settings.yml` ownership/migration behaviour are unchanged. Remaining
+direct JSON writers are out of scope by design: `discord_rate_limit.json`
+(single writer, disposable) and the offline `scripts/cleanup_utility.py`.
+
+## Slice 2 (original plan, kept for reference)
 
 After Slice 1, audit each state file's actual readers and writers. Candidate
 stores identified in the review are:
@@ -118,7 +145,28 @@ permission errors, and old-format compatibility where applicable. Ensure a
 reader never sees partially written JSON and that the WebUI's settings-store
 ownership remains as documented in `AGENTS.md`.
 
-## Slice 3 — typed WebUI jobs (**PLANNED**)
+## Slice 3 — typed WebUI jobs (**DONE, 2026-11-07**)
+
+Delivered: `/run` now takes `{action, season, round, sessions, scale,
+dry_run, force}` for the actions `status`, `scheduled`, `backfill`,
+`overlay-season` and `overlay-round`. `build_job()` in `motogp_webui.py`
+validates every field (unknown actions, fields, seasons, rounds, session
+tokens and out-of-range scales are 400s) and builds the argv list itself;
+the overlay-round folder is still resolved from the calendar server-side.
+`utils/webui_jobs.JobManager` owns the job slot: claimed synchronously under
+a lock in the request handler (the old check-then-thread race is gone),
+output capped at 100k chars, exit code recorded, and a 1-hour timeout that
+kills and reports. `/download-selected` (which previously had no running
+check at all) and the mismatch redownload claim the same slot and execute
+argv lists; their response "commands" remain display strings, never an
+execution path. The frontend (`static/js/app.js`, settings overlay form)
+sends typed jobs. Auth coverage for write routes is unchanged.
+
+Deliberately not done here, per the original scope: no cancellation
+endpoint (the timeout is the defined ending), and job state stays
+process-local, which keeps Slice 6 gated on externalising it.
+
+## Slice 3 (original plan, kept for reference)
 
 **Problem evidence:** `/run` accepts a command string and routes it to a
 subprocess after `str.split()` (`motogp_webui.py`). `shell=True` is not used, so
@@ -159,7 +207,29 @@ real-image smoke test as a distinct CI layer.
 Keep this slice focused: do not attempt to simulate the entire home network or
 rewrite all service access behind a new framework just to get tests in place.
 
-## Slice 5 — browser-write hardening (**PLANNED**)
+## Slice 5 — browser-write hardening (**DONE, 2026-11-07, light version**)
+
+Delivered as the light version, proportionate to a single-user app behind
+Cloudflare Access; no Cloudflare configuration was changed or is needed -
+`Origin`/`Referer` pass through the tunnel and the decision is made in this
+process. `utils/origin_guard.py` is a `before_request` hook registered after
+the auth guard: for write methods it requires an `Origin` (or `Referer`
+fallback) whose **host** matches the request host (host only - Cloudflare
+terminates TLS, so schemes legitimately differ), and allows requests with
+neither header, which are non-browser clients governed by auth rather than
+this guard. Safe methods and the public endpoints are exempt. The CSP is
+served as `Content-Security-Policy-Report-Only` only: the templates still
+rely on inline scripts/styles, so enforcing now would break the UI; the
+report-only policy is the evidence-gathering step for a later tightening.
+No CSRF token machinery: the Origin check covers the browser threat without
+per-form state, and JSON clients have no ambient credential to abuse beyond
+the verified identity itself.
+
+Revive the full version (tokens + enforcing CSP) only if the app ever gains
+multiple users, cookie-based sessions carrying more authority, or a reason
+to distrust the pages it serves.
+
+## Slice 5 (original plan, kept for reference)
 
 Review every mutating route and its browser call site. Add a consistent Origin
 (or Referer fallback) policy and/or CSRF token for browser-originated writes;

@@ -526,15 +526,15 @@
         if (scale > 3.0) scale = 3.0;
         document.getElementById('scale-factor').value = scale;
         
-        let cmd;
+        let job;
         if (round) {
-            cmd = `overlay apply-round ${season} ${round} --scale ${scale}`;
+            job = {action: 'overlay-round', season: season, round: round, scale: scale};
         } else {
-            cmd = `overlay apply-season ${season} --scale ${scale}`;
+            job = {action: 'overlay-season', season: season, scale: scale};
         }
-        if (dryRun) cmd += ' --dry-run';
-        
-        runCommand(cmd);
+        if (dryRun) job.dry_run = true;
+
+        runCommand(job);
         showToast('Overlay command started...', 'info');
     }
     

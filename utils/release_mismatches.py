@@ -44,7 +44,6 @@ Design decisions that are load-bearing:
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import logging
@@ -55,6 +54,9 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
+
+from utils.json_store import atomic_write_json as json_store_atomic_write
+from utils.json_store import file_lock as json_store_file_lock
 
 logger = logging.getLogger("motogparr.mismatches")
 
@@ -142,24 +144,16 @@ def _locked(path: Path):
     """
     Exclusive lock on a sidecar file.
 
-    The lock is a separate file, not the data file and not a temporary file, so
-    it stays valid while the data file is replaced. Holding it across the whole
-    read-modify-write is what prevents two writers from dropping each other's
-    entries - locking only the write phase would keep the file syntactically
-    valid while silently losing a mismatch, which is the failure mode that makes
-    a replacement download useless.
+    Delegates to ``utils.json_store.file_lock`` (which this module's pattern
+    was generalised into): the lock is a separate file, not the data file and
+    not a temporary file, so it stays valid while the data file is replaced.
+    Holding it across the whole read-modify-write is what prevents two writers
+    from dropping each other's entries - locking only the write phase would
+    keep the file syntactically valid while silently losing a mismatch, which
+    is the failure mode that makes a replacement download useless.
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(path, "a+")
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    with json_store_file_lock(Path(path)):
         yield
-    finally:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            handle.close()
 
 
 def load_entries(path: Optional[Path] = None) -> List[dict]:
@@ -206,22 +200,8 @@ def load_entries(path: Optional[Path] = None) -> List[dict]:
 
 def _write(entries: Sequence[dict], path: Path) -> None:
     """Atomically replace the state file. Caller holds the lock."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": STATE_VERSION, "entries": list(entries)}
-
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        with open(tmp, "w") as handle:
-            json.dump(payload, handle, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-    finally:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+    json_store_atomic_write(Path(path), payload)
 
 
 def add_mismatch(
@@ -263,7 +243,7 @@ def add_mismatch(
     ident = entry_id(scope, season, round_num, session, title)
     now = datetime.now().isoformat(timespec="seconds")
 
-    with _locked(state_path.with_suffix(".lock")):
+    with _locked(state_path):
         entries = load_entries(state_path)
         existing = next((e for e in entries if e.get("id") == ident), None)
 
@@ -312,7 +292,7 @@ def remove_mismatch(ident: str, path: Optional[Path] = None) -> bool:
     """Forget one mismatch. Returns True if it existed."""
     state_path = Path(path or MISMATCH_FILE)
 
-    with _locked(state_path.with_suffix(".lock")):
+    with _locked(state_path):
         entries = load_entries(state_path)
         remaining = [e for e in entries if e.get("id") != ident]
         if len(remaining) == len(entries):
