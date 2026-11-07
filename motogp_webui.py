@@ -68,7 +68,9 @@ from utils.config_loader import (
     get_plex_library_name,
     get_required_quality,
     get_allowed_groups,
+    get_search_delay_hours,
 )
+from utils import home_summary
 
 # =============================================================================
 # CONFIGURATION
@@ -756,13 +758,14 @@ def scan_library_for_season(year: int) -> dict:
     return existing
 
 
-def get_library_status(year: int, round_filter: int = None) -> dict:
-    """Get library status for display."""
-    calendar = load_calendar_data(year)
-    existing = scan_library_for_season(year)
-    settings = load_webui_settings()
-    
-    # Build desired sessions set from settings
+def _desired_session_set(settings: dict) -> set:
+    """
+    The session types the user wants, from the saved WebUI settings.
+
+    Falls back to the defaults when nothing is enabled. Shared by the Download
+    tab and the home page so "desired" means one thing: if the home page used
+    its own answer, the two tabs would disagree about which sessions count.
+    """
     desired_set = set()
     for key, enabled in settings.get("sessions", {}).items():
         if enabled:
@@ -770,9 +773,101 @@ def get_library_status(year: int, round_filter: int = None) -> dict:
                 desired_set.add(SessionType[key])
             except KeyError:
                 pass
-    
+
     if not desired_set:
         desired_set = {st for st, enabled in DEFAULT_DESIRED_SESSIONS.items() if enabled}
+    return desired_set
+
+
+def _load_grabber_state() -> dict:
+    """
+    Read grabber_state.json, tolerating absence and half-written files.
+
+    The grabber writes this file without a lock while the WebUI may read it,
+    so a torn read is expected rather than exceptional. A failed read leaves
+    the home page empty (and logs a warning) instead of 500-ing the whole tab
+    because a background job was mid-save.
+    """
+    state_file = CONFIG_DIR / "grabber_state.json"
+    if not state_file.exists():
+        return {}
+    try:
+        with open(state_file, "r") as handle:
+            state = json.load(handle)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning(f"Could not read {state_file}: {exc}")
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def get_home_summary(settings: dict) -> dict:
+    """
+    Everything the home tab renders, assembled once per page load.
+
+    Static by design: the user chose page-load rendering over polling, so
+    this is called from index() and nowhere else. The only browser-side
+    fetches left are the health chips, which hit routes that already exist.
+    """
+    now = datetime.now()  # process clock is UTC (see entrypoint.sh)
+    season = get_current_season()
+    calendar = load_calendar_data(season)
+    state = _load_grabber_state()
+    grabbed = state.get("grabbed") or {}
+    failed = state.get("failed") or {}
+    desired = _desired_session_set(settings)
+    delay = get_search_delay_hours()
+
+    weekend_round = home_summary.find_weekend_round(calendar, now.date())
+    weekend = None
+    library_round = {}
+    if weekend_round:
+        round_num = weekend_round.get("round")
+        library_round = scan_library_for_season(season).get(round_num, {})
+        weekend = {
+            "round": round_num,
+            "venue": weekend_round.get("venue", ""),
+            "flag": weekend_round.get("flag", ""),
+            "next": home_summary.next_session(
+                weekend_round, calendar, desired, now, delay
+            ),
+            "progress": home_summary.weekend_progress(
+                weekend_round, calendar, season, desired, now,
+                library_round, grabbed, failed
+            ),
+        }
+
+    # Only seasons that could feed the hero card: scanning every season ever
+    # mentioned in state would make the home tab slower every year, for
+    # history the card will never show.
+    seasons = home_summary.seasons_with_scheduled_grabs(grabbed)
+    library_by_season = {s: scan_library_for_season(s) for s in seasons}
+    calendars_by_season = {s: load_calendar_data(s) for s in seasons}
+
+    return {
+        "latest": home_summary.latest_scheduled_addition(
+            grabbed,
+            get_all_activity().get("history", []),
+            library_by_season,
+            calendars_by_season,
+        ),
+        "weekend": weekend,
+        "health": {
+            **home_summary.scheduler_health(
+                state.get("last_scheduled_check"), now, bool(weekend_round)
+            ),
+            "library_ok": os.path.isdir(MOTOGP_LIBRARY_PATH),
+        },
+        "season": season,
+    }
+
+
+def get_library_status(year: int, round_filter: int = None) -> dict:
+    """Get library status for display."""
+    calendar = load_calendar_data(year)
+    existing = scan_library_for_season(year)
+    settings = load_webui_settings()
+    
+    desired_set = _desired_session_set(settings)
     
     result = {
         "rounds": [], 
@@ -990,6 +1085,7 @@ def index():
         session_defaults=session_defaults,
         next_race=next_race,
         calendar_data=calendar_data,
+        home=get_home_summary(settings),
         active_tab="home"
     )
 

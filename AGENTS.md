@@ -4,7 +4,7 @@ Kickoff document for an agentic contributor working on MotoGParr. It describes
 the system, its invariants, the current implementation status and the next
 recommended work. Keep status and plans current when code or priorities change.
 
-**Latest repository release: v2.8.0** · **Last verified here: 423 tests passing (2026-11-07)** · **Single user, self-hosted**
+**Latest repository release: v2.8.0** · **Last verified here: 463 tests passing (2026-11-07)** · **Single user, self-hosted**
 
 ---
 
@@ -225,6 +225,57 @@ local timezone (with `Fri`/`Sat`/`Sun` switcher pills), replaces `"days to go"`
 on a live weekend with **`NOW`** (when a session is underway) or the **next
 session's start time**, and keeps past rounds focused solely on library status
 and missing-session downloads.
+
+### Issue #51 — home page cards
+
+The home tab was a welcome card listing the other tabs. It now answers the
+questions the tab exists for: what did the machine last add, what is it about
+to do, and is it still alive. A weekend summary reports progress the way the
+Download tab counts sessions, not by files.
+
+**`utils/home_summary.py` is pure and holds the rules.** It takes loaded data
+and an explicit `now`, returns dicts, and does no I/O, so every rule is tested
+without a running app or a fake HTTP layer. `motogp_webui.index()` is the only
+caller and stays a wiring layer.
+
+- **Grab mode is recorded, not inferred.** `GrabberState.mark_grabbed()` takes
+  `mode` and stores it; `GRAB_MODE_SCHEDULED`/`GRAB_MODE_BACKFILL` live in
+  `motogp_common` so the grabber and the home page cannot disagree about the
+  vocabulary. The hero card shows only `scheduled` grabs. **Entries written
+  before this field existed carry no mode and are skipped** — a timestamp that
+  looks like a race weekend is not evidence of which command made the grab, and
+  the user chose an honest empty state over a plausible one. Backfills never
+  count: a correction run is not the machine keeping pace. This is the same
+  refusal-to-guess rule as an ambiguous element number.
+- **Presence in the library is the durable proof of "added".** The activity
+  history is capped at ten events, so it can timestamp an addition but must
+  never be the record of one. The card reads the library scan, then prefers a
+  COMPLETE activity event for the timestamp and says which time it is showing
+  ("Added to Plex" vs "Grabbed").
+- **The weekend window and session times come from the grabber.** `find_weekend_round()`
+  imports `WINDOW_DAYS_BEFORE_WEEKEND`/`WINDOW_DAYS_AFTER_RACE` and
+  `next_session()` calls `get_session_times()`, so "searchable from" is the
+  exact instant the scheduled search fires rather than a second implementation
+  that will drift. If the grabber's window moves, the card moves with it.
+- **One televised block, one name.** Q1 and Q2 share the timetable block and
+  the same start and end, so the card names the block "MotoGP Qualifying"
+  instead of whichever part sorted first. Progress counts them separately,
+  matching the Download tab's unit — the number must agree with the tab that
+  lets you download the missing one.
+- **Scheduler staleness is derived from the scheduler's own intervals.**
+  `scheduler_health()` reads `CONFIG` from `motogp_scheduler` and calls the
+  scheduler stale at twice the applicable interval plus an hour of grace: wide
+  enough that quiet hours (01–06, 120 min) never cry wolf, tight enough that a
+  dead scheduler is visible the same day.
+- **Static by decision.** The page is rendered on load; the only browser
+  fetches are one-shot health chips hitting routes that already existed
+  (`/test-connections`, `/api/sabnzbd/queue`). The deeper Plex library check
+  stays in `/diagnostics` because its 10-second timeouts have no place in a
+  page render. `/api/sabnzbd` joined the service-worker bypass list: a cached
+  answer about whether SABnzbd is alive is a wrong answer.
+- **A torn state file renders an empty page, not a 500.** The grabber writes
+  `grabber_state.json` without a lock; `_load_grabber_state()` logs a warning
+  naming the path and returns `{}`, and a test pins the corrupt-file path.
 
 ### Issue #33 — 2027 race weekend format (code complete; live verification outstanding)
 

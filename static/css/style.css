@@ -2597,32 +2597,165 @@ button.small { padding: 6px 10px; font-size: 11px; }
 /* ============================================
    HOME TAB STYLES
    ============================================ */
-.home-status {
-    margin-top: 20px;
-    padding: 15px;
-    background: rgba(82, 170, 216, 0.1);
-    border-radius: 8px;
-    border-left: 3px solid #52aad8;
+.home-header {
+    padding: 0 4px 4px;
 }
 
-.home-nav-hints {
-    list-style: none;
-    padding: 0;
-    margin: 15px 0 0 0;
+.home-header h2 {
+    margin-bottom: 2px;
 }
 
-.home-nav-hints li {
-    padding: 8px 0;
-    border-bottom: 1px solid #1a1a2e;
+.home-hero-kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #52aad8;
+    font-weight: 700;
+}
+
+.home-hero-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: #fff;
+    margin-top: 6px;
+}
+
+.home-hero-sub {
+    font-size: 13px;
+    color: #aaa;
+    margin-top: 2px;
+}
+
+.home-hero-release {
+    font-size: 12px;
+    color: #777;
+    margin-top: 6px;
+    word-break: break-all;
+}
+
+.home-hero-time {
+    font-size: 13px;
+    color: #ccc;
+    margin-top: 10px;
+}
+
+.home-hero-note {
+    color: #777;
+    font-size: 12px;
+}
+
+.home-empty strong {
+    display: block;
+    margin: 8px 0 6px;
+    color: #ddd;
+}
+
+.home-empty p {
+    font-size: 13px;
+    color: #999;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.home-next-head {
+    margin-bottom: 4px;
+}
+
+.home-next-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    margin-top: 4px;
+}
+
+.home-next-line {
+    font-size: 14px;
+    color: #ccc;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.home-next-class {
+    font-weight: 600;
+    color: #ddd;
+}
+
+.home-next-chip {
+    background: #52aad8;
+    color: #06222f;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.home-next-search {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #1a1a2e;
+    font-size: 13px;
     color: #ccc;
 }
 
-.home-nav-hints li:last-child {
+.home-progress-title {
+    font-size: 16px;
+    color: #eee;
+    margin-top: 6px;
+}
+
+.home-progress-chips,
+.health-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.chip {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.chip.ok   { background: rgba(39, 174, 96, 0.18);  color: #4cd07d; }
+.chip.warn { background: rgba(243, 156, 18, 0.18); color: #f0b429; }
+.chip.bad  { background: rgba(231, 76, 60, 0.18);  color: #ec7063; }
+.chip.idle { background: rgba(255, 255, 255, 0.07); color: #999; }
+
+.home-missing {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0 0;
+    font-size: 13px;
+    color: #aaa;
+}
+
+.home-missing li {
+    padding: 4px 0;
+    border-bottom: 1px solid #1a1a2e;
+}
+
+.home-missing li:last-child {
     border-bottom: none;
 }
 
-.home-nav-hints strong {
+.home-missing-state {
+    color: #777;
+}
+
+.home-health-foot {
+    margin-top: 12px;
+    font-size: 12px;
+    color: #777;
+}
+
+.home-health-foot a {
     color: #52aad8;
+    text-decoration: none;
 }
 
 /* ============================================

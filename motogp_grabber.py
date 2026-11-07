@@ -49,6 +49,7 @@ from motogp_common import (
     get_config_dir, get_library_path,
     is_round_active, round_runs_session, get_round_status,
     element_number, find_legacy_folders,
+    GRAB_MODE_SCHEDULED, GRAB_MODE_BACKFILL,
 )
 from activity_emitter import emit_activity, ActivityStage, mark_error
 
@@ -72,6 +73,14 @@ STATE_FILE = CONFIG_DIR / "grabber_state.json"
 
 # Sessions that have calendar times (can be scheduled)
 SCHEDULABLE_SESSIONS = set(SESSION_TO_CALENDAR_KEY.keys())
+
+# The operational window around a round: from one day before the weekend
+# starts (Thursday running at flyaways) to two days after the race, so
+# post-race searches still see the round. The home page (utils/home_summary)
+# imports these rather than restating the numbers: a window that is described
+# twice is a window the UI and the grabber eventually disagree about.
+WINDOW_DAYS_BEFORE_WEEKEND = 1
+WINDOW_DAYS_AFTER_RACE = 2
 
 # =============================================================================
 # LOGGING SETUP
@@ -145,14 +154,26 @@ class GrabberState:
         """Mark session as searched."""
         self.state["searched"][session_key] = datetime.now().isoformat()
 
-    def mark_grabbed(self, session_key: str, release_title: str, nzo_id: Optional[str] = None):
-        """Mark session as grabbed."""
+    def mark_grabbed(self, session_key: str, release_title: str, nzo_id: Optional[str] = None,
+                     mode: Optional[str] = None):
+        """
+        Mark session as grabbed.
+
+        `mode` records which path found the release (GRAB_MODE_SCHEDULED or
+        GRAB_MODE_BACKFILL). The home page's "latest scheduled addition" card
+        (issue #51) counts only scheduled grabs: a backfill is a correction or
+        a catch-up and must never masquerade as the machine keeping pace with
+        a live weekend. Entries written before this field existed carry no
+        mode and are treated as unknown rather than guessed from timestamps.
+        """
         entry = {
             "timestamp": datetime.now().isoformat(),
             "release": release_title,
         }
         if nzo_id:
             entry["nzo_id"] = nzo_id
+        if mode:
+            entry["mode"] = mode
         self.state["grabbed"][session_key] = entry
 
     def mark_failed(self, session_key: str, reason: str):
@@ -346,8 +367,8 @@ def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None
 
             # Only process rounds within the active window
             # From 1 day before weekend start to 2 days after race
-            window_start = weekend_start - timedelta(days=1)
-            window_end = race_date + timedelta(days=2)
+            window_start = weekend_start - timedelta(days=WINDOW_DAYS_BEFORE_WEEKEND)
+            window_end = race_date + timedelta(days=WINDOW_DAYS_AFTER_RACE)
 
             if not (window_start <= today <= window_end):
                 logger.debug(
@@ -1422,7 +1443,8 @@ def cmd_backfill(args):
             nzo_id = grab_release(best, item, season)
             if nzo_id is not None:
                 print(f"    ✅ Grab successful!")
-                state.mark_grabbed(session_key, best_title, nzo_id=nzo_id or None)
+                state.mark_grabbed(session_key, best_title, nzo_id=nzo_id or None,
+                                   mode=GRAB_MODE_BACKFILL)
                 grabbed_titles.add(best_title.lower())
                 grabs_this_run += 1
 
@@ -1431,7 +1453,8 @@ def cmd_backfill(args):
                     other_key = _get_other_quali_session_key(season, round_num, session_type)
                     if other_key:
                         sessions_satisfied_this_run.add(other_key)
-                        state.mark_grabbed(other_key, best_title + " (combined)")
+                        state.mark_grabbed(other_key, best_title + " (combined)",
+                                           mode=GRAB_MODE_BACKFILL)
             else:
                 print(f"    ❌ Grab failed!")
                 state.mark_failed(session_key, "Grab failed")
@@ -1684,7 +1707,8 @@ def cmd_scheduled(args):
                 state.mark_grabbed(
                     session_key,
                     best.get('title', 'Unknown'),
-                    nzo_id=nzo_id or None
+                    nzo_id=nzo_id or None,
+                    mode=GRAB_MODE_SCHEDULED
                 )
                 grabs_this_run += 1
             else:
