@@ -70,7 +70,7 @@ from utils.config_loader import (
     get_search_delay_hours,
     get_int,
 )
-from utils import background_health, home_summary
+from utils import background_health, home_summary, scan_metrics
 from utils.json_store import atomic_write_json, file_lock, read_json, write_json
 from utils.webui_jobs import JobManager
 
@@ -764,7 +764,21 @@ def save_webui_settings(settings):
 # =============================================================================
 
 def scan_library_for_season(year: int) -> dict:
-    """Scan the library to find existing sessions for a season."""
+    """
+    Scan the library to find existing sessions for a season.
+
+    Instrumented, not optimised (Candidate D): the home page and several routes
+    walk this per request, and the review did not establish whether that is
+    slow. The wrapper records duration and scope so ``/diagnostics`` can answer
+    the question with numbers before anyone builds an index "for performance".
+    """
+    return scan_metrics.timed(
+        "library-season", _scan_library_for_season, year
+    )
+
+
+def _scan_library_for_season(year: int) -> dict:
+    """The actual walk; called through the instrumented wrapper above."""
     season_path = os.path.join(MOTOGP_LIBRARY_PATH, str(year))
     
     if not os.path.exists(season_path):
@@ -1920,6 +1934,10 @@ def diagnostics():
         "credentials": credential_sources(),
         "plex_library": check_from_settings().as_dict(),
         "plex_labels": _probe_plex_labels(probe_section),
+        # Measurement, not an opinion: how long this process's library walks
+        # actually take. No index or cache change is justified until these
+        # numbers say the walk is the problem (Candidate D).
+        "scan_cost": scan_metrics.snapshot(),
         # Progress, not just liveness: the scheduler and the watcher can both
         # stop doing work while the WebUI keeps answering /healthz, which is
         # the one failure the Docker probe structurally cannot see.

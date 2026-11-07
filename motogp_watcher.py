@@ -40,7 +40,7 @@ from motogp_common import (
     get_config_dir, SessionType, element_number
 )
 from activity_emitter import emit_activity, ActivityStage, mark_complete, mark_error
-from utils import failure_reasons
+from utils import failure_reasons, scan_metrics
 from utils.background_health import write_heartbeat
 
 def _folder_to_episode_key(folder_name: str) -> tuple:
@@ -106,13 +106,26 @@ class LibraryChecker:
         self._cache_ttl = timedelta(minutes=5)
     
     def _refresh_cache_if_needed(self):
-        """Refresh the library cache if expired."""
+        """
+        Refresh the library cache if expired.
+
+        Instrumented (Candidate D) because this walk covers every season the
+        library holds, and it is the most plausible source of "the watcher
+        feels slow" - but the suspicion is not a measurement, so the duration
+        and scope are recorded for /diagnostics rather than acted on.
+        """
         now = datetime.now()
         if self._cache_time and (now - self._cache_time) < self._cache_ttl:
             return
-        
+
+        with scan_metrics.timed_scan("watcher-library-cache") as scope:
+            self._refresh_cache(scope)
+
+    def _refresh_cache(self, scope: dict):
+        """The actual walk. ``scope`` records how much of the tree was visited."""
+        now = datetime.now()
         self._cache.clear()
-        
+
         if not self.library_path.exists():
             logger.warning(f"Library path does not exist: {self.library_path}")
             self._cache_time = now
@@ -127,6 +140,7 @@ class LibraryChecker:
                 for round_dir in year_dir.iterdir():
                     if not round_dir.is_dir():
                         continue
+                    scope["rounds"] = scope.get("rounds", 0) + 1
                     
                     for session_dir in round_dir.iterdir():
                         if not session_dir.is_dir():
@@ -140,6 +154,7 @@ class LibraryChecker:
                         )
                         
                         if has_video:
+                            scope["sessions"] = scope.get("sessions", 0) + 1
                             # Extract prefix from folder name
                             folder_name = session_dir.name
                             match = re.match(r'^(\d{2}R\d{2}E\d{2})', folder_name)

@@ -58,6 +58,7 @@ so stopping is honest.
 | `utils/healthcheck.py` | stdlib-only `HEALTHCHECK` probe for `/healthz` |
 | `utils/background_health.py` | Scheduler-loop and watcher-thread progress records plus the staleness rule (§8b). Reported to the user; deliberately not part of the Docker probe |
 | `utils/failure_reasons.py` | The closed vocabulary for "why did that session not download", the wait-vs-fix distinction, and the redaction every stored reason passes through (§8c) |
+| `utils/scan_metrics.py` | In-process timing of the library walks, surfaced in `/diagnostics`. Measurement only - no index, no cache change, nothing persisted (§8d) |
 | `utils/settings_schema.py` | Permitted shape of `settings.yml`; unknown/wrong-typed keys |
 | `utils/plexcheck.py` | Is Plex actually scanning the library folder? |
 | `utils/permissions.py` | Can PUID:PGID write where it must? |
@@ -516,6 +517,33 @@ historic "No results" as "not published yet" would relabel a past outage as a
 quiet weekend. The Download tab's warning dialog shows the stage-named reason, an
 ⚠️ for actionable faults and the hint, and escapes the text (it contains
 indexer/downloader error strings, so it is data, not markup).
+
+## 8d. Library scan cost is measured, not assumed
+
+The watcher caches a library walk for five minutes and several WebUI routes walk
+it per request, so "the scan might be slow" is a reasonable suspicion - and one
+that has never been measured. `utils/scan_metrics.py` records duration and scope
+for `library-season` (`motogp_webui.scan_library_for_season`, called on every
+home page and Download tab render) and `watcher-library-cache`
+(`LibraryChecker._refresh_cache_if_needed`).
+
+`/diagnostics` reports `scan_cost`: per label, count, median, p95 and max in
+milliseconds, the scope of the slowest sample (rounds and sessions walked), and
+any sample over `SLOW_SCAN_SECONDS` named individually. Percentiles are
+nearest-rank, so a single bad sample stays visible instead of being smoothed
+into its neighbours.
+
+Recorded limits, so a later session does not "finish the job" by building the
+thing this deliberately avoids:
+
+- **Nothing is persisted.** Samples live in the process and are lost on restart;
+  a metrics file would be another locked `/config` store for information that
+  only matters during an investigation.
+- **Nothing is cached or indexed on the strength of the numbers.** A targeted
+  scan or an incrementally refreshed index is a *possible outcome* of a
+  measurement showing the walk is the problem - not part of taking one. Revisit
+  only with evidence from a real library, not from this sandbox.
+- **No timers in the sort/tagger path.** The library walk is the question.
 
 ## 9. What the old notes said vs. what is true
 

@@ -516,6 +516,12 @@ your network as public knowledge from that date.
   URL, and Prowlarr/SABnzbd put their key in the query string (see §7a). Do not
   add a fourth ad-hoc reason string; add a stage. Old entries have no stage and
   are shown as unknown rather than labelled by guesswork.
+- **The library scan is measured, not optimised.** `/diagnostics` reports
+  `scan_cost` from `utils/scan_metrics.py` (median/p95/max per walk, plus any
+  scan over two seconds). Do not add an index, a database or a caching change on
+  the strength of a hunch: the numbers exist so the decision can be made on
+  evidence from a real library. Instrumentation wrappers must return the scanned
+  value untouched.
 - **Liveness is not progress.** The Docker probe only proves the WebUI answers
   `/healthz`. The scheduler writes `last_loop` on every iteration and the
   watcher writes `last_scan` after every scan to `background_health.json`

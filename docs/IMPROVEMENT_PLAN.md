@@ -485,7 +485,7 @@ cases, both grabber seams, the legacy string/entry paths, and the route and the
 dialog. The three existing fakes were updated to the new seam shapes without
 weakening an assertion.
 
-### Candidate D — measure library scan cost before optimising
+### Candidate D — measure library scan cost before optimising (**DONE 2026-11-07, measurement only**)
 
 The watcher caches a library scan for five minutes, while UI routes also inspect
 library state. For a larger library these walks may affect response time or
@@ -497,6 +497,29 @@ and add a representative temporary-library benchmark/test. If measurements
 show a real bottleneck, consider a targeted scan or incrementally refreshed
 index with a full-rescan correctness fallback. Avoid a database or persistent
 index until measurements demonstrate that the simpler scan is the problem.
+
+**Delivered as Slice D (measurement only).** `utils/scan_metrics.py` times the
+two walks that could plausibly be slow - `library-season`
+(`scan_library_for_season`, called on every home page and Download tab render)
+and `watcher-library-cache` (`LibraryChecker._refresh_cache_if_needed`) - and
+records duration plus scope (rounds and sessions visited). `/diagnostics`
+reports `scan_cost` with count, median, p95, max, the scope of the slowest
+sample and any sample over two seconds named individually. Percentiles are
+nearest-rank, deliberately: a single bad sample must stay visible instead of
+being smoothed into its neighbours. A mean would have hidden it entirely.
+
+The wrapper returns the scanned value untouched - instrumentation that changes
+the answer is a bug wearing a metric - and the context-manager form records a
+raising scan, because a walk that fails after four seconds is the interesting
+sample.
+
+**No optimisation was done, and that is the deliverable.** Nothing is persisted,
+nothing is cached differently and no index exists. `tests/test_scan_metrics.py`
+includes a representative temporary library (160 session folders over two
+seasons, using real `SESSION_ELEMENTS` numbers so the app can actually read it),
+proves the WebUI and watcher walks are measured with the right scope, and proves
+the watcher still caches for five minutes. Acting on the numbers is a separate
+decision that needs a real library, which this sandbox does not have.
 
 ### Candidate E — small Activity and diagnostics UX improvements
 
@@ -530,7 +553,7 @@ performance work that needs measurements before any optimisation is justified.
 | **B** | Candidate B | PLANNED | Independent of A. Workflow and template only; no runtime code. |
 | **C** | Candidate C (+ the data A produces) | **DONE (2026-11-07)** | Needs A's records to tell "the machine is alive and has nothing to do" apart from "the work failed". |
 | **D** | Candidate E (Activity filters, diagnostics summary) | PLANNED | Pure presentation over A and C. Explicitly a follow-on: filters over unstructured text are not worth building. |
-| **—** | Candidate D (library scan cost) | DEFERRED until measured | Instrument-only first. No index, no database, no caching change until a measurement shows the scan is the problem. |
+| **D** | Candidate D (library scan cost) | **DONE (2026-11-07, measurement only)** | Instrument now; no index, no database, no caching change until a measurement on a real library shows the scan is the problem. |
 
 Deliberately not scheduled with the others:
 

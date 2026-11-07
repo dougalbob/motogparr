@@ -446,6 +446,35 @@
                     lines.push('    it never affects the Docker healthcheck.');
                 }
 
+                const cost = data.scan_cost || {};
+                if (cost.measured) {
+                    lines.push('');
+                    lines.push('Library scan cost this process (' +
+                               cost.threshold_seconds + 's counts as slow):');
+                    Object.keys(cost.by_label || {}).forEach(function (name) {
+                        const m = cost.by_label[name];
+                        if (!m.samples) return;
+                        let line = '    ' + name + ': median ' + m.median_ms +
+                                   ' ms, p95 ' + m.p95_ms + ' ms, max ' + m.max_ms +
+                                   ' ms over ' + m.samples + ' scan(s)';
+                        const scope = m.slowest_scope || {};
+                        if (scope.rounds !== undefined) {
+                            line += ' (slowest walked ' + scope.rounds + ' round(s)';
+                            if (scope.sessions !== undefined) {
+                                line += ', ' + scope.sessions + ' session(s)';
+                            }
+                            line += ')';
+                        }
+                        lines.push(line);
+                    });
+                    (cost.slow || []).forEach(function (s) {
+                        lines.push('    ⚠️ slow: ' + s.label + ' took ' + s.seconds +
+                                   's ' + s.age_seconds + 's ago');
+                    });
+                    lines.push('    Reported only - nothing is cached or indexed on');
+                    lines.push('    the strength of these numbers.');
+                }
+
                 lines.push('');
                 lines.push('Credentials are read from:');
                 Object.keys(creds).forEach(function (name) {
