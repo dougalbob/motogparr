@@ -29,7 +29,7 @@ new evidence shows; **LATER** is deliberately deferred until prerequisites land.
 Completed with this plan:
 
 - Updated `AGENTS.md` from the stale v2.6.0 / 377-test snapshot to the
-  repository's v2.8.0 release and the 423-test result last verified on
+  repository's v2.9.0 release and the 463-test result last verified on
   2026-11-06. Keep the date beside the test count; it is a snapshot, not a
   permanent invariant.
 - Corrected `docs/ARCHITECTURE.md`'s stale release/test claims, route-security
