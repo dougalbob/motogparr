@@ -56,6 +56,7 @@ so stopping is honest.
 | `utils/calendar_sync.py` | Same-season check + safe replacement of `/config` calendars |
 | `utils/validate_calendar.py` | CLI calendar/library checker |
 | `utils/healthcheck.py` | stdlib-only `HEALTHCHECK` probe for `/healthz` |
+| `utils/background_health.py` | Scheduler-loop and watcher-thread progress records plus the staleness rule (§8b). Reported to the user; deliberately not part of the Docker probe |
 | `utils/settings_schema.py` | Permitted shape of `settings.yml`; unknown/wrong-typed keys |
 | `utils/plexcheck.py` | Is Plex actually scanning the library folder? |
 | `utils/permissions.py` | Can PUID:PGID write where it must? |
@@ -160,6 +161,7 @@ This is the single most common cause of "tagging stopped working".
 | `activity_events.json` | Activity tab events (file-locked) | Yes |
 | `discord_rate_limit.json` | Webhook pacing | Yes |
 | `release_mismatches.json` (+ `.lock`) | Releases marked as wrong, with the matcher's reasoning. Written by the WebUI under a sidecar lock, read by the grabber | No — un-blocks every marked release |
+| `background_health.json` (+ `.lock`) | Scheduler-loop and watcher progress timestamps (§8b). Written by the scheduler and the watcher thread, read by the WebUI | Yes — resets both components to "unknown", which is reported as such |
 | `logs/motogp.log` (+ debug) | `RotatingFileHandler`, 50 MB debug cap | Yes |
 | `motogp_<year>.json` | Season calendars, refreshed from image | No — re-copied on start |
 | `*.bak` | Pre-refresh calendar backup | Yes |
@@ -270,7 +272,7 @@ Home, Download, Settings, Stats, Calendar, Activity; a bottom nav for mobile;
 | `/activity`, `/activity/stream` | GET | Activity feed + SSE | low |
 | `/calendar`, `/calendar-data` | GET | Calendar views | low |
 | `/api/sabnzbd/queue` | GET | Proxies SABnzbd queue with the API key | medium |
-| `/diagnostics` | GET | Schema issues, credential provenance, Plex library check | medium (no values) |
+| `/diagnostics` | GET | Schema issues, credential provenance, Plex library check, background-progress heartbeat (§8b) | medium (no values) |
 | `/flags/<path>`, `/assets/<path>` | GET | Static files | low (path must be checked) |
 | `/manifest.json`, `/sw.js` | GET | PWA — public | — |
 | `/healthz` | GET | Liveness for the Docker HEALTHCHECK — public | — |
@@ -425,6 +427,42 @@ history for all three race classes.
 
 One known cosmetic gap remains: the SAB progress gradient may not render in the
 mobile PWA (fallback text is fine).
+
+## 8b. Background progress vs. container health
+
+Two different questions, deliberately answered separately:
+
+| Question | Answered by | Used for |
+|---|---|---|
+| Can the WebUI serve a page? | `utils/healthcheck.py` → `/healthz` | Docker `HEALTHCHECK`, so a dead UI no longer hides behind a green "Up" |
+| Is the scheduler still looping, and the watcher still scanning? | `background_health.json` (§4) | The home health strip and `/diagnostics` - **not** the Docker probe |
+
+The scheduler records `last_loop` at the top of every iteration, `last_check`
+when a scheduled search actually ran, and `started` once at startup; the
+watcher records `last_scan` after every scan cycle (including one that found
+nothing, or whose downloads path is missing) and `started` when the thread
+starts. "Progress" is always the loop field, never `last_check`: off-weekend
+the scheduler legitimately runs no searches for days, and a rule keyed on
+searches would report a perfectly healthy scheduler as stale for that whole
+time.
+
+`utils/background_health.py` holds the question and the rule; the loops only
+write. `component_health()` takes an explicit `now` and does no I/O, states are
+`live` / `stale` / `never`, and **`never` is never reported as healthy** - a
+fresh container has no evidence yet, so it says so. The stale threshold is
+twice the scheduler's *own* interval (`motogp_scheduler.CONFIG`, including the
+quiet-hours interval via `is_quiet_hours()`) plus an hour of grace; reading the
+intervals from the scheduler is what stops a correct overnight run from being
+called dead at 03:00.
+
+A stale heartbeat is a **warning, not a restart** (decided in Candidate A):
+`/healthz` stays a stateless probe with no file reads, no network calls and no
+race-weekend awareness, because a slow-but-legitimate Prowlarr search must not
+put the container into a restart loop. Because the record is a shared `/config`
+file it goes through `utils/json_store.py` (§4) - one component per write, so
+the scheduler and the watcher thread cannot erase each other's timestamps - and
+a failed heartbeat write is logged and swallowed: a monitoring loop that dies
+because monitoring failed is a worse outage than a missing heartbeat.
 
 ## 9. What the old notes said vs. what is true
 

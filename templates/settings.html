@@ -420,6 +420,32 @@
                     (plex.detail || []).forEach(l => lines.push('    ' + l));
                 }
 
+                const bg = data.background || {};
+                const comps = bg.components || {};
+                if (bg.overall) {
+                    lines.push('');
+                    lines.push(bg.overall === 'live'
+                        ? '✅ Background work: progressing'
+                        : bg.overall === 'stale'
+                            ? '⚠️ Background work: something has stopped progressing'
+                            : 'ℹ️ Background work: no heartbeat recorded yet');
+                    ['scheduler', 'watcher'].forEach(function (name) {
+                        const c = comps[name];
+                        if (!c) return;
+                        const label = name === 'scheduler' ? 'Scheduler loop' : 'Download watcher';
+                        if (c.state === 'live') {
+                            lines.push('    ' + label + ': last pass ' + c.age_label);
+                        } else if (c.state === 'stale') {
+                            lines.push('    ⚠️ ' + label + ': last pass ' + c.age_label +
+                                       ' (expected every ' + c.expected_minutes + ' min)');
+                        } else {
+                            lines.push('    — ' + label + ': ' + (c.note || 'never'));
+                        }
+                    });
+                    lines.push('    This is reported here and on the home tab only;');
+                    lines.push('    it never affects the Docker healthcheck.');
+                }
+
                 lines.push('');
                 lines.push('Credentials are read from:');
                 Object.keys(creds).forEach(function (name) {

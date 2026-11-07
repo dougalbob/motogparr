@@ -40,6 +40,7 @@ from utils.config_loader import (
     get_current_season,
     get_search_delay_hours,
 )
+from utils.background_health import write_heartbeat
 
 # =============================================================================
 # CONFIGURATION
@@ -306,12 +307,20 @@ def format_timedelta(td: timedelta) -> str:
         return f"{minutes}m"
 
 
-def is_quiet_hours() -> bool:
-    """Check if we're in quiet hours."""
+def is_quiet_hours(now: Optional[datetime] = None) -> bool:
+    """
+    Check if we're in quiet hours.
+
+    ``now`` is injectable so the WebUI can ask the same question about the
+    same instant it renders, instead of reading the wall clock twice and
+    getting two answers across a boundary. There is one implementation
+    because two would drift, and then the health rule would judge the
+    scheduler against an interval it never sleeps for.
+    """
     if not CONFIG["quiet_hours"]["enabled"]:
         return False
-    
-    hour = datetime.now().hour
+
+    hour = (now or datetime.now()).hour
     start = CONFIG["quiet_hours"]["start"]
     end = CONFIG["quiet_hours"]["end"]
     
@@ -426,12 +435,22 @@ def main():
             until = datetime.combine(next_weekend['window_start'], datetime.min.time()) - datetime.now()
             logger.info(f"⏳ Next race weekend: Round {next_weekend['round']} {next_weekend['venue']} in {format_timedelta(until)}")
     
+    # Progress record for the WebUI (Candidate A). "started" is written once
+    # and then never changed, so a container that has just booted is visibly
+    # different from one that has been silently stuck for a day.
+    write_heartbeat(CONFIG_DIR, "scheduler", started=datetime.now().isoformat())
+
     # Main loop
     while state.running:
         try:
             now = datetime.now()
             state.last_check = now
-            
+
+            # The loop itself is the heartbeat, not the grabber: an off-weekend
+            # loop legitimately skips every search, and the point of the record
+            # is to prove the loop is still turning rather than that it is busy.
+            write_heartbeat(CONFIG_DIR, "scheduler", last_loop=now.isoformat())
+
             # Reload calendar periodically
             calendar = load_calendar(season) or calendar
             
@@ -446,6 +465,14 @@ def main():
                 if has_session_times(calendar):
                     result = run_grabber_scheduled()
                     state.last_grabber_run = datetime.now()
+                    # A check is a scheduled search that actually ran. Recorded
+                    # here as well as in grabber_state.json so the heartbeat
+                    # says *when* work last happened, not only that the loop is
+                    # awake. The grabber writes the same value to its own state.
+                    write_heartbeat(
+                        CONFIG_DIR, "scheduler",
+                        last_check=state.last_grabber_run.isoformat(),
+                    )
                     
                     if result["grabbed"] > 0:
                         state.total_grabbed_this_weekend += result["grabbed"]

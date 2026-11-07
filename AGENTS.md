@@ -497,3 +497,11 @@ your network as public knowledge from that date.
 - Flask dev server is used in production (`app.run`). Fine on a LAN behind
   Cloudflare, but do not increase worker count or add threading without
   revisiting the shared-state assumption above.
+- **Liveness is not progress.** The Docker probe only proves the WebUI answers
+  `/healthz`. The scheduler writes `last_loop` on every iteration and the
+  watcher writes `last_scan` after every scan to `background_health.json`
+  (`utils/background_health.py`); the home page and `/diagnostics` judge those
+  against the scheduler's own intervals. Keep `/healthz` free of file reads and
+  network calls, and keep a stale heartbeat a *warning* rather than a Docker
+  failure - a slow Prowlarr search must not restart the container. See
+  `docs/ARCHITECTURE.md` §8b.

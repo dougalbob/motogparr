@@ -276,7 +276,40 @@ health probe and release workflow. They are proposals, not commitments: re-check
 the current implementation and user impact before starting a slice. Prefer the
 operational visibility work first; do not turn these into a broad redesign.
 
-### Candidate A — background-process health and progress (**NEXT candidate**)
+### Candidate A — background-process health and progress (**DONE 2026-11-07**)
+
+Delivered as **Slice A**. `utils/background_health.py` owns the record and the
+rule: the scheduler writes `last_loop` at the top of every iteration, `last_check`
+when a scheduled search ran and `started` once; the watcher thread writes
+`last_scan` after every scan (including an empty one and one whose downloads
+path is missing) and `started` when it starts. Both go through
+`utils/json_store.py` as `background_health.json`, one component per write, so
+the scheduler and the watcher cannot erase each other, and a failed write is
+logged rather than raised - the caller is a sleep loop.
+
+The rule is pure and takes an explicit `now`. States are `live` / `stale` /
+`never`; **`never` is never healthy**, because a fresh container has no
+evidence and must not claim otherwise. The stale threshold is twice the
+scheduler's *own* interval plus an hour of grace, read from
+`motogp_scheduler.CONFIG` (including quiet hours, via a new injectable
+`is_quiet_hours(now)`), so a correct overnight run is not called dead at 03:00.
+"Progress" is always the loop field, never `last_check`: off-weekend the
+scheduler runs no search for days, and a search-keyed rule would call a healthy
+scheduler stale for that whole time.
+
+Surfaced on the home health strip ("Loop: last pass …", "Watcher: scanned …")
+and in `/diagnostics` under `background`, including per-component reasons for
+`never`. Both are rendered on page load from one small JSON read - no network
+call, keeping the home tab's existing "static by design" rule.
+
+**Decision recorded, not left implicit:** a stale heartbeat is a warning, never
+a Docker failure. `/healthz` still performs no file reads and no network calls,
+and `tests/test_background_health.py` asserts `utils/healthcheck.py` never
+learns about the heartbeat, so a slow-but-legitimate Prowlarr search cannot put
+the container into a restart loop. `tests/test_background_health.py` covers the
+thresholds and their boundary, quiet hours, concurrent writers, a failing
+write, corrupt state, the watcher's empty-scan and missing-path beats, one real
+scheduler iteration, and the diagnostics route.
 
 The container health probe checks the WebUI `/healthz`. `entrypoint.sh`
 supervises the scheduler process and stops the container if that process exits,
@@ -369,3 +402,32 @@ Slice 4 remains deferred as recorded above. Revive a narrow set of deterministic
 Prowlarr/SABnzbd/Plex boundary tests if those paths change materially, an upstream
 API compatibility issue occurs, or unexplained failures need safe reproduction.
 Do not build a full fake home network just for coverage metrics.
+
+### Grouping the candidates into reviewable slices (2026-11-07)
+
+The candidates above are grouped into four dependency-ordered slices. Each slice
+is one branch and one PR, so a reviewer can judge one behaviour change at a time.
+Ordering is by user-visible value per unit of risk: visibility first, then the
+release process, then the diagnostics that depend on the new data, then the
+performance work that needs measurements before any optimisation is justified.
+
+| Slice | Candidates | Status | Why grouped this way |
+|---|---|---|---|
+| **A** | Candidate A | **DONE (2026-11-07)** | Adds the heartbeat records the later visibility work reads. Pure, testable rules; no dependency on anything else. |
+| **B** | Candidate B | PLANNED | Independent of A. Workflow and template only; no runtime code. |
+| **C** | Candidate C (+ the data A produces) | PLANNED | Needs A's records to tell "the machine is alive and has nothing to do" apart from "the work failed". |
+| **D** | Candidate E (Activity filters, diagnostics summary) | PLANNED | Pure presentation over A and C. Explicitly a follow-on: filters over unstructured text are not worth building. |
+| **—** | Candidate D (library scan cost) | DEFERRED until measured | Instrument-only first. No index, no database, no caching change until a measurement shows the scan is the problem. |
+
+Deliberately not scheduled with the others:
+
+- **Candidate D** stays a measurement task. Changing the scan without evidence
+  would be optimising the wrong thing, and the watcher already caches for five
+  minutes.
+- **Slice 4 (integration-boundary tests)** remains deferred as recorded above;
+  none of these candidates triggers the revival condition.
+
+Status labels: **DONE** means completed and verified by tests in the same change;
+**NEXT** is the recommended first code slice; **PLANNED** means useful follow-up
+work, not a commitment to implement it regardless of what new evidence shows;
+**DEFERRED** means explicitly not now, with the trigger that would revive it.

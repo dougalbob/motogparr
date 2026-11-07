@@ -40,6 +40,7 @@ from motogp_common import (
     get_config_dir, SessionType, element_number
 )
 from activity_emitter import emit_activity, ActivityStage, mark_complete, mark_error
+from utils.background_health import write_heartbeat
 
 def _folder_to_episode_key(folder_name: str) -> tuple:
     """
@@ -467,6 +468,11 @@ class DownloadWatcher:
         # State management
         config_path = Path(config_dir) if config_dir else Path("/config")
         self.state_manager = StateManager(config_path)
+        # Heartbeat destination (Candidate A). A watcher thread that dies
+        # inside the scheduler's process leaves no trace anywhere else: the
+        # scheduler keeps looping and the container stays healthy while
+        # completed downloads are never picked up.
+        self._heartbeat_dir = config_path
         
         # Library verification
         if library_path is None:
@@ -636,11 +642,19 @@ class DownloadWatcher:
             self.folder_sizes.pop(folder_str, None)
     
     def _scan_directory(self):
-        """Scan watch directory for new folders to process."""
+        """
+        Scan watch directory for new folders to process.
+
+        Every completed scan is a heartbeat, including one that found nothing
+        and one whose watch directory is missing: both prove the thread is
+        alive, and a missing downloads path is already reported as its own
+        problem rather than disguised as a dead watcher.
+        """
         logger.debug(f"Scanning: {self.watch_dir}")
-        
+
         if not self.watch_dir.exists():
             logger.warning(f"Watch directory does not exist: {self.watch_dir}")
+            self._beat()
             return
         
         try:
@@ -738,9 +752,21 @@ class DownloadWatcher:
                     )
                 
                 self._process_folder(folder_path)
-        
+
         except Exception as e:
             logger.error(f"Error scanning directory: {e}", exc_info=True)
+        finally:
+            # Also after a failed scan: the loop survived it, which is the
+            # fact the record is for. A thread that raises and stops scanning
+            # stops beating, and that is what must show up as stale.
+            self._beat()
+
+    def _beat(self):
+        """Record that this thread completed a scan cycle."""
+        write_heartbeat(
+            self._heartbeat_dir, "watcher",
+            last_scan=datetime.now().isoformat(),
+        )
     
     def _run_loop(self):
         """Main watcher loop."""
@@ -773,6 +799,10 @@ class DownloadWatcher:
             return
         
         self._running = True
+        write_heartbeat(
+            self._heartbeat_dir, "watcher",
+            started=datetime.now().isoformat(),
+        )
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="DownloadWatcher")
         self._thread.start()
     

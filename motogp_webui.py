@@ -70,7 +70,7 @@ from utils.config_loader import (
     get_search_delay_hours,
     get_int,
 )
-from utils import home_summary
+from utils import background_health, home_summary
 from utils.json_store import atomic_write_json, file_lock, read_json, write_json
 from utils.webui_jobs import JobManager
 
@@ -899,8 +899,37 @@ def get_home_summary(settings: dict) -> dict:
             ),
             "library_ok": os.path.isdir(MOTOGP_LIBRARY_PATH),
         },
+        "background": _background_health(now, bool(weekend_round)),
         "season": season,
     }
+
+
+def _background_health(now: datetime, in_weekend: bool) -> dict:
+    """
+    Scheduler-loop and watcher-thread progress, from the on-disk heartbeat.
+
+    Separate from ``health.scheduler`` above, which is the grabber's own
+    ``last_scheduled_check``: that one only moves when a search actually ran,
+    so an off-weekend week reads as "never run" even though the scheduler is
+    sleeping normally. This one answers the different question "is the loop
+    still turning", and both are shown because they fail differently.
+
+    No I/O beyond one small JSON read and no network calls - the home tab is
+    rendered on load and must not wait on a service to say whether the
+    machine is alive.
+    """
+    try:
+        heartbeat = background_health.read_heartbeat(CONFIG_DIR)
+    except Exception as exc:  # noqa: BLE001 - a broken record must not 500 the page
+        logger.warning(f"Could not read the background heartbeat: {exc}")
+        heartbeat = {}
+
+    return background_health.background_health(
+        heartbeat,
+        now,
+        in_weekend=in_weekend,
+        quiet=background_health.quiet_hours_at(now),
+    )
 
 
 def get_library_status(year: int, round_filter: int = None) -> dict:
@@ -1881,11 +1910,20 @@ def diagnostics():
     from utils.plexcheck import check_from_settings
     from utils.plexlabels import probe_section
 
+    now = datetime.now()
+    in_weekend = home_summary.find_weekend_round(
+        load_calendar_data(get_current_season()), now.date()
+    ) is not None
+
     return jsonify({
         "validation": validate(),
         "credentials": credential_sources(),
         "plex_library": check_from_settings().as_dict(),
         "plex_labels": _probe_plex_labels(probe_section),
+        # Progress, not just liveness: the scheduler and the watcher can both
+        # stop doing work while the WebUI keeps answering /healthz, which is
+        # the one failure the Docker probe structurally cannot see.
+        "background": _background_health(now, in_weekend),
     })
 
 
