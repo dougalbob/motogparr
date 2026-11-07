@@ -4,7 +4,7 @@ Kickoff document for an agentic contributor working on MotoGParr. It describes
 the system, its invariants, the current implementation status and the next
 recommended work. Keep status and plans current when code or priorities change.
 
-**Latest repository release: v2.7.4** · **Last verified here: 423 tests passing (2026-11-07)** · **Single user, self-hosted**
+**Latest repository release: v2.8.0** · **Last verified here: 423 tests passing (2026-11-07)** · **Single user, self-hosted**
 
 ---
 

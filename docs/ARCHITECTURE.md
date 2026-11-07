@@ -1,7 +1,7 @@
 # MotoGParr — Architecture
 
 Agent-facing architecture reference, last refreshed against repository release
-**v2.7.4** on 2026-11-06. It describes the current implementation, not a promise
+**v2.8.0** on 2026-11-07. It describes the current implementation, not a promise
 that every historic note or release-specific detail remains accurate. When code
 and this document disagree, verify the code and tests, then update this document
 in the same change.
