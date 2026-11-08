@@ -207,7 +207,7 @@ def _block_display_name(tied: List[SessionType]) -> Tuple[str, str]:
 
 def next_session(round_info: dict, calendar: Optional[dict],
                  desired: Iterable[SessionType], now: datetime,
-                 search_delay_hours: int) -> Optional[dict]:
+                 search_delay_hours: float) -> Optional[dict]:
     """
     The next session the grabber will care about, and when it becomes
     searchable.

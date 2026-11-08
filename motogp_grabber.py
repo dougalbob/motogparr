@@ -365,7 +365,7 @@ def get_session_start_time(round_info: dict, session_type: SessionType) -> Optio
     return get_session_times(round_info, session_type)[0]
 
 
-def get_sessions_ready_for_search(calendar: dict, search_delay_hours: int = None) -> List[dict]:
+def get_sessions_ready_for_search(calendar: dict, search_delay_hours: float = None) -> List[dict]:
     """
     Find sessions that have finished and are ready for search.
     Only considers the current race weekend and schedulable sessions.
@@ -1667,7 +1667,7 @@ def cmd_scheduled(args):
     search_delay = getattr(args, 'search_delay', None)
 
     logger.info(f"Starting scheduled check for season {season}")
-    if search_delay:
+    if search_delay is not None:
         logger.info(f"Using search delay override: {search_delay} hours")
 
     print(f"\n{'=' * 60}")
@@ -1675,7 +1675,8 @@ def cmd_scheduled(args):
     print(f"{'=' * 60}")
     print(f"\n  Season:       {season}")
     print(f"  Dry Run:      {dry_run}")
-    print(f"  Search Delay: {search_delay or get_search_delay_hours()} hours")
+    effective_delay = search_delay if search_delay is not None else get_search_delay_hours()
+    print(f"  Search Delay: {effective_delay} hours")
     print(f"  Time (Local): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     state = GrabberState()
@@ -2014,7 +2015,7 @@ def main():
     scheduled_p.add_argument('--dry-run', action='store_true', help='Preview only')
     scheduled_p.add_argument('--force', action='store_true', help='Ignore search history')
     scheduled_p.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
-    scheduled_p.add_argument('--search-delay', type=int, help='Hours to wait after session ends before searching')
+    scheduled_p.add_argument('--search-delay', type=float, help='Hours to wait after session ends before searching (fractional hours supported)')
 
     # Status
     status_p = subparsers.add_parser('status', help='Show status and upcoming')
