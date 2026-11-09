@@ -545,6 +545,31 @@ thing this deliberately avoids:
   only with evidence from a real library, not from this sandbox.
 - **No timers in the sort/tagger path.** The library walk is the question.
 
+## 8e. Scheduler decisions and submission reservations
+
+The scheduler evaluates desired, timed sessions against actual video files on
+its periodic pass. It launches the scheduled grabber only for due missing or
+in-flight sessions; future readiness and retries set its next wake-up (bounded
+by the normal heartbeat interval). A missing timetable cannot count as complete.
+`scheduler_plan.json` records the decision for Home; the existing independent
+heartbeat still detects a dead loop. The watcher and manual backfills remain
+independent of the scheduled search decision.
+
+Scheduled, backfill and clear commands first take the non-blocking cross-process
+`grabber_run.lock`; an overlapping run fails visibly rather than silently
+queuing a forced replacement. All SAB submissions also use
+`submission_intents.json` and its sidecar lock. The lock
+serializes the state recheck, write-ahead reservation, request and state commit,
+including both keys for a combined qualifying release. Every reservation has a
+random marker carried in the temporary SAB job name. On restart, queue and
+history are queried for a unique matching ID, and only confirmed jobs are
+recovered. A missing/ambiguous result remains reserved and is surfaced on Home
+for explicit user review; `--force` never overrides it. A successful state
+commit records the marker too, so a crash before intent deletion is recoverable
+without relying on retained SAB history. This reduces duplicate risk, not a
+claim of distributed exactly-once delivery. Never store NZB URLs or credentials
+in the reservation file. Both stores must remain valid; corruption fails closed.
+
 ## 9. What the old notes said vs. what is true
 
 `aicontextual_notes/` (5 files, V1.7→V2.0) is historical. Surviving facts:

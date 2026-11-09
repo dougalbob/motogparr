@@ -899,7 +899,32 @@ def get_home_summary(settings: dict) -> dict:
     library_by_season = {s: scan_library_for_season(s) for s in seasons}
     calendars_by_season = {s: load_calendar_data(s) for s in seasons}
 
+    from utils.submission_guard import intent_path, load_intents
+    try:
+        pending_submissions = load_intents(intent_path(CONFIG_DIR))
+        pending_error = None
+    except (OSError, ValueError) as exc:
+        logger.error("Cannot read submission reservations: %s", exc)
+        pending_submissions = {}
+        pending_error = "Submission reservations are unreadable; downloads are blocked until the file is repaired."
+
+    background = _background_health(now, bool(weekend_round))
+    plan = read_json(CONFIG_DIR / "scheduler_plan.json", {}, log=logger)
+    if not isinstance(plan, dict):
+        plan = {}
+    try:
+        planned_at = datetime.fromisoformat(plan.get("at", ""))
+        expected_minutes = background["components"]["scheduler"]["expected_minutes"]
+        if (background["components"]["scheduler"]["state"] != "live"
+                or (now - planned_at).total_seconds() > (expected_minutes * 2 + 60) * 60):
+            plan = {}
+    except (ValueError, TypeError):
+        plan = {}
+
     return {
+        "scheduler_plan": plan,
+        "pending_submissions": pending_submissions,
+        "pending_submissions_error": pending_error,
         "latest": home_summary.latest_scheduled_addition(
             grabbed,
             get_all_activity().get("history", []),
@@ -913,7 +938,7 @@ def get_home_summary(settings: dict) -> dict:
             ),
             "library_ok": os.path.isdir(MOTOGP_LIBRARY_PATH),
         },
-        "background": _background_health(now, bool(weekend_round)),
+        "background": background,
         "season": season,
     }
 
@@ -1383,6 +1408,22 @@ def settings_route():
 @app.route("/status")
 def status():
     return jsonify(command_output)
+
+@app.route("/api/submission-intents/<token>/clear", methods=["POST"])
+def clear_submission_intent(token):
+    """User has checked SABnzbd and explicitly accepts the duplicate risk."""
+    if not re.fullmatch(r"[0-9a-f]{32}", token):
+        return jsonify({"error": "Invalid submission identifier"}), 400
+    from utils.submission_guard import clear_intent, intent_path
+    try:
+        cleared = clear_intent(intent_path(CONFIG_DIR), token)
+    except (OSError, ValueError):
+        logger.exception("Could not clear submission reservation")
+        return jsonify({"error": "Could not update submission reservations"}), 500
+    if not cleared:
+        return jsonify({"error": "Submission is no longer pending"}), 404
+    return jsonify({"status": "cleared"})
+
 
 @app.route("/api/activity-events")
 def api_activity_events():

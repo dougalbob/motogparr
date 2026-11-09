@@ -70,6 +70,9 @@ def test_scheduled_path_emits_the_grabber_activity_lifecycle(monkeypatch):
     )
     monkeypatch.setattr(grabber, "GrabberState", FakeState)
     monkeypatch.setattr(grabber, "reconcile_grabbed_jobs", lambda state: 0)
+    monkeypatch.setattr(grabber, "reconcile_submission_intents", lambda state: None)
+    monkeypatch.setattr(grabber, "validate_grabber_state", lambda path: None)
+    FakeState.state_file = Path('/unused/grabber_state.json')
     monkeypatch.setattr(
         grabber, "load_calendar", lambda season: {"season": season, "rounds": []}
     )
@@ -93,6 +96,11 @@ def test_scheduled_path_emits_the_grabber_activity_lifecycle(monkeypatch):
     # shows, so the fake has to supply it too rather than silently returning
     # a bare id that the caller would unpack into two characters.
     monkeypatch.setattr(grabber, "grab_release", lambda *a, **k: ("nzo123", ""))
+    def fake_guard(state, release, item, season, keys, mode, force):
+        for key in keys:
+            state.mark_grabbed(key, release['title'], nzo_id='nzo123', mode=mode)
+        return 'nzo123', ''
+    monkeypatch.setattr(grabber, 'guarded_grab', fake_guard)
     monkeypatch.setattr(
         grabber,
         "get_sessions_ready_for_search",
