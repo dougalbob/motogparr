@@ -125,7 +125,8 @@ def find_sab_job(token, url, api_key, get):
                     if not isinstance(slot, dict):
                         continue
                     names = [slot.get('filename', ''), slot.get('name', '')]
-                    if any(marker in str(name) for name in names):
+                    if any(re.search(re.escape(marker) + r'(?![a-zA-Z0-9])', str(name))
+                           for name in names):
                         job_id = slot.get('nzo_id')
                         if not job_id:
                             return None

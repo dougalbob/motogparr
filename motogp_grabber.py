@@ -1096,6 +1096,8 @@ def grab_release(release: dict, session_info: dict,
                 # Extract nzo_id from response (SABnzbd returns a list)
                 nzo_ids = result.get('nzo_ids') or []
                 nzo_id = nzo_ids[0] if isinstance(nzo_ids, list) and nzo_ids else None
+                if not isinstance(nzo_id, str):
+                    nzo_id = None
 
                 release_title = release.get('title', 'Unknown')
                 release_score = release.get('_score', 0)
@@ -1430,9 +1432,10 @@ def guarded_grab(state, release, item, season, keys, mode, force=False):
             if set(keys).intersection(intent.get("keys", [])):
                 return None, "Submission outcome is uncertain; inspect SABnzbd before clearing the pending submission"
         for key in keys:
-            existing = state.state.get("grabbed", {}).get(key)
-            if not existing:
+            grabbed = state.state.get("grabbed", {})
+            if key not in grabbed:
                 continue
+            existing = grabbed[key]
             if not force or existing != observed[key]:
                 return None, "Another grabber has already submitted this session"
             if not isinstance(existing, dict):

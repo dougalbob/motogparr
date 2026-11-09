@@ -265,3 +265,12 @@ def test_cli_reports_busy_without_starting_an_overlapping_run(tmp_path, monkeypa
         assert acquired
         assert grabber.main() == 2
     assert 'Another grabber is running' in capsys.readouterr().out
+
+
+def test_empty_grab_record_is_not_treated_as_safe_to_submit(tmp_path, monkeypatch):
+    state = grabber.GrabberState(tmp_path / 'grabber_state.json')
+    state.state['grabbed'][KEY] = {}
+    state.save()
+    monkeypatch.setattr(grabber, 'grab_release', lambda *a: pytest.fail('must not submit'))
+    result, error = grabber.guarded_grab(state, RELEASE, ITEM, 2026, [KEY], 'backfill', True)
+    assert result is None and 'status is unknown' in error
