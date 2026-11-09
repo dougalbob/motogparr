@@ -404,8 +404,9 @@ the first run has finished. The scheduler will retry on its next pass.
 Submissions are reserved on disk before SABnzbd is contacted. If a container
 restart or timeout leaves an uncertain result, MotoGParr tries to find the job
 in SABnzbd using the unique `mgp-...` marker in its temporary download name.
-The library's final names are unchanged. If the job cannot be identified (for
-example history was cleared or SABnzbd is unreachable), Home shows a pending
+The library's final names are unchanged. Recovery is attempted on startup and
+periodically, including between meetings, without launching an indexer search.
+If the job cannot be identified (for example history was cleared or SABnzbd is unreachable), Home shows a pending
 submission and stops automatic retries for the affected sessions. **Check both
 the SABnzbd queue and history before using “allow retry”**: clearing the warning
 when a job was accepted can result in a duplicate. The marker may be absent if
