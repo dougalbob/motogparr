@@ -1224,7 +1224,7 @@ def classify_session(text: str, race_class: RaceClass = None,
 
     Refuses rather than guesses. An ambiguous release token (SQ, SPQ, a bare
     FP with no number) or a title with no session token at all returns
-    UNKNOWN; the old code fell through to MOTOGP_RACE, which filed an
+    UNKNOWN, except for the strictly matched BILLIE race convention; the old code fell through to MOTOGP_RACE, which filed an
     unrecognised title as the Grand Prix - a wrong folder name and a wrong Plex
     identity, permanently.
 
@@ -1431,6 +1431,25 @@ def classify_session(text: str, race_class: RaceClass = None,
 
         logger.debug(f">>> PATTERN MATCH: {pattern.session_type.name}")
         return _remap_session_for_class(pattern.session_type, race_class)
+
+    # BILLIE publishes races without a session token. Only accept the exact
+    # known release shape and an exact calendar venue/alias: arbitrary tokens
+    # between venue and quality could be a new, unrecognised session instead.
+    if round_info and race_class in (RaceClass.MOTOGP, RaceClass.MOTO2, RaceClass.MOTO3):
+        locations = [round_info.get("venue", "")] + (round_info.get("aliases") or [])
+        for location in locations:
+            if not isinstance(location, str) or not location.strip():
+                continue
+            location_pattern = r"[. _-]+".join(
+                re.escape(part) for part in re.split(r"[. _-]+", location.strip()) if part
+            )
+            if re.fullmatch(
+                rf"(?:motogp|moto2|moto3)\.\d{{4}}\.{location_pattern}\."
+                rf"(?:2160p|1080p|720p)\.WEB\.(?:h\.?264|h\.?265|x264|x265)-BILLIE",
+                text, re.IGNORECASE,
+            ):
+                logger.debug(">>> BILLIE implicit race")
+                return _remap_session_for_class(SessionType.MOTOGP_RACE, race_class)
 
     # === FALLBACK ===
     # No session token matched. The old code returned the Race here, so any

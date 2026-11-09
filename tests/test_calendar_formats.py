@@ -188,8 +188,16 @@ def test_session_start_times_match_published_timetable(qatar):
     assert (end - start).total_seconds() == 50 * 60
 
 
-def test_upcoming_sessions_use_real_start_times(calendar_2026, qatar):
+def test_upcoming_sessions_use_real_start_times(calendar_2026, qatar, monkeypatch):
+    import motogp_grabber
     from motogp_grabber import get_upcoming_sessions
+
+    class RaceMorning(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 8, 8, 0)
+
+    monkeypatch.setattr(motogp_grabber, "datetime", RaceMorning)
 
     session = common.SessionType.MOTOGP_RACE
     start = datetime(2026, 11, 8, 16, 0)

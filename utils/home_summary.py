@@ -438,13 +438,12 @@ def latest_scheduled_addition(grabbed: dict, activity_history: List[dict],
 def scheduler_health(last_check: Optional[str], now: datetime,
                      in_weekend: bool) -> dict:
     """
-    Is the scheduler still alive?
+    Report the last scheduled grabber check (not scheduler loop liveness).
 
     ``last_check`` is grabber_state.json's ``last_scheduled_check`` (ISO). The
-    scheduler checks every ``race_weekend_interval_minutes`` during a weekend
-    and every ``off_weekend_interval_minutes`` outside one (longer in quiet
-    hours), so the stale threshold is twice the applicable interval plus an
-    hour of grace: late enough never to cry wolf over quiet hours or a slow
+    grabber checks every ``race_weekend_interval_minutes`` during a weekend
+    but does not run outside one. During a weekend the stale threshold is
+    twice the interval plus an hour of grace: late enough never to cry wolf over quiet hours or a slow
     run, early enough that a dead scheduler is visible the same day. The
     intervals are read from the scheduler's own CONFIG rather than restated.
     """
@@ -478,6 +477,6 @@ def scheduler_health(last_check: Optional[str], now: datetime,
         "last_check": checked_at,
         "age_minutes": age_minutes,
         "age_label": format_age(age_minutes),
-        "stale": age_minutes > threshold_minutes,
+        "stale": in_weekend and age_minutes > threshold_minutes,
     })
     return result
