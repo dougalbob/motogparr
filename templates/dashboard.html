@@ -50,8 +50,12 @@
     {% if home.weekend.next and home.weekend.next.state == 'complete' %}
     <div class="home-next-title">Weekend complete</div>
     <div class="home-next-line">
-        Every scheduled session has aired. The scheduler keeps searching for anything
-        still missing for {{ home.health.expected_minutes }} minutes or so.
+        {% if home.scheduler_plan.state == 'complete' %}
+        All wanted sessions are in the library; scheduled searches are paused.
+        {% if home.scheduler_plan.venue %}Next meeting: {{ home.scheduler_plan.venue }}.{% endif %}
+        {% else %}
+        All wanted timed sessions have aired; missing sessions remain eligible for checking during this meeting window.
+        {% endif %}
     </div>
 
     {% elif home.weekend.next %}
@@ -118,6 +122,19 @@
 </div>
 {% endif %}
 
+{% if home.pending_submissions or home.pending_submissions_error %}
+<div class="card">
+    <h2>Submissions needing attention</h2>
+    {% if home.pending_submissions_error %}<p>{{ home.pending_submissions_error }}</p>{% endif %}
+    {% for token, item in home.pending_submissions.items() %}
+    <p><strong>{{ item['keys'] | join(', ') }}</strong> — {{ item.release }}<br>
+       Submission at {{ item.created }} may have reached SABnzbd. Automatic retries are paused to avoid a duplicate.</p>
+    <p>Check the SABnzbd queue and history for <code>mgp-{{ token }}</code>. Only clear this if you have confirmed it is safe to retry.</p>
+    <button type="button" onclick="clearSubmissionIntent('{{ token }}')">I checked SABnzbd — allow retry</button>
+    {% endfor %}
+</div>
+{% endif %}
+
 <!-- Health strip: server-rendered facts first, then one-shot client probes -->
 <div class="card home-health">
     <div class="home-hero-kicker">Health</div>
@@ -128,7 +145,7 @@
            off-weekend the first is legitimately days old. #}
         {% if home.health.never %}
         <span class="chip warn">Last scheduled check: never run</span>
-        {% elif home.health.stale %}
+        {% elif home.health.stale and home.scheduler_plan.state not in ['waiting', 'complete', 'nothing_scheduled', 'off_weekend'] %}
         <span class="chip bad">Last scheduled check: {{ home.health.age_label }} (expected every {{ home.health.expected_minutes }} min)</span>
         {% else %}
         <span class="chip ok">Last scheduled check: {{ home.health.age_label }}</span>
@@ -137,6 +154,19 @@
         {# Loop progress, not process liveness: a scheduler that is awake but
            not looping, or a watcher thread that died inside it, leaves a
            perfectly healthy WebUI with nothing downloading. #}
+        {% if home.scheduler_plan.state == 'complete' %}
+        <span class="chip ok">Meeting complete — searches paused</span>
+        {% elif home.scheduler_plan.state == 'waiting' %}
+        <span class="chip idle">Waiting for the next search or retry</span>
+        {% elif home.scheduler_plan.state == 'off_weekend' and home.scheduler_plan.venue %}
+        <span class="chip idle">Waiting for {{ home.scheduler_plan.venue }}</span>
+        {% elif home.scheduler_plan.state == 'busy' %}
+        <span class="chip warn">Another grabber is running — scheduler will retry</span>
+        {% elif home.scheduler_plan.state == 'error' %}
+        <span class="chip bad">Scheduled check failed — see logs</span>
+        {% elif home.scheduler_plan.state in ['calendar_missing_times', 'calendar_missing'] %}
+        <span class="chip bad">Calendar lacks session times</span>
+        {% endif %}
         {% set bg_sched = home.background.components.scheduler %}
         {% if bg_sched.state == 'live' %}
         <span class="chip ok">Loop: last pass {{ bg_sched.age_label }}</span>
@@ -180,6 +210,14 @@
 
 {% block scripts %}
 <script>
+    async function clearSubmissionIntent(token) {
+        if (!confirm('Have you checked SABnzbd? Clearing this can cause a duplicate if the job was accepted.')) return;
+        try {
+            const response = await fetch('/api/submission-intents/' + encodeURIComponent(token) + '/clear', {method: 'POST'});
+            if (!response.ok) throw new Error('Could not clear the submission');
+            location.reload();
+        } catch (error) { alert(error.message); }
+    }
     // Session times arrive as UTC ("...Z"); show them in the browser's zone,
     // the same conversion the calendar modal uses.
     document.querySelectorAll('[data-utc]').forEach(function (el) {

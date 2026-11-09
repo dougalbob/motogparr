@@ -1,0 +1,148 @@
+from datetime import datetime, timedelta
+
+import motogp_common as common
+import motogp_grabber as grabber
+import motogp_scheduler as scheduler
+
+NOW = datetime(2026, 11, 8, 18, 0)
+ROUND = {'round': 20, 'venue': 'Qatar', 'date': '2026-11-08', 'weekend_start': '2026-11-06'}
+SESSION = common.SessionType.MOTO2_RACE
+REAL_STATE = grabber.GrabberState
+
+
+def setup_plan(monkeypatch, tmp_path, *, ends, existing=False, grabbed=False):
+    monkeypatch.setattr(grabber, 'SCHEDULABLE_SESSIONS', {SESSION})
+    monkeypatch.setattr(common, 'get_desired_sessions', lambda: {SESSION: True})
+    monkeypatch.setattr(common, 'round_runs_session', lambda *a: True)
+    monkeypatch.setattr(grabber, 'get_session_end_time', lambda *a: ends)
+    monkeypatch.setattr(scheduler, 'scan_available_sessions', lambda year: {20: {SESSION}} if existing else {})
+    monkeypatch.setattr(scheduler, 'get_search_delay_hours', lambda: 1)
+    class State(REAL_STATE):
+        def __init__(self): super().__init__(tmp_path / 'grabber_state.json')
+    monkeypatch.setattr(grabber, 'GrabberState', State)
+    if grabbed:
+        state = State()
+        state.mark_grabbed(state.make_session_key(2026, 20, SESSION), 'release', nzo_id='job')
+        state.save()
+    return lambda last=None: scheduler.plan_weekend({'rounds': [ROUND]}, 2026, NOW, last, 3600)
+
+
+def test_complete_only_when_wanted_sessions_are_in_library(monkeypatch, tmp_path):
+    plan = setup_plan(monkeypatch, tmp_path, ends=NOW - timedelta(hours=3), existing=True)
+    assert plan()['state'] == 'complete'
+    assert not plan()['run']
+
+
+def test_grabbed_but_not_sorted_still_reconciles(monkeypatch, tmp_path):
+    plan = setup_plan(monkeypatch, tmp_path, ends=NOW - timedelta(hours=3), grabbed=True)
+    assert plan()['run']
+    assert plan(NOW)['state'] == 'waiting'
+    assert plan(NOW)['next'] == NOW + timedelta(hours=1)
+
+
+def test_missing_session_retries_but_future_deadline_wakes_it(monkeypatch, tmp_path):
+    plan = setup_plan(monkeypatch, tmp_path, ends=NOW - timedelta(minutes=70))
+    assert plan(NOW - timedelta(minutes=20))['run']  # became ready after last check
+    assert not plan(NOW - timedelta(minutes=5))['run']
+    plan = setup_plan(monkeypatch, tmp_path, ends=NOW + timedelta(minutes=5))
+    assert plan()['next'] == NOW + timedelta(minutes=65)
+    assert not plan()['run']
+
+
+def test_unknown_timetable_is_not_completion(monkeypatch, tmp_path):
+    plan = setup_plan(monkeypatch, tmp_path, ends=None, existing=True)
+    assert plan()['run']
+    assert plan(NOW)['state'] == 'waiting'
+
+
+def test_available_requires_media_not_empty_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, 'get_motogp_library_path', lambda: str(tmp_path))
+    folder = tmp_path / '2026' / 'Round 20 Qatar' / '26R20E84 Moto2 Race'
+    folder.mkdir(parents=True)
+    assert not scheduler.scan_available_sessions(2026)
+    (folder / 'poster.jpg').write_bytes(b'image')
+    assert not scheduler.scan_available_sessions(2026)
+    (folder / 'race.mkv').write_bytes(b'video')
+    assert SESSION in scheduler.scan_available_sessions(2026)[20]
+
+
+def test_existing_future_media_is_not_reported_complete_early(monkeypatch, tmp_path):
+    plan = setup_plan(monkeypatch, tmp_path, ends=NOW + timedelta(minutes=20), existing=True)
+    assert plan()['state'] == 'waiting'
+    assert plan()['next'] == NOW + timedelta(minutes=20)
+
+
+def test_pending_replacement_is_reconciled_even_if_library_is_complete(monkeypatch, tmp_path):
+    import json
+    from utils.submission_guard import make_intent, intent_path
+    plan = setup_plan(monkeypatch, tmp_path, ends=NOW - timedelta(hours=3), existing=True)
+    key = grabber.GrabberState.make_session_key(2026, 20, SESSION)
+    token, intent = make_intent([key], 'replacement', 'backfill')
+    intent_path(tmp_path).write_text(json.dumps({token: intent}))
+    assert plan()['run']
+    assert plan(NOW)['state'] == 'waiting'
+
+
+def test_scheduler_main_does_not_spawn_grabber_for_complete_meeting(tmp_path, monkeypatch):
+    import sys
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None): return cls(2026, 11, 8, 18, 0)
+    monkeypatch.setattr(scheduler, 'datetime', Frozen)
+    monkeypatch.setattr(scheduler, 'CONFIG_DIR', tmp_path)
+    monkeypatch.setattr(scheduler, 'setup_logging', lambda **kw: None)
+    monkeypatch.setattr(scheduler, 'reload_settings', lambda: None)
+    monkeypatch.setattr(scheduler, 'get_current_season', lambda: 2026)
+    monkeypatch.setattr(scheduler, 'get_search_delay_hours', lambda: 1)
+    monkeypatch.setattr(scheduler, 'get_downloads_path', lambda: '/unused')
+    monkeypatch.setattr(scheduler, 'get_motogp_library_path', lambda: '/unused')
+    monkeypatch.setattr(scheduler, 'load_calendar', lambda season: {'rounds': [ROUND]})
+    monkeypatch.setattr(scheduler, 'has_session_times', lambda calendar: True)
+    monkeypatch.setattr(scheduler, 'write_heartbeat', lambda *a, **kw: True)
+    monkeypatch.setattr(scheduler, 'plan_weekend', lambda *a: {'state': 'complete', 'run': False, 'next': None})
+    monkeypatch.setattr(scheduler, 'run_grabber_scheduled', lambda: (_ for _ in ()).throw(AssertionError('unexpected search')))
+    monkeypatch.setattr(scheduler.time, 'sleep', lambda seconds: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(scheduler.signal, 'signal', lambda *a: None)
+    monkeypatch.setattr(sys, 'argv', ['motogp_scheduler.py', '--no-watcher'])
+    assert scheduler.main() == 0
+    import json
+    assert json.loads((tmp_path / 'scheduler_plan.json').read_text())['state'] == 'complete'
+
+
+def test_scheduled_subprocess_reports_contention(monkeypatch):
+    import subprocess
+    monkeypatch.setattr(scheduler, 'get_search_delay_hours', lambda: 1)
+    monkeypatch.setattr(scheduler.subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a[0], 2, '', 'busy'))
+    result = scheduler.run_grabber_scheduled()
+    assert result['busy'] and not result['success']
+
+
+def test_pending_reconciliation_runs_between_meetings_without_search(tmp_path, monkeypatch):
+    import sys
+    import json
+    from utils.submission_guard import make_intent, intent_path
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None): return cls(2026, 11, 14, 12, 0)
+    token, intent = make_intent(['2026_R20_E84'], 'race', 'scheduled')
+    intent_path(tmp_path).write_text(json.dumps({token: intent}))
+    calls = []
+    monkeypatch.setattr(scheduler, 'datetime', Frozen)
+    monkeypatch.setattr(scheduler, 'CONFIG_DIR', tmp_path)
+    monkeypatch.setattr(scheduler, 'setup_logging', lambda **kw: None)
+    monkeypatch.setattr(scheduler, 'reload_settings', lambda: None)
+    monkeypatch.setattr(scheduler, 'get_current_season', lambda: 2026)
+    monkeypatch.setattr(scheduler, 'get_search_delay_hours', lambda: 1)
+    monkeypatch.setattr(scheduler, 'get_downloads_path', lambda: '/unused')
+    monkeypatch.setattr(scheduler, 'get_motogp_library_path', lambda: '/unused')
+    monkeypatch.setattr(scheduler, 'load_calendar', lambda season: {'rounds': [ROUND]})
+    monkeypatch.setattr(scheduler, 'has_session_times', lambda calendar: True)
+    monkeypatch.setattr(scheduler, 'write_heartbeat', lambda *a, **kw: True)
+    monkeypatch.setattr(scheduler, 'run_pending_reconciliation', lambda: calls.append('reconcile') or True)
+    monkeypatch.setattr(scheduler, 'run_grabber_scheduled', lambda: (_ for _ in ()).throw(AssertionError('unexpected search')))
+    monkeypatch.setattr(scheduler.time, 'sleep', lambda seconds: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(scheduler.signal, 'signal', lambda *a: None)
+    monkeypatch.setattr(sys, 'argv', ['motogp_scheduler.py', '--no-watcher'])
+    assert scheduler.main() == 0
+    assert calls == ['reconcile']
+    assert json.loads((tmp_path / 'scheduler_plan.json').read_text())['state'] == 'off_weekend'

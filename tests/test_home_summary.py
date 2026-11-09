@@ -529,3 +529,34 @@ def test_old_scheduled_check_is_not_stale_between_weekends():
         "2026-11-01T08:00:00", datetime(2026, 11, 10, 8, 0), False
     )
     assert health["stale"] is False
+
+
+def test_pending_submission_requires_explicit_user_acknowledgement(isolated_webui, monkeypatch):
+    from utils.submission_guard import make_intent
+    client, cfg_dir, _ = isolated_webui
+    _freeze_webui_clock(monkeypatch, datetime(2026, 11, 7, 11, 35))
+    token, intent = make_intent(['2026_R20_E82'], 'Test release', 'scheduled')
+    path = cfg_dir / 'submission_intents.json'
+    path.write_text(json.dumps({token: intent}))
+    html = client.get('/').get_data(as_text=True)
+    assert 'Submissions needing attention' in html
+    assert '2026_R20_E82' in html
+    assert 'mgp-' + token in html
+    assert client.post('/api/submission-intents/' + token + '/clear', headers={'Origin': 'https://evil.example'}).status_code == 403
+    assert token in json.loads(path.read_text())
+    assert client.post('/api/submission-intents/' + token + '/clear').status_code == 200
+    assert json.loads(path.read_text()) == {}
+    assert client.post('/api/submission-intents/' + token + '/clear').status_code == 404
+
+
+def test_home_shows_scheduler_completion_without_false_stale_check(isolated_webui, monkeypatch):
+    client, cfg_dir, _ = isolated_webui
+    now = datetime(2026, 11, 8, 19, 0)
+    _freeze_webui_clock(monkeypatch, now)
+    (cfg_dir / 'scheduler_plan.json').write_text(json.dumps({'at': now.isoformat(), 'state': 'complete', 'venue': 'Portugal'}))
+    (cfg_dir / 'background_health.json').write_text(json.dumps({'scheduler': {'last_loop': now.isoformat()}, 'watcher': {'last_scan': now.isoformat()}}))
+    (cfg_dir / 'grabber_state.json').write_text(json.dumps({'last_scheduled_check': '2026-11-08T10:00:00'}))
+    html = client.get('/').get_data(as_text=True)
+    assert 'Meeting complete — searches paused' in html
+    assert 'Next meeting: Portugal' in html
+    assert 'expected every 60 min)' not in html

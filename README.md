@@ -387,6 +387,36 @@ pasted straight into an issue or a pull request. Everything is stored in
 > Race release misfiled as Practice is wrong *for Practice*. Use global scope for
 > a title that is wrong wherever it appears, such as an off-by-one round number.
 
+## Scheduling and uncertain submissions
+
+During a meeting, MotoGParr searches when a wanted session reaches its end time
+plus your configured search delay. Missing releases continue to be retried, and
+jobs that have been sent to SABnzbd continue to be reconciled. Once every wanted
+session has aired and has a video in the library, scheduled searches pause. The
+scheduler still wakes periodically to notice settings, calendar or library
+changes, and the download watcher continues running for manual backfills.
+Home shows the scheduler's decision separately from the loop and watcher health.
+
+Only one scheduled or manual grabber can run at a time. If another is already
+running, the new request reports that it is busy; retry the manual request when
+the first run has finished. The scheduler will retry on its next pass.
+
+Submissions are reserved on disk before SABnzbd is contacted. If a container
+restart or timeout leaves an uncertain result, MotoGParr tries to find the job
+in SABnzbd using the unique `mgp-...` marker in its temporary download name.
+The library's final names are unchanged. Recovery is attempted on startup and
+periodically, including between meetings, without launching an indexer search.
+If the job cannot be identified (for example history was cleared or SABnzbd is unreachable), Home shows a pending
+submission and stops automatic retries for the affected sessions. **Check both
+the SABnzbd queue and history before using “allow retry”**: clearing the warning
+when a job was accepted can result in a duplicate. The marker may be absent if
+SABnzbd renamed the job; absence alone does not prove it was never accepted.
+
+A forced replacement also refuses an earlier job whose status is still active
+or unknown. For older records without an identifiable SABnzbd job, inspect the
+queue/history first; if it is safe, clear that session's grabber state using the
+`clear --session` command reported in the log, then request the replacement.
+
 ## Checking your configuration
 
 Two classes of problem are invisible in normal use, so both are reported

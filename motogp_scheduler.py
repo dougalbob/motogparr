@@ -39,6 +39,7 @@ from utils.config_loader import (
     get_downloads_path,
     get_current_season,
     get_search_delay_hours,
+    reload_settings,
 )
 from utils.background_health import write_heartbeat
 
@@ -110,9 +111,9 @@ def process_download(folder_path: str) -> bool:
 # RACE WEEKEND DETECTION
 # =============================================================================
 
-def get_current_race_weekend(calendar: dict) -> Optional[dict]:
+def get_current_race_weekend(calendar: dict, now: Optional[datetime] = None) -> Optional[dict]:
     """Check if we're currently in a race weekend window."""
-    now = datetime.now()
+    now = now or datetime.now()
     today = now.date()
     
     for round_info in calendar.get("rounds", []):
@@ -153,9 +154,9 @@ def get_current_race_weekend(calendar: dict) -> Optional[dict]:
     return None
 
 
-def get_next_race_weekend(calendar: dict) -> Optional[dict]:
+def get_next_race_weekend(calendar: dict, now: Optional[datetime] = None) -> Optional[dict]:
     """Get the next upcoming race weekend."""
-    now = datetime.now()
+    now = now or datetime.now()
     today = now.date()
     
     next_round = None
@@ -196,6 +197,107 @@ def get_next_race_weekend(calendar: dict) -> Optional[dict]:
             continue
     
     return next_round
+
+def scan_available_sessions(season: int) -> dict:
+    """Like the watcher, count only session folders with an actual video file."""
+    from motogp_common import parse_prefix
+    root = Path(get_motogp_library_path()) / str(season)
+    if not root.exists():
+        return {}
+    result = {}
+    for round_dir in root.iterdir():
+        if not round_dir.is_dir():
+            continue
+        import re
+        match = re.match(r'Round\s*(\d+)', round_dir.name)
+        if not match:
+            continue
+        number = int(match.group(1))
+        for folder in round_dir.iterdir():
+            if not folder.is_dir():
+                continue
+            parsed = parse_prefix(folder.name)
+            if not parsed or parsed[0] != season or parsed[1] != number:
+                continue
+            if any(file.is_file() and file.suffix.lower() in
+                   {'.mkv', '.mp4', '.avi', '.m4v', '.ts', '.m2ts'}
+                   for file in folder.iterdir()):
+                result.setdefault(number, set()).add(parsed[2])
+    return result
+
+
+def plan_weekend(calendar: dict, season: int, now: datetime,
+                 last_run: Optional[datetime], interval_seconds: int) -> dict:
+    """Decide whether a grabber process is needed, without querying services.
+
+    A completed SAB job is not completion: only a library folder counts. Jobs
+    still downloading need periodic reconciliation; missing releases need
+    retries; future sessions wake the loop at their search-after time. An
+    incomplete timetable fails open to periodic checking, never completion.
+    """
+    from motogp_common import get_desired_sessions, round_runs_session
+    from motogp_grabber import (SCHEDULABLE_SESSIONS, get_session_end_time,
+                               GrabberState)
+    active = [r for r in calendar.get("rounds", [])
+              if get_current_race_weekend({"rounds": [r]}, now)]
+    desired = get_desired_sessions()
+    library = scan_available_sessions(season)
+    state = GrabberState()
+    grabbed = state.state.get("grabbed", {})
+    from utils.submission_guard import intent_path, load_intents
+    pending = load_intents(intent_path(state.state_file.parent))
+    pending_keys = {key for intent in pending.values() for key in intent['keys']}
+    future = []
+    due = []
+    expected = 0
+    unknown = False
+    delay = timedelta(hours=get_search_delay_hours())
+    for round_info in active:
+        round_num = round_info.get("round")
+        for session in SCHEDULABLE_SESSIONS:
+            if not desired.get(session, False) or not round_runs_session(round_info, session, calendar):
+                continue
+            expected += 1
+            key = GrabberState.make_session_key(season, round_num, session)
+            # Even an already sorted folder cannot tell whether an uncertain
+            # replacement submission was accepted. Reconcile the reservation.
+            if key in pending_keys:
+                due.append((datetime.min, True))
+                continue
+            end = get_session_end_time(round_info, session)
+            if end is None:
+                unknown = True
+                continue
+            if session in library.get(round_num, set()):
+                if end > now:
+                    future.append(end)
+                continue
+            ready_at = end + delay
+            if ready_at > now and key not in grabbed:
+                future.append(ready_at)
+            else:
+                due.append((ready_at, key in grabbed))
+    # Timetable problems need human attention and must never turn into a
+    # false "all complete" claim. Keep the old retry cadence in that case.
+    if unknown:
+        logger = get_logger("scheduler")
+        logger.warning("Some wanted sessions have no calendar time; continuing periodic checks")
+        due.append((datetime.min, False))
+    if due:
+        interval = timedelta(seconds=interval_seconds)
+        run_at = now if last_run is None else last_run + interval
+        # A newly ready session should not wait for the retry interval.
+        if last_run is not None and any(not in_flight and last_run < ready <= now for ready, in_flight in due):
+            run_at = now
+        if run_at <= now:
+            return {"state": "checking", "run": True, "next": now}
+        if future:
+            run_at = min(run_at, min(future))
+        return {"state": "waiting", "run": False, "next": run_at}
+    if future:
+        return {"state": "waiting", "run": False, "next": min(future)}
+    return {"state": "complete" if expected else "nothing_scheduled", "run": False, "next": None}
+
 
 # =============================================================================
 # GRABBER EXECUTION
@@ -251,7 +353,7 @@ def run_grabber_scheduled() -> dict:
             logger.error(f"❌ Grabber failed with code {result.returncode}")
             if result.stderr:
                 logger.error(f"   Error: {result.stderr[:500]}")
-            return {"success": False, "grabbed": 0}
+            return {"success": False, "grabbed": 0, "busy": result.returncode == 2}
     
     except subprocess.TimeoutExpired:
         logger.error("❌ Grabber timed out")
@@ -259,6 +361,24 @@ def run_grabber_scheduled() -> dict:
     except Exception as e:
         logger.error(f"❌ Failed to run grabber: {e}")
         return {"success": False, "grabbed": 0}
+
+def run_pending_reconciliation() -> bool:
+    """Recover uncertain submissions even between meetings, without searching."""
+    logger = get_logger("scheduler")
+    try:
+        result = subprocess.run(
+            [CONFIG["python_path"], str(CONFIG["grabber_script"]), "reconcile"],
+            capture_output=True, text=True, timeout=1800,
+        )
+        if result.returncode:
+            logger.warning("Submission reconciliation failed (exit %s): %s",
+                           result.returncode, result.stderr[:500])
+            return False
+        return True
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("Submission reconciliation could not run: %s", type(exc).__name__)
+        return False
+
 
 # =============================================================================
 # SCHEDULER STATE
@@ -271,6 +391,7 @@ class SchedulerState:
         self.running = True
         self.last_check: Optional[datetime] = None
         self.last_grabber_run: Optional[datetime] = None
+        self.last_reconciliation: Optional[datetime] = None
         self.current_weekend: Optional[dict] = None
         self.consecutive_no_grabs = 0
         self.total_grabbed_this_weekend = 0
@@ -451,44 +572,89 @@ def main():
             # is to prove the loop is still turning rather than that it is busy.
             write_heartbeat(CONFIG_DIR, "scheduler", last_loop=now.isoformat())
 
-            # Reload calendar periodically
-            calendar = load_calendar(season) or calendar
-            
-            # Check if we're in a race weekend
-            current_weekend = get_current_race_weekend(calendar)
+            # Settings and calendar can change while this process is running.
+            reload_settings()
+            previous_season = season
+            season = get_current_season()
+            loaded_calendar = load_calendar(season)
+            if loaded_calendar:
+                calendar = loaded_calendar
+            elif season != previous_season:
+                logger.error("No calendar for configured season %s; refusing to use the previous season", season)
+                calendar = {}
+            from utils.submission_guard import intent_path, load_intents
+            pending = load_intents(intent_path(CONFIG_DIR))
+            if pending and (state.last_reconciliation is None or
+                            now - state.last_reconciliation >= timedelta(hours=1)):
+                state.last_reconciliation = now
+                if not run_pending_reconciliation():
+                    # A manual job may hold the run lock; retry on the next
+                    # pass rather than waiting six hours between meetings.
+                    state.last_reconciliation = now - timedelta(minutes=55)
+            current_weekend = get_current_race_weekend(calendar, now)
             in_race_weekend = current_weekend is not None
-            
+            sleep_seconds = get_sleep_interval(in_race_weekend)
+            if pending and state.last_reconciliation:
+                retry_at = state.last_reconciliation + timedelta(hours=1)
+                sleep_seconds = min(sleep_seconds, max(1, int((retry_at - now).total_seconds())))
+            plan = {"state": "off_weekend" if calendar else "calendar_missing", "next": None}
+
             if in_race_weekend:
                 state.reset_for_new_weekend(current_weekend)
-                
-                # Always run grabber during race weekend - let it determine what's ready
                 if has_session_times(calendar):
-                    result = run_grabber_scheduled()
-                    state.last_grabber_run = datetime.now()
-                    # A check is a scheduled search that actually ran. Recorded
-                    # here as well as in grabber_state.json so the heartbeat
-                    # says *when* work last happened, not only that the loop is
-                    # awake. The grabber writes the same value to its own state.
-                    write_heartbeat(
-                        CONFIG_DIR, "scheduler",
-                        last_check=state.last_grabber_run.isoformat(),
-                    )
-                    
-                    if result["grabbed"] > 0:
-                        state.total_grabbed_this_weekend += result["grabbed"]
-                        state.consecutive_no_grabs = 0
-                    else:
-                        state.consecutive_no_grabs += 1
+                    plan = plan_weekend(calendar, season, now, state.last_grabber_run, sleep_seconds)
+                    if plan["run"]:
+                        # Readiness is evaluated at the start of the child run.
+                        # A session that becomes ready while it is searching
+                        # must trigger another pass, not wait a full interval.
+                        state.last_grabber_run = datetime.now()
+                        result = run_grabber_scheduled()
+                        if result["success"]:
+                            write_heartbeat(CONFIG_DIR, "scheduler", last_check=datetime.now().isoformat())
+                            if result["grabbed"] > 0:
+                                state.total_grabbed_this_weekend += result["grabbed"]
+                                state.consecutive_no_grabs = 0
+                            else:
+                                state.consecutive_no_grabs += 1
+                            plan = plan_weekend(calendar, season, datetime.now(), state.last_grabber_run, sleep_seconds)
+                        elif result.get("busy"):
+                            # The manual run might finish in seconds. Do not
+                            # defer the scheduler for the full hourly interval.
+                            state.last_grabber_run = None
+                            plan = {"state": "busy", "run": False,
+                                    "next": datetime.now() + timedelta(minutes=5)}
+                        else:
+                            plan = {"state": "error", "run": False,
+                                    "next": state.last_grabber_run + timedelta(seconds=sleep_seconds)}
+                    if plan["state"] == "complete":
+                        logger.info("✅ All wanted meeting sessions are in the library; scheduled searching paused")
+                        upcoming = get_next_race_weekend(calendar, now)
+                        if upcoming:
+                            plan["next"] = datetime.combine(upcoming['window_start'], datetime.min.time())
+                            plan["venue"] = upcoming.get("venue")
+                else:
+                    plan = {"state": "calendar_missing_times", "next": None}
             else:
-                next_weekend = get_next_race_weekend(calendar)
+                next_weekend = get_next_race_weekend(calendar, now)
                 if next_weekend:
-                    until = datetime.combine(next_weekend['window_start'], datetime.min.time()) - now
-                    if until.total_seconds() > 0:
-                        logger.info(f"💤 Next: Round {next_weekend['round']} {next_weekend['venue']} in {format_timedelta(until)}")
-            
-            # Sleep
-            sleep_seconds = get_sleep_interval(in_race_weekend)
-            
+                    next_start = datetime.combine(next_weekend['window_start'], datetime.min.time())
+                    plan["next"] = next_start
+                    plan["venue"] = next_weekend.get("venue")
+                    logger.info("💤 Next: Round %s %s in %s", next_weekend['round'],
+                                next_weekend['venue'], format_timedelta(next_start - now))
+
+            # Publish the scheduler's decision separately from its heartbeat:
+            # a deliberately old last-search timestamp is not a dead loop.
+            from utils.json_store import write_json
+            write_json(CONFIG_DIR / "scheduler_plan.json", {
+                "state": plan["state"], "at": datetime.now().isoformat(),
+                "next": plan.get("next").isoformat() if plan.get("next") else None,
+                "venue": plan.get("venue"),
+            })
+            if plan.get("next") and not plan.get("run"):
+                until = (plan["next"] - datetime.now()).total_seconds()
+                sleep_seconds = min(sleep_seconds, max(1, int(until)))
+
             # Sleep in chunks for responsive shutdown
             for _ in range(sleep_seconds // 30):
                 if not state.running:

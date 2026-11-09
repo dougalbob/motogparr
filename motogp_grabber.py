@@ -55,6 +55,9 @@ from motogp_common import (
 from activity_emitter import emit_activity, ActivityStage, mark_error
 from utils import failure_reasons
 from utils.json_store import atomic_write_json, file_lock, read_json, three_way_merge
+from utils.submission_guard import (intent_path, load_intents, make_intent,
+                                    find_sab_job, validate_grabber_state, save_intents,
+                                    try_run_lock)
 
 # Import config
 from utils.config_loader import (
@@ -1067,6 +1070,8 @@ def grab_release(release: dict, session_info: dict,
 
     prefix = build_prefix(season, round_num, session_type)
     enriched_name = f"{prefix} {venue} {session_type.full_display_name}"
+    if session_info.get("_submission_token"):
+        enriched_name += f" mgp-{session_info['_submission_token']}"
 
     try:
         params = {
@@ -1087,10 +1092,12 @@ def grab_release(release: dict, session_info: dict,
                 logger.error(f"SABnzbd response parse error: {parse_err}")
                 return None, "SABnzbd returned a response that is not JSON"
 
-            if result.get('status', False):
+            if isinstance(result, dict) and result.get('status') is True:
                 # Extract nzo_id from response (SABnzbd returns a list)
                 nzo_ids = result.get('nzo_ids') or []
                 nzo_id = nzo_ids[0] if isinstance(nzo_ids, list) and nzo_ids else None
+                if not isinstance(nzo_id, str):
+                    nzo_id = None
 
                 release_title = release.get('title', 'Unknown')
                 release_score = release.get('_score', 0)
@@ -1100,10 +1107,11 @@ def grab_release(release: dict, session_info: dict,
                 if nzo_id:
                     logger.info(f"   🆔 nzo_id: {nzo_id}")
                 return (nzo_id if nzo_id else ""), ""
-            else:
+            elif isinstance(result, dict) and result.get('status') is False:
                 error = result.get('error') or "Unknown"
                 logger.error(f"SABnzbd error: {error}")
                 return None, f"SABnzbd refused the release: {error}"
+            return None, "SABnzbd returned an ambiguous response"
         return None, f"SABnzbd returned HTTP {response.status_code}"
     except requests.exceptions.Timeout:
         return None, "SABnzbd timed out accepting the release"
@@ -1369,6 +1377,109 @@ def _get_other_quali_session_key(
     return None
 
 
+def reconcile_submission_intents(state):
+    """Recover confirmed jobs after interruption; retain anything ambiguous."""
+    path = intent_path(state.state_file.parent)
+    with file_lock(path):
+        intents = load_intents(path)
+        if not intents:
+            return
+        validate_grabber_state(state.state_file)
+        state.save()
+        for token, intent in list(intents.items()):
+            keys = intent.get('keys', [])
+            if keys and all(
+                isinstance(state.state.get('grabbed', {}).get(key), dict)
+                and state.state['grabbed'][key].get('submission_token') == token
+                for key in keys
+            ):
+                del intents[token]
+                save_intents(path, intents)
+                continue
+            job_id = find_sab_job(token, get_sabnzbd_url(), get_sabnzbd_api_key(), requests.get)
+            if not job_id:
+                logger.warning("Uncertain SABnzbd submission %s (%s): check the downloader before clearing it", token, ', '.join(intent.get('keys', [])))
+                continue
+            keys = intent.get('keys', [])
+            if not keys:
+                logger.error("Submission %s has no session keys; leaving it pending", token)
+                continue
+            for index, key in enumerate(keys):
+                title = intent.get('release', 'Unknown') + (' (combined)' if index else '')
+                state.mark_grabbed(key, title, nzo_id=job_id, mode=intent.get('mode'))
+                state.state['grabbed'][key]['submission_token'] = token
+                state.state['failed'].pop(key, None)
+            state.save()
+            del intents[token]
+            save_intents(path, intents)
+            logger.info("Recovered SABnzbd job %s for %s", job_id, ', '.join(keys))
+
+
+def guarded_grab(state, release, item, season, keys, mode, force=False):
+    """Serialize and reserve submissions, including both halves of combined Q.
+
+    Force bypasses search cooldown, never an unresolved reservation or an
+    active download. A concurrent process may have committed after this one
+    searched, so re-read state while holding the submission lock.
+    """
+    path = intent_path(state.state_file.parent)
+    observed = {key: copy.deepcopy(state.state.get("grabbed", {}).get(key)) for key in keys}
+    with file_lock(path):
+        validate_grabber_state(state.state_file)
+        state.save()  # merges changes, then refreshes the snapshot from disk
+        intents = load_intents(path)
+        for intent in intents.values():
+            if set(keys).intersection(intent.get("keys", [])):
+                return None, "Submission outcome is uncertain; inspect SABnzbd before clearing the pending submission"
+        for key in keys:
+            grabbed = state.state.get("grabbed", {})
+            if key not in grabbed:
+                continue
+            existing = grabbed[key]
+            if not force or existing != observed[key]:
+                return None, "Another grabber has already submitted this session"
+            if not isinstance(existing, dict):
+                return None, "An earlier download has an unreadable state; inspect SABnzbd before clearing its state"
+            job_id = existing.get("nzo_id")
+            if existing.get("sab_status") != "completed":
+                if not job_id or get_sabnzbd_job_status(job_id) != "completed":
+                    return None, (f"An earlier download is still active or its status is unknown; inspect SABnzbd, then if safe run "
+                                  f"motogp_grabber.py clear --session {key} before retrying")
+        if not force:
+            existing = scan_library_for_season(season)
+            if item['session_type'] in existing.get(item['round'], set()):
+                return None, "The session appeared in the library while searching"
+        token, intent = make_intent(keys, release.get('title', 'Unknown'), mode)
+        intents[token] = intent
+        save_intents(path, intents)
+        # Never put the release URL or credentials into the durable intent.
+        tagged_item = dict(item, _submission_token=token)
+        nzo_id, error = grab_release(release, tagged_item, season)
+        if nzo_id is None:
+            # Only a definite refusal/preflight is safe to retry. Network,
+            # malformed response and HTTP failures may have accepted the job.
+            definite = error.startswith(("SABnzbd refused the release:",
+                                         "the release has no download link",
+                                         "SABnzbd is not configured"))
+            if definite:
+                del intents[token]
+                save_intents(path, intents)
+            else:
+                error += "; submission outcome uncertain — check SABnzbd before clearing the pending submission"
+            return None, error
+        if not nzo_id:
+            return None, "SABnzbd accepted the request without a job ID; submission outcome requires reconciliation before retry"
+        for index, key in enumerate(keys):
+            title = release.get('title', 'Unknown') + (" (combined)" if index else "")
+            state.mark_grabbed(key, title, nzo_id=nzo_id or None, mode=mode)
+            state.state['grabbed'][key]['submission_token'] = token
+            state.state['failed'].pop(key, None)
+        state.save()  # If this fails the durable intent deliberately remains.
+        del intents[token]
+        save_intents(path, intents)
+        return nzo_id, ""
+
+
 # =============================================================================
 # MAIN COMMANDS
 # =============================================================================
@@ -1394,6 +1505,8 @@ def cmd_backfill(args):
 
     # Reconcile previously grabbed jobs against SABnzbd status
     if not dry_run:
+        validate_grabber_state(state.state_file)
+        reconcile_submission_intents(state)
         reset_count = reconcile_grabbed_jobs(state)
         if reset_count > 0:
             print(f"\n  ♻️  Reconciled {reset_count} failed SABnzbd job(s) — will retry")
@@ -1625,24 +1738,19 @@ def cmd_backfill(args):
                 release_name=best_title[:80]
             )
 
-            nzo_id, grab_error = grab_release(best, item, season)
+            other_key = _get_other_quali_session_key(season, round_num, session_type) if is_combined else None
+            keys = [session_key] + ([other_key] if other_key else [])
+            nzo_id, grab_error = guarded_grab(state, best, item, season, keys, GRAB_MODE_BACKFILL, force)
             if nzo_id is not None:
                 print(f"    ✅ Grab successful!")
-                state.mark_grabbed(session_key, best_title, nzo_id=nzo_id or None,
-                                   mode=GRAB_MODE_BACKFILL)
                 grabbed_titles.add(best_title.lower())
                 grabs_this_run += 1
-
-                if is_combined:
-                    sessions_satisfied_this_run.add(session_key)
-                    other_key = _get_other_quali_session_key(season, round_num, session_type)
-                    if other_key:
-                        sessions_satisfied_this_run.add(other_key)
-                        state.mark_grabbed(other_key, best_title + " (combined)",
-                                           mode=GRAB_MODE_BACKFILL)
-                # Persist each accepted job before starting another search.
-                state.save()
+                sessions_satisfied_this_run.update(keys)
             else:
+                if grab_error in ("Another grabber has already submitted this session",
+                                  "The session appeared in the library while searching"):
+                    logger.info("Skipping %s: %s", session_key, grab_error)
+                    continue
                 record = _record_failure(
                     state, session_key, failure_reasons.STAGE_SAB_SUBMIT,
                     grab_error,
@@ -1692,6 +1800,8 @@ def cmd_scheduled(args):
 
     # Reconcile previously grabbed jobs against SABnzbd status
     if not dry_run:
+        validate_grabber_state(state.state_file)
+        reconcile_submission_intents(state)
         reset_count = reconcile_grabbed_jobs(state)
         if reset_count > 0:
             print(f"\n  ♻️  Reconciled {reset_count} failed SABnzbd job(s) — will retry")
@@ -1827,6 +1937,10 @@ def cmd_scheduled(args):
 
         session_key = state.make_session_key(season, round_num, session_type)
 
+        if state.was_grabbed(session_key):
+            logger.info("Skipping %s: covered by an earlier combined grab", session_key)
+            continue
+
         ended_ago = format_time_ago(item['ended_at'])
         print(f"\n  🔍 Round {round_num} {venue}: {session_type.full_display_name}")
         print(f"      Session ended: {ended_ago}")
@@ -1904,18 +2018,16 @@ def cmd_scheduled(args):
                 release_name=best.get("title", "Unknown")[:80],
             )
 
-            nzo_id, grab_error = grab_release(best, item, season)
+            other_key = _get_other_quali_session_key(season, round_num, session_type) if best.get('_combined_quali') else None
+            keys = [session_key] + ([other_key] if other_key else [])
+            nzo_id, grab_error = guarded_grab(state, best, item, season, keys, GRAB_MODE_SCHEDULED, False)
             if nzo_id is not None:
-                state.mark_grabbed(
-                    session_key,
-                    best.get('title', 'Unknown'),
-                    nzo_id=nzo_id or None,
-                    mode=GRAB_MODE_SCHEDULED
-                )
-                # A restart during the next search must not lose this job.
-                state.save()
                 grabs_this_run += 1
             else:
+                if grab_error in ("Another grabber has already submitted this session",
+                                  "The session appeared in the library while searching"):
+                    logger.info("Skipping %s: %s", session_key, grab_error)
+                    continue
                 record = _record_failure(
                     state, session_key, failure_reasons.STAGE_SAB_SUBMIT,
                     grab_error,
@@ -2028,6 +2140,9 @@ def main():
     scheduled_p.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
     scheduled_p.add_argument('--search-delay', type=float, help='Hours to wait after session ends before searching (fractional hours supported)')
 
+    # Recovery does not need an active meeting, Prowlarr, or a calendar.
+    subparsers.add_parser('reconcile', help='Reconcile uncertain SABnzbd submissions')
+
     # Status
     status_p = subparsers.add_parser('status', help='Show status and upcoming')
     status_p.add_argument('--season', type=int, help='Season year')
@@ -2048,14 +2163,28 @@ def main():
     verbose = getattr(args, 'verbose', False)
     init_logging(verbose)
 
-    if args.command == 'backfill':
-        return cmd_backfill(args)
-    elif args.command == 'scheduled':
-        return cmd_scheduled(args)
-    elif args.command == 'status':
+    if args.command == 'status':
         return cmd_status(args)
-    elif args.command == 'clear':
-        return cmd_clear(args)
+    # The WebUI's job slot is process-local and does not include the
+    # scheduler. Refuse overlapping whole runs rather than queue a hidden
+    # forced backfill that could submit as soon as a scheduled job finishes.
+    with try_run_lock(CONFIG_DIR) as acquired:
+        if not acquired:
+            logger.warning("Another grabber is running; wait for it to finish and retry")
+            print("Another grabber is running; wait for it to finish and retry.")
+            return 2
+        if args.command == 'backfill':
+            return cmd_backfill(args)
+        if args.command == 'scheduled':
+            return cmd_scheduled(args)
+        if args.command == 'clear':
+            return cmd_clear(args)
+        if args.command == 'reconcile':
+            state = GrabberState()
+            validate_grabber_state(state.state_file)
+            reconcile_submission_intents(state)
+            reconcile_grabbed_jobs(state)
+            return 0
 
     return 0
 
