@@ -1198,18 +1198,22 @@ def reconcile_grabbed_jobs(state: "GrabberState") -> int:
     """
     grabbed = state.state.get("grabbed", {})
     retried = 0
+    changed = False
 
     for session_key, entry in list(grabbed.items()):
         if not isinstance(entry, dict):
             continue
         nzo_id = entry.get("nzo_id")
-        if not nzo_id:
+        if not nzo_id or entry.get("sab_status") == "completed":
             continue
 
         job_status = get_sabnzbd_job_status(nzo_id)
         logger.debug(f"SABnzbd job {nzo_id} ({session_key}): {job_status}")
 
-        if job_status == "failed":
+        if job_status == "completed":
+            entry["sab_status"] = "completed"
+            changed = True
+        elif job_status == "failed":
             release = entry.get("release", "Unknown")
             logger.warning(
                 f"SABnzbd job failed for {session_key} ({release}), "
@@ -1221,7 +1225,10 @@ def reconcile_grabbed_jobs(state: "GrabberState") -> int:
             }
             del state.state["grabbed"][session_key]
             retried += 1
+            changed = True
 
+    if changed:
+        state.save()
     return retried
 
 
@@ -1633,6 +1640,8 @@ def cmd_backfill(args):
                         sessions_satisfied_this_run.add(other_key)
                         state.mark_grabbed(other_key, best_title + " (combined)",
                                            mode=GRAB_MODE_BACKFILL)
+                # Persist each accepted job before starting another search.
+                state.save()
             else:
                 record = _record_failure(
                     state, session_key, failure_reasons.STAGE_SAB_SUBMIT,
@@ -1903,6 +1912,8 @@ def cmd_scheduled(args):
                     nzo_id=nzo_id or None,
                     mode=GRAB_MODE_SCHEDULED
                 )
+                # A restart during the next search must not lose this job.
+                state.save()
                 grabs_this_run += 1
             else:
                 record = _record_failure(

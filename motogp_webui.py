@@ -923,7 +923,7 @@ def _background_health(now: datetime, in_weekend: bool) -> dict:
     Scheduler-loop and watcher-thread progress, from the on-disk heartbeat.
 
     Separate from ``health.scheduler`` above, which is the grabber's own
-    ``last_scheduled_check``: that one only moves when a search actually ran,
+    ``last_scheduled_check``: that one moves when a scheduled check finishes,
     so an off-weekend week reads as "never run" even though the scheduler is
     sleeping normally. This one answers the different question "is the loop
     still turning", and both are shown because they fail differently.

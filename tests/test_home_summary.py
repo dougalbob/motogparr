@@ -484,7 +484,7 @@ def test_home_route_states_the_scheduler_is_stale_when_it_lags(
     (cfg_dir / "grabber_state.json").write_text(json.dumps(state), encoding="utf-8")
 
     html = client.get("/").get_data(as_text=True)
-    assert "Last search:" in html
+    assert "Last scheduled check:" in html
     assert "chip bad" in html
 
 
@@ -522,3 +522,10 @@ def test_seasons_scan_is_limited_to_seasons_that_could_reach_the_card():
     assert home_summary.seasons_with_scheduled_grabs(grabbed) == [2026, 2027]
     assert home_summary.seasons_with_scheduled_grabs({}) == []
     assert home_summary.seasons_with_scheduled_grabs(None) == []
+
+
+def test_old_scheduled_check_is_not_stale_between_weekends():
+    health = home_summary.scheduler_health(
+        "2026-11-01T08:00:00", datetime(2026, 11, 10, 8, 0), False
+    )
+    assert health["stale"] is False
